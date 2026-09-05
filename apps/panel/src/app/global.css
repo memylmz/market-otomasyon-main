@@ -1,0 +1,172 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * TEMA — kasa uygulamasıyla birebir aynı palet ve aynı kural:
+ * varsayılan AÇIK tema, koyu tema `<html data-tema="koyu">` ile açılır.
+ * Panel çoğunlukla gündüz, telefonda ve aydınlık ortamda açılır; koyu zeminde
+ * parlak metin bu koşulda daha yorucudur.
+ */
+@layer base {
+  :root {
+    color-scheme: light;
+
+    --zemin: 246 248 250;
+    --yuzey: 255 255 255;
+    --yuzey-2: 241 245 249;
+    --yuzey-3: 255 255 255;
+    --yuzey-4: 226 232 240;
+
+    --cizgi: 226 232 240;
+    --cizgi-kuvvetli: 203 213 225;
+    --cizgi-ince: 241 245 249;
+
+    --metin: 15 23 42;
+    --metin-2: 51 65 85;
+    --metin-3: 100 116 139;
+    --metin-4: 148 163 184;
+
+    --vurgu: 4 120 87;
+    --vurgu-koyu: 6 95 70;
+    --vurgu-yumusak: 209 250 229;
+    --vurgu-uzeri: 255 255 255;
+
+    --uyari: 180 83 9;
+    --uyari-yumusak: 254 243 199;
+    --uyari-cizgi: 252 211 77;
+
+    --tehlike: 185 28 28;
+    --tehlike-koyu: 153 27 27;
+    --tehlike-yumusak: 254 226 226;
+    --tehlike-cizgi: 252 165 165;
+
+    --bilgi: 3 105 161;
+    --bilgi-yumusak: 224 242 254;
+    --bilgi-cizgi: 125 211 252;
+
+    --ortu: 15 23 42;
+  }
+
+  :root[data-tema='koyu'] {
+    color-scheme: dark;
+
+    --zemin: 15 23 42;
+    --yuzey: 30 41 59;
+    --yuzey-2: 51 65 85;
+    --yuzey-3: 15 23 42;
+    --yuzey-4: 71 85 105;
+
+    --cizgi: 51 65 85;
+    --cizgi-kuvvetli: 71 85 105;
+    --cizgi-ince: 30 41 59;
+
+    --metin: 241 245 249;
+    --metin-2: 203 213 225;
+    --metin-3: 148 163 184;
+    --metin-4: 100 116 139;
+
+    --vurgu: 16 185 129;
+    --vurgu-koyu: 5 150 105;
+    --vurgu-yumusak: 6 78 59;
+    --vurgu-uzeri: 15 23 42;
+
+    --uyari: 251 191 36;
+    --uyari-yumusak: 69 26 3;
+    --uyari-cizgi: 180 83 9;
+
+    --tehlike: 248 113 113;
+    --tehlike-koyu: 220 38 38;
+    --tehlike-yumusak: 69 10 10;
+    --tehlike-cizgi: 153 27 27;
+
+    --bilgi: 56 189 248;
+    --bilgi-yumusak: 8 47 73;
+    --bilgi-cizgi: 3 105 161;
+
+    --ortu: 2 6 23;
+  }
+
+  body {
+    @apply bg-zemin text-metin antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-vurgu ring-offset-2 ring-offset-zemin;
+  }
+}
+
+@layer components {
+  .kart {
+    @apply rounded-xl border border-cizgi bg-yuzey shadow-sm;
+  }
+  .alan {
+    @apply w-full rounded-lg border border-cizgi-kuvvetli bg-yuzey-3 px-3 py-2.5 text-base text-metin
+           placeholder:text-metin-4 focus:border-vurgu focus:outline-none disabled:opacity-50;
+  }
+  .etiket {
+    @apply mb-1 block text-sm text-metin-2;
+  }
+  .tus {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-medium
+           transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .tus-birincil {
+    @apply tus bg-vurgu text-vurgu-uzeri hover:bg-vurgu-koyu;
+  }
+  .tus-ikincil {
+    @apply tus border border-cizgi-kuvvetli bg-yuzey-2 text-metin hover:bg-yuzey-4;
+  }
+  .tus-tehlike {
+    @apply tus bg-tehlike text-white hover:bg-tehlike-koyu;
+  }
+
+  /*
+   * TABLO HİZALAMASI — kasa uygulamasıyla aynı kural: tüm hücreler ORTALI,
+   * tek istisna ilk sütun (ürün/kişi adı solda okunur). `text-right` tablo
+   * içinde bilinçli olarak ortaya eşlenir; hizalama düz CSS ile yazılır
+   * (aynı seçici adları @apply ile döngüsel bağımlılık üretir).
+   */
+  .tablo {
+    @apply w-full border-collapse text-sm;
+  }
+  .tablo th {
+    @apply border-b border-cizgi px-3 py-2 font-semibold text-metin-2;
+    text-align: center;
+  }
+  .tablo td {
+    @apply border-b border-cizgi-ince px-3 py-2;
+    text-align: center;
+  }
+  .tablo th:first-child,
+  .tablo td:first-child {
+    text-align: left;
+  }
+  .tablo th.text-left,
+  .tablo td.text-left {
+    text-align: left;
+  }
+  .tablo th.text-center,
+  .tablo td.text-center,
+  .tablo th.text-right,
+  .tablo td.text-right {
+    text-align: center;
+  }
+  .tablo tbody tr:hover {
+    @apply bg-yuzey-2/70;
+  }
+
+  .sayi {
+    @apply font-mono tabular-nums;
+    text-align: center;
+  }
+
+  .rozet {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium;
+  }
+}
+
+/* Mobilde tablolar yatay kaydırılır; sayfa gövdesi asla yatay kaymaz. */
+.tablo-sarmal {
+  @apply -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0;
+}

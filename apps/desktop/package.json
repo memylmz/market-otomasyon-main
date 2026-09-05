@@ -1,0 +1,45 @@
+{
+  "name": "@market/desktop",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Market otomasyonu — offline-first kasa/ofis masaüstü uygulaması (Electron)",
+  "main": "./out/main/index.js",
+  "author": "Market Otomasyon",
+  "scripts": {
+    "predev": "npm run build -w @market/shared && npm run native",
+    "dev": "electron-vite dev",
+    "prebuild": "npm run build -w @market/shared",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "seed": "node --import tsx scripts/seed.ts",
+    "native": "node scripts/native-hazirla.mjs",
+    "predist": "npm run native",
+    "dist": "npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never"
+  },
+  "dependencies": {
+    "@market/shared": "*",
+    "better-sqlite3": "^12.2.0",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.62.7",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.49",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "vite": "^5.4.11",
+    "zustand": "^5.0.2"
+  }
+}

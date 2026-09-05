@@ -1,0 +1,32 @@
+node_modules/
+dist/
+out/
+build/
+release/
+.next/
+coverage/
+*.tsbuildinfo
+
+# Ortam ve gizli anahtarlar
+.env
+.env.*
+!.env.example
+
+# Yerel veritabani ve yedekler (asla depoya girmez)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+veri/
+yedekler/
+loglar/
+*.log
+
+# Isletim sistemi
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code yerel ayarlari
+.claude/settings.local.json

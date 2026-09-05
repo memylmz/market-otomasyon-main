@@ -1,0 +1,15 @@
+# Satir sonlarini her platformda LF'te sabitle.
+#
+# Prettier yapilandirmasi endOfLine: "lf" istiyor. Bu dosya olmadan Windows'ta
+# core.autocrlf=true calisan bir gelistirici klonu CRLF olarak acar ve
+# "npm run format:check" yerelde her dosyada hata verirken CI'da (Linux)
+# gecer — takibi zor bir tutarsizlik. eol=lf bunu kaynakta cozer.
+* text=auto eol=lf
+
+# Ikili dosyalar donusumden muaf.
+*.png binary
+*.jpg binary
+*.ico binary
+*.node binary
+*.db binary
+*.exe binary

@@ -1,0 +1,41 @@
+{
+  "name": "market-otomasyon",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Barkodlu stok + cari hesaplı, offline-first market otomasyonu (masaüstü + bulut senkron + admin panel)",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @market/shared && npm run build -w @market/api && npm run build -w @market/desktop",
+    "build:shared": "npm run build -w @market/shared",
+    "dev:desktop": "npm run dev -w @market/desktop",
+    "dev:api": "npm run dev -w @market/api",
+    "dev:panel": "npm run dev -w @market/panel",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
+    "seed": "npm run seed -w @market/desktop",
+    "dist:desktop": "npm run dist -w @market/desktop"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "^8.57.1",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

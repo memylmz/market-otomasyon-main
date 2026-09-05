@@ -1,0 +1,30 @@
+{
+  "name": "@market/panel",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Market otomasyonu — mobil öncelikli web admin paneli (Next.js)",
+  "scripts": {
+    "predev": "npm run build -w @market/shared",
+    "dev": "next dev -p 3100",
+    "prebuild": "npm run build -w @market/shared",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@market/shared": "*",
+    "next": "^14.2.20",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2"
+  }
+}

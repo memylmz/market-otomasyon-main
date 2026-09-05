@@ -1,0 +1,26 @@
+{
+  "name": "@market/shared",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Masaüstü, API ve panel arasında paylaşılan tipler, Zod şemaları, para/miktar aritmetiği ve iş kuralı hesaplamaları",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  }
+}

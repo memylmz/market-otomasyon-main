@@ -1,0 +1,55 @@
+# Masaüstü paketleme (§22.2, §22.5)
+appId: com.marketotomasyon.kasa
+productName: Market Otomasyon
+copyright: © 2026 Market Otomasyon
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/{.git,.github,test,__tests__,docs}/**'
+
+# better-sqlite3 yerel modüldür; paketin içine açık halde konur (asar dışı).
+asar: true
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+
+npmRebuild: true
+buildDependenciesFromSource: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # Kod imzalama (§22.2): sertifika CI ortam değişkenlerinden gelir.
+  # CSC_LINK ve CSC_KEY_PASSWORD tanımlıysa electron-builder otomatik imzalar.
+  artifactName: MarketOtomasyon-Kurulum-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Market Otomasyon
+  language: '1055' # Türkçe
+  # Kaldırma sırasında kullanıcı verisi (veritabanı, yedekler) SİLİNMEZ.
+  deleteAppDataOnUninstall: false
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  artifactName: MarketOtomasyon-${version}.${ext}
+
+# Otomatik güncelleme (§22.5). Yayın kanalı sürüm etiketinden belirlenir;
+# kademeli yayın için `stagingPercentage` kullanılabilir.
+publish:
+  provider: generic
+  url: https://guncelleme.marketotomasyon.local/kasa
+  channel: latest

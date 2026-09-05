@@ -1,0 +1,1450 @@
+/** Ürün / stok kartları (§10.5) — liste, kart düzenleme, toplu fiyat, içe/dışa aktarma. */
+
+import { useCallback, useEffect, useState } from 'react';
+import {
+  KDV_ORANLARI,
+  kisaKodBul,
+  kisaKodMu,
+  miktarFormat,
+  miktarParse,
+  paraFormat,
+  type BirimTipi,
+  type Kurus,
+  type Miktar,
+} from '@market/shared';
+import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
+import { bildir, hatayiBildir } from '../durum/bildirim';
+import { useYetki } from '../durum/oturum';
+import { cagir } from '../kopru';
+
+interface UrunSatiri {
+  id: string;
+  ad: string;
+  marka: string | null;
+  birim_tipi: BirimTipi;
+  alis_fiyati: Kurus;
+  satis_fiyati: Kurus;
+  kdv_orani: number;
+  kritik_stok: Miktar;
+  ideal_stok: Miktar;
+  raf_konumu: string | null;
+  aktif_mi: boolean;
+  stok: Miktar;
+  kategori_adi: string | null;
+  kategori_id: string | null;
+  barkodlar: string[];
+  notlar: string | null;
+  skt_takibi: boolean;
+}
+
+interface Kategori {
+  id: string;
+  ad: string;
+}
+
+export function UrunlerSayfasi() {
+  const [kayitlar, setKayitlar] = useState<UrunSatiri[]>([]);
+  const [toplam, setToplam] = useState(0);
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const [arama, setArama] = useState('');
+  const [kategoriId, setKategoriId] = useState('');
+  const [sadeceKritik, setSadeceKritik] = useState(false);
+  const [pasifleriGoster, setPasifleriGoster] = useState(false);
+  const [kategoriler, setKategoriler] = useState<Kategori[]>([]);
+  const [duzenlenen, setDuzenlenen] = useState<UrunSatiri | 'yeni' | null>(null);
+  const [stokDuzeltilen, setStokDuzeltilen] = useState<UrunSatiri | null>(null);
+  const [topluAcik, setTopluAcik] = useState(false);
+  const [iceAktarAcik, setIceAktarAcik] = useState(false);
+  const [kategoriAcik, setKategoriAcik] = useState(false);
+  const [siralama, setSiralama] = useState<'ad' | 'stok' | 'fiyat' | 'guncelleme'>('ad');
+  const [sayfa, setSayfa] = useState(0);
+  const [secililer, setSecililer] = useState<Set<string>>(new Set());
+
+  const SAYFA_BOYU = 50;
+
+  const duzenleyebilir = useYetki('urun.duzenle');
+  const topluYetki = useYetki('urun.toplu_islem');
+  const stokDuzeltebilir = useYetki('stok.duzeltme');
+
+  const kategorileriYukle = useCallback(async () => {
+    try {
+      setKategoriler(await cagir<Kategori[]>('kategori.listele'));
+    } catch {
+      setKategoriler([]);
+    }
+  }, []);
+
+  const yukle = useCallback(async () => {
+    setYukleniyor(true);
+    try {
+      const veri = await cagir<{ kayitlar: UrunSatiri[]; toplam: number }>('urun.listele', {
+        filtre: {
+          arama: arama || undefined,
+          kategoriId: kategoriId || undefined,
+          sadeceKritikStok: sadeceKritik,
+          sadecePasif: pasifleriGoster,
+          siralama,
+        },
+        limit: SAYFA_BOYU,
+        ofset: sayfa * SAYFA_BOYU,
+      });
+      setKayitlar(veri.kayitlar);
+      setToplam(veri.toplam);
+    } catch (hata) {
+      hatayiBildir(hata, 'Ürün listesi');
+    } finally {
+      setYukleniyor(false);
+    }
+  }, [arama, kategoriId, sadeceKritik, pasifleriGoster, siralama, sayfa]);
+
+  useEffect(() => {
+    const zamanlayici = setTimeout(() => void yukle(), 200);
+    return () => clearTimeout(zamanlayici);
+  }, [yukle]);
+
+  // Filtre/sıralama değişince ilk sayfaya dön — aksi hâlde 7. sayfada boş liste görünür.
+  useEffect(() => {
+    setSayfa(0);
+  }, [arama, kategoriId, sadeceKritik, pasifleriGoster, siralama]);
+
+  const sayfaSayisi = Math.max(1, Math.ceil(toplam / SAYFA_BOYU));
+  const secimDegistir = (id: string) =>
+    setSecililer((mevcut) => {
+      const yeni = new Set(mevcut);
+      if (yeni.has(id)) yeni.delete(id);
+      else yeni.add(id);
+      return yeni;
+    });
+
+  useEffect(() => {
+    void kategorileriYukle();
+  }, [kategorileriYukle]);
+
+  const disaAktar = async () => {
+    try {
+      const { icerik } = await cagir<{ icerik: string }>('urun.disaAktar');
+      const bag = document.createElement('a');
+      bag.href = URL.createObjectURL(new Blob([icerik], { type: 'text/csv;charset=utf-8' }));
+      bag.download = `urunler-${new Date().toISOString().slice(0, 10)}.csv`;
+      bag.click();
+      URL.revokeObjectURL(bag.href);
+      bildir.basari('Katalog dışa aktarıldı');
+    } catch (hata) {
+      hatayiBildir(hata, 'Dışa aktarma');
+    }
+  };
+
+  return (
+    <div className="flex h-full flex-col p-4">
+      <header className="mb-3 flex flex-wrap items-center gap-2">
+        <h1 className="mr-auto text-xl font-semibold">
+          Ürünler <span className="text-sm text-metin-4">({toplam})</span>
+        </h1>
+        {duzenleyebilir && (
+          <button type="button" className="tus-ikincil" onClick={() => setKategoriAcik(true)}>
+            Kategoriler
+          </button>
+        )}
+        {topluYetki && (
+          <>
+            <button type="button" className="tus-ikincil" onClick={() => setTopluAcik(true)}>
+              Toplu Fiyat
+            </button>
+            <button type="button" className="tus-ikincil" onClick={() => setIceAktarAcik(true)}>
+              İçe Aktar
+            </button>
+            <button type="button" className="tus-ikincil" onClick={disaAktar}>
+              Dışa Aktar
+            </button>
+          </>
+        )}
+        {duzenleyebilir && (
+          <button type="button" className="tus-birincil" onClick={() => setDuzenlenen('yeni')}>
+            Yeni Ürün
+          </button>
+        )}
+      </header>
+
+      <div className="mb-3 flex flex-wrap gap-2">
+        <input
+          className="alan max-w-xs"
+          placeholder="Ürün adı, marka veya barkod…"
+          value={arama}
+          onChange={(e) => setArama(e.target.value)}
+        />
+        <select className="alan max-w-[200px]" value={kategoriId} onChange={(e) => setKategoriId(e.target.value)}>
+          <option value="">Tüm kategoriler</option>
+          {kategoriler.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.ad}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={sadeceKritik} onChange={(e) => setSadeceKritik(e.target.checked)} />
+          Kritik stok
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={pasifleriGoster} onChange={(e) => setPasifleriGoster(e.target.checked)} />
+          Pasif ürünler
+        </label>
+        <select
+          className="alan ml-auto max-w-[190px]"
+          value={siralama}
+          onChange={(e) => setSiralama(e.target.value as typeof siralama)}
+          aria-label="Sıralama"
+        >
+          <option value="ad">Sıralama: A → Z</option>
+          <option value="stok">Sıralama: Stoğu az olan</option>
+          <option value="fiyat">Sıralama: Pahalıdan ucuza</option>
+          <option value="guncelleme">Sıralama: Son güncellenen</option>
+        </select>
+      </div>
+
+      {/* Seçim çubuğu yalnız seçim varken görünür — boşken yer kaplamasın. */}
+      {secililer.size > 0 && topluYetki && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-vurgu bg-vurgu-yumusak px-3 py-2 text-sm">
+          <span className="font-medium">{secililer.size} ürün seçildi</span>
+          <button type="button" className="tus-birincil px-3 py-1 text-sm" onClick={() => setTopluAcik(true)}>
+            Seçili Ürünlere Zam / İndirim
+          </button>
+          <button type="button" className="text-metin-3 hover:underline" onClick={() => setSecililer(new Set())}>
+            Seçimi temizle
+          </button>
+        </div>
+      )}
+
+      <div className="kart min-h-0 flex-1 overflow-auto">
+        {yukleniyor && kayitlar.length === 0 ? (
+          <Yukleniyor />
+        ) : kayitlar.length === 0 ? (
+          <BosDurum baslik="Ürün bulunamadı" aciklama="Filtreleri değiştirin ya da yeni ürün ekleyin." />
+        ) : (
+          <table className="tablo">
+            <thead className="sticky top-0 bg-yuzey">
+              <tr>
+                {topluYetki && (
+                  <th className="w-10 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Sayfadaki tüm ürünleri seç"
+                      checked={kayitlar.length > 0 && kayitlar.every((u) => secililer.has(u.id))}
+                      onChange={(e) => {
+                        setSecililer((mevcut) => {
+                          const yeni = new Set(mevcut);
+                          for (const u of kayitlar) {
+                            if (e.target.checked) yeni.add(u.id);
+                            else yeni.delete(u.id);
+                          }
+                          return yeni;
+                        });
+                      }}
+                    />
+                  </th>
+                )}
+                <th className="text-left">Ürün</th>
+                <th className="text-left">Kategori</th>
+                <th>Stok</th>
+                <th>Alış</th>
+                <th>Satış</th>
+                <th>KDV</th>
+                <th className="text-center">Durum</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kayitlar.map((u) => {
+                const kritik = u.kritik_stok > 0 && u.stok <= u.kritik_stok;
+                return (
+                  <tr
+                    key={u.id}
+                    onClick={() => duzenleyebilir && setDuzenlenen(u)}
+                    className={`${duzenleyebilir ? 'cursor-pointer' : ''} ${secililer.has(u.id) ? 'bg-vurgu-yumusak' : ''}`}
+                  >
+                    {topluYetki && (
+                      <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`${u.ad} seç`}
+                          checked={secililer.has(u.id)}
+                          onChange={() => secimDegistir(u.id)}
+                        />
+                      </td>
+                    )}
+                    <td className="text-left">
+                      <div className="font-medium">{u.ad}</div>
+                      <div className="text-xs text-metin-4">{[u.marka, u.barkodlar[0]].filter(Boolean).join(' · ')}</div>
+                    </td>
+                    <td className="text-left text-metin-3">{u.kategori_adi ?? '—'}</td>
+                    {/* Stok hücresi düzeltme kapısıdır: sayının kendisine basmak
+                        en doğal yer, ayrı bir sütun eklemeye gerek yok. */}
+                    <td className={`sayi ${u.stok < 0 ? 'text-tehlike' : kritik ? 'text-uyari' : ''}`}>
+                      {stokDuzeltebilir ? (
+                        <button
+                          type="button"
+                          className="underline decoration-dotted underline-offset-2 hover:text-vurgu"
+                          title="Stoğu düzelt"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setStokDuzeltilen(u);
+                          }}
+                        >
+                          {miktarFormat(u.stok, u.birim_tipi)}
+                        </button>
+                      ) : (
+                        miktarFormat(u.stok, u.birim_tipi)
+                      )}
+                    </td>
+                    <td className="sayi text-metin-3">{paraFormat(u.alis_fiyati, { simge: false })}</td>
+                    <td className="sayi font-semibold">{paraFormat(u.satis_fiyati, { simge: false })}</td>
+                    <td className="sayi text-metin-3">%{u.kdv_orani}</td>
+                    <td className="text-center">
+                      {!u.aktif_mi ? (
+                        <Rozet tur="notr">Pasif</Rozet>
+                      ) : kritik ? (
+                        <Rozet tur="uyari">Kritik</Rozet>
+                      ) : (
+                        <Rozet tur="basari">Aktif</Rozet>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-metin-4">
+        <span>Düzenlemek için ürüne tıklayın.</span>
+
+        {toplam > SAYFA_BOYU && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-metin-3">
+              {sayfa * SAYFA_BOYU + 1}–{Math.min((sayfa + 1) * SAYFA_BOYU, toplam)} / {toplam}
+            </span>
+            <button
+              type="button"
+              className="tus-ikincil px-2 py-1 text-xs"
+              disabled={sayfa === 0}
+              onClick={() => setSayfa((s) => Math.max(0, s - 1))}
+            >
+              ‹ Önceki
+            </button>
+            <span className="text-metin-3">
+              Sayfa {sayfa + 1} / {sayfaSayisi}
+            </span>
+            <button
+              type="button"
+              className="tus-ikincil px-2 py-1 text-xs"
+              disabled={sayfa + 1 >= sayfaSayisi}
+              onClick={() => setSayfa((s) => s + 1)}
+            >
+              Sonraki ›
+            </button>
+          </div>
+        )}
+      </div>
+
+      <UrunKartiDiyalogu
+        urun={duzenlenen}
+        kategoriler={kategoriler}
+        onKapat={() => setDuzenlenen(null)}
+        onKaydedildi={() => {
+          setDuzenlenen(null);
+          void yukle();
+        }}
+      />
+
+      <StokDuzeltDiyalogu
+        urun={stokDuzeltilen}
+        onKapat={() => setStokDuzeltilen(null)}
+        onDuzeltildi={() => {
+          setStokDuzeltilen(null);
+          void yukle();
+        }}
+      />
+
+      <KategoriDiyalogu
+        acik={kategoriAcik}
+        kategoriler={kategoriler}
+        onKapat={() => setKategoriAcik(false)}
+        onDegisti={() => {
+          void kategorileriYukle();
+          void yukle();
+        }}
+      />
+
+      <TopluFiyatDiyalogu
+        acik={topluAcik}
+        kategoriler={kategoriler}
+        seciliIdler={[...secililer]}
+        onKapat={() => setTopluAcik(false)}
+        onUygulandi={() => {
+          setTopluAcik(false);
+          setSecililer(new Set());
+          void yukle();
+        }}
+      />
+
+      <IceAktarDiyalogu
+        acik={iceAktarAcik}
+        onKapat={() => setIceAktarAcik(false)}
+        onTamam={() => {
+          setIceAktarAcik(false);
+          void yukle();
+        }}
+      />
+    </div>
+  );
+}
+
+function UrunKartiDiyalogu({
+  urun,
+  kategoriler,
+  onKapat,
+  onKaydedildi,
+}: {
+  urun: UrunSatiri | 'yeni' | null;
+  kategoriler: Kategori[];
+  onKapat: () => void;
+  onKaydedildi: () => void;
+}) {
+  const yeniMi = urun === 'yeni';
+  const mevcut = yeniMi ? null : urun;
+  /*
+   * Mevcut üründe stok değiştirmek DÜZELTME hareketi üretir ve ayrı bir yetki
+   * ister. Yetkisi yoksa alan salt okunur gelir; kaydettikten sonra hata
+   * almaktansa baştan görmek daha iyidir.
+   */
+  const stokDegistirebilir = useYetki('stok.duzeltme');
+  const stokKilitli = !yeniMi && !stokDegistirebilir;
+  const [form, setForm] = useState({
+    ad: '',
+    marka: '',
+    kategoriId: '',
+    birimTipi: 'ADET' as BirimTipi,
+    alisFiyati: 0 as Kurus,
+    satisFiyati: 0 as Kurus,
+    kdvOrani: 20,
+    kritikStok: '',
+    rafKonumu: '',
+    barkod: '',
+    /** Yeni üründe açılış stoğu, mevcutta hedef stok. */
+    stok: '',
+    sktTakibi: false,
+    notlar: '',
+  });
+  const [gonderiliyor, setGonderiliyor] = useState(false);
+  const [barkodlar, setBarkodlar] = useState<string[]>([]);
+  /** Kısa kod ayrı tutulur; kaydederken barkod listesine katılır. */
+  const [kisaKod, setKisaKod] = useState('');
+
+  useEffect(() => {
+    if (!urun) return;
+    if (mevcut) {
+      setForm({
+        ad: mevcut.ad,
+        marka: mevcut.marka ?? '',
+        kategoriId: mevcut.kategori_id ?? '',
+        birimTipi: mevcut.birim_tipi,
+        alisFiyati: mevcut.alis_fiyati,
+        satisFiyati: mevcut.satis_fiyati,
+        kdvOrani: mevcut.kdv_orani,
+        kritikStok: mevcut.kritik_stok ? String(mevcut.kritik_stok / 1000) : '',
+        rafKonumu: mevcut.raf_konumu ?? '',
+        barkod: '',
+        stok: String(mevcut.stok / 1000),
+        sktTakibi: mevcut.skt_takibi,
+        notlar: mevcut.notlar ?? '',
+      });
+      // Kısa kod listeden AYRILIR: kendi alanında düzenlenir, kaydederken geri katılır.
+      setBarkodlar(mevcut.barkodlar.filter((b) => !kisaKodMu(b)));
+      setKisaKod(kisaKodBul(mevcut.barkodlar) ?? '');
+    } else {
+      setForm({
+        ad: '',
+        marka: '',
+        kategoriId: '',
+        birimTipi: 'ADET',
+        alisFiyati: 0,
+        satisFiyati: 0,
+        kdvOrani: 20,
+        kritikStok: '',
+        rafKonumu: '',
+        barkod: '',
+        stok: '',
+        sktTakibi: false,
+        notlar: '',
+      });
+      setBarkodlar([]);
+      setKisaKod('');
+    }
+  }, [urun, mevcut]);
+
+  if (!urun) return null;
+
+  const kaydet = async () => {
+    if (!form.ad.trim()) {
+      bildir.uyari('Ürün adı zorunludur');
+      return;
+    }
+    setGonderiliyor(true);
+    try {
+      /*
+       * Kısa kod listeye burada katılır: depoda ayrı bir alan değil, kısa bir
+       * barkod satırıdır. Böylece okutma, arama ve satış yolu hiç değişmez.
+       */
+      const yeniBarkodlar = [
+        ...barkodlar,
+        ...(form.barkod.trim() ? [form.barkod.trim()] : []),
+        ...(kisaKod.trim() ? [kisaKod.trim()] : []),
+      ];
+      await cagir('urun.kaydet', {
+        id: mevcut?.id,
+        ad: form.ad.trim(),
+        marka: form.marka.trim() || null,
+        kategori_id: form.kategoriId || null,
+        birim_tipi: form.birimTipi,
+        alis_fiyati: form.alisFiyati,
+        satis_fiyati: form.satisFiyati,
+        kdv_orani: form.kdvOrani,
+        kritik_stok: miktarParse(form.kritikStok) ?? 0,
+        // İdeal stok artık formda yok; mevcut değeri korunur (sipariş önerisi kullanır).
+        ideal_stok: mevcut?.ideal_stok ?? 0,
+        raf_konumu: form.rafKonumu.trim() || null,
+        skt_takibi: form.sktTakibi,
+        notlar: form.notlar.trim() || null,
+        barkodlar: yeniBarkodlar.map((b) => ({ barkod: b })),
+        acilis_stogu: yeniMi ? (miktarParse(form.stok) ?? undefined) : undefined,
+      });
+
+      /*
+       * MEVCUT üründe stok değiştiyse düzeltme hareketi yazılır.
+       *
+       * Ürün kartı stoğu doğrudan YAZAMAZ: stok hareketlerden türer ve
+       * append-only defterdir. Kasiyerin yazdığı sayı bir HEDEFTİR; farkı
+       * servis kendi güncel stoğuna göre hesaplar, böylece sonuç her zaman
+       * yazdığın sayı olur.
+       */
+      if (!yeniMi && mevcut && stokDegistirebilir) {
+        const hedef = miktarParse(form.stok);
+        if (hedef !== null && hedef !== mevcut.stok) {
+          await cagir('stok.duzeltme', {
+            urunId: mevcut.id,
+            yeniMiktar: hedef,
+            neden: 'Ürün kartından stok düzeltmesi',
+          });
+        }
+      }
+
+      bildir.basari(yeniMi ? 'Ürün eklendi' : 'Ürün güncellendi');
+      onKaydedildi();
+    } catch (hata) {
+      hatayiBildir(hata, 'Ürün kaydı');
+    } finally {
+      setGonderiliyor(false);
+    }
+  };
+
+  const icBarkodUret = async () => {
+    if (!mevcut) return;
+    try {
+      const { barkod } = await cagir<{ barkod: string }>('urun.icBarkod', { urunId: mevcut.id });
+      setBarkodlar((b) => [...b, barkod]);
+      bildir.basari('İç barkod üretildi', barkod);
+    } catch (hata) {
+      hatayiBildir(hata, 'İç barkod');
+    }
+  };
+
+  return (
+    <Diyalog
+      acik
+      baslik={yeniMi ? 'Yeni Ürün' : 'Ürün Kartı'}
+      genislik="genis"
+      onKapat={onKapat}
+      altBilgi={
+        <>
+          {mevcut && (
+            <button
+              type="button"
+              className="tus-ikincil mr-auto"
+              onClick={async () => {
+                try {
+                  await cagir('urun.pasiflestir', { urunId: mevcut.id, pasif: mevcut.aktif_mi });
+                  bildir.basari(mevcut.aktif_mi ? 'Ürün pasifleştirildi' : 'Ürün aktifleştirildi');
+                  onKaydedildi();
+                } catch (hata) {
+                  hatayiBildir(hata);
+                }
+              }}
+            >
+              {mevcut.aktif_mi ? 'Pasifleştir' : 'Aktifleştir'}
+            </button>
+          )}
+          {mevcut && (
+            <button
+              type="button"
+              className="tus-ikincil"
+              title="Ürünün raf etiketini yazdırır (ad, fiyat, barkod)"
+              onClick={async () => {
+                const adetMetni = window.prompt('Kaç adet etiket basılsın?', '1');
+                if (adetMetni === null) return;
+                const adet = Math.max(1, Math.min(100, Number(adetMetni) || 1));
+                try {
+                  const sonuc = await cagir<{ basarili: boolean; hata?: string }>('urun.etiketYazdir', {
+                    urunId: mevcut.id,
+                    adet,
+                  });
+                  if (sonuc.basarili) bildir.basari(`${adet} etiket yazdırıldı`);
+                  else bildir.uyari('Etiket yazdırılamadı', sonuc.hata);
+                } catch (hata) {
+                  hatayiBildir(hata, 'Etiket yazdırma');
+                }
+              }}
+            >
+              Etiket Yazdır
+            </button>
+          )}
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Vazgeç
+          </button>
+          <button type="button" className="tus-birincil" onClick={kaydet} disabled={gonderiliyor}>
+            Kaydet
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Barkod en üstte: yeni ürün girerken ilk yapılan iş ürünü okutmaktır. */}
+        <div className="md:col-span-2">
+          <span className="etiket">Barkod{yeniMi ? '' : 'lar'}</span>
+          {barkodlar.length > 0 && (
+            <ul className="mb-2 flex flex-wrap gap-2">
+              {barkodlar.map((b) => (
+                <li key={b} className="flex items-center gap-2 rounded border border-cizgi-kuvvetli bg-yuzey-2 px-2 py-1 text-sm">
+                  <span className="font-mono">{b}</span>
+                  <button
+                    type="button"
+                    className="text-tehlike"
+                    onClick={async () => {
+                      try {
+                        await cagir('urun.barkodKaldir', { barkod: b });
+                        setBarkodlar((liste) => liste.filter((x) => x !== b));
+                      } catch (hata) {
+                        hatayiBildir(hata);
+                      }
+                    }}
+                    aria-label={`${b} barkodunu kaldır`}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex gap-2">
+            <input
+              className="alan flex-1 font-mono"
+              placeholder="Barkodu okutun veya yazıp Enter'a basın…"
+              value={form.barkod}
+              onChange={(e) => setForm({ ...form, barkod: e.target.value })}
+              data-odak={yeniMi ? true : undefined}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && form.barkod.trim()) {
+                  e.preventDefault();
+                  setBarkodlar((b) => [...b, form.barkod.trim()]);
+                  setForm({ ...form, barkod: '' });
+                }
+              }}
+            />
+            {mevcut && (
+              <button type="button" className="tus-ikincil" onClick={icBarkodUret}>
+                İç Barkod Üret
+              </button>
+            )}
+          </div>
+          <span className="mt-1 block text-xs text-metin-4">
+            Bir ürünün birden çok barkodu olabilir (farklı ambalaj). Barkodu olmayan ürün için
+            {mevcut ? ' "İç Barkod Üret" ile' : ' kaydettikten sonra'} mağaza içi barkod oluşturabilirsiniz.
+          </span>
+        </div>
+
+        {/*
+          KISA KOD (§10.1) — barkodsuz ürünler için asıl hız kazancı.
+          Manav, şarküteri, ekmek gibi ürünlerde kasiyer ad yazıp listeden
+          seçmek zorunda kalıyor; sıradaki müşteriyi bekleten en pahalı adım bu.
+          Kısa kod ayrı bir alan değil, KISA BİR BARKODTUR: satış tarafında
+          hiçbir şey değişmez, kasiyer kodu yazıp Enter'lar.
+        */}
+        <div className="md:col-span-2">
+          <span className="etiket">Kısa kod (PLU)</span>
+          <div className="flex gap-2">
+            <input
+              className="alan sayi w-32 font-mono"
+              inputMode="numeric"
+              placeholder="örn. 24"
+              value={kisaKod}
+              onChange={(e) => setKisaKod(e.target.value.replace(/\D/g, '').slice(0, 5))}
+            />
+            <button
+              type="button"
+              className="tus-ikincil"
+              onClick={async () => {
+                try {
+                  const { kod } = await cagir<{ kod: string }>('urun.kisaKodOner');
+                  setKisaKod(kod);
+                } catch (hata) {
+                  hatayiBildir(hata, 'Kısa kod');
+                }
+              }}
+            >
+              Sıradaki Boş Kodu Ver
+            </button>
+          </div>
+          <span className="mt-1 block text-xs text-metin-4">
+            Kasiyer satış ekranında bu kodu yazıp <strong>Enter</strong>'a basınca ürün sepete girer — aramaya gerek kalmaz. Hızlı
+            ürün karesinde de görünür. 2-5 hane; boş bırakılırsa kod atanmaz.
+          </span>
+        </div>
+
+        <Alan etiket="Ürün adı *">
+          <input
+            className="alan"
+            value={form.ad}
+            onChange={(e) => setForm({ ...form, ad: e.target.value })}
+            data-odak={yeniMi ? undefined : true}
+          />
+        </Alan>
+        <Alan etiket="Marka">
+          <input className="alan" value={form.marka} onChange={(e) => setForm({ ...form, marka: e.target.value })} />
+        </Alan>
+        <Alan etiket="Kategori">
+          <select className="alan" value={form.kategoriId} onChange={(e) => setForm({ ...form, kategoriId: e.target.value })}>
+            <option value="">Kategorisiz</option>
+            {kategoriler.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.ad}
+              </option>
+            ))}
+          </select>
+        </Alan>
+        <Alan etiket="Birim tipi" ipucu="KG/LT seçilirse satışta miktar elle girilir (terazi entegrasyonu yoktur).">
+          <select
+            className="alan"
+            value={form.birimTipi}
+            onChange={(e) => setForm({ ...form, birimTipi: e.target.value as BirimTipi })}
+          >
+            <option value="ADET">Adet</option>
+            <option value="KG">Kilogram</option>
+            <option value="LT">Litre</option>
+          </select>
+        </Alan>
+
+        <Alan etiket="Alış fiyatı (KDV hariç)" ipucu="Kâr hesabı bu tutara göre yapılır.">
+          <ParaAlani deger={form.alisFiyati} onDegisim={(v) => setForm({ ...form, alisFiyati: v })} />
+        </Alan>
+        <Alan etiket="Satış fiyatı (KDV dahil) *" ipucu="Raf etiketiyle aynı olmalıdır.">
+          <ParaAlani deger={form.satisFiyati} onDegisim={(v) => setForm({ ...form, satisFiyati: v })} />
+        </Alan>
+
+        <Alan etiket="KDV oranı">
+          <select className="alan" value={form.kdvOrani} onChange={(e) => setForm({ ...form, kdvOrani: Number(e.target.value) })}>
+            {KDV_ORANLARI.map((o) => (
+              <option key={o} value={o}>
+                %{o}
+              </option>
+            ))}
+          </select>
+        </Alan>
+        <Alan etiket="Raf konumu">
+          <input className="alan" value={form.rafKonumu} onChange={(e) => setForm({ ...form, rafKonumu: e.target.value })} />
+        </Alan>
+
+        <Alan etiket="Kritik stok" ipucu="Bu seviyenin altına düşünce uyarı verilir.">
+          <input
+            className="alan sayi"
+            value={form.kritikStok}
+            onChange={(e) => setForm({ ...form, kritikStok: e.target.value })}
+          />
+        </Alan>
+        {/*
+          STOK MİKTARI (§10.5) — paneldeki alanın kasa karşılığı, aynı ad ve
+          aynı anlamla. Eskiden burada "İdeal stok" ve yalnız yeni üründe
+          görünen "Açılış stoğu" vardı; kullanıcı üç stok alanı arasında
+          gerçekten stok GİREN alanı bulamıyordu. Artık tek alan var:
+          yeni üründe açılış stoğu, mevcut üründe sayım düzeltmesi.
+        */}
+        <Alan
+          etiket="Stok miktarı"
+          ipucu={
+            stokKilitli
+              ? 'Stok düzeltme yetkiniz yok; değiştirmek için yöneticinize başvurun.'
+              : yeniMi
+                ? 'Gelen miktarı yazın; açılış hareketi olarak kaydedilir.'
+                : 'Yazdığınız değer yeni stok olur; fark düzeltme hareketi olarak kaydedilir.'
+          }
+        >
+          <div className="flex items-center gap-2">
+            <input
+              className="alan sayi"
+              inputMode="decimal"
+              placeholder="0"
+              value={form.stok}
+              disabled={stokKilitli}
+              onChange={(e) => setForm({ ...form, stok: e.target.value })}
+            />
+            <span className="shrink-0 text-sm font-medium text-metin-2">
+              {form.birimTipi === 'ADET' ? 'adet' : form.birimTipi.toLowerCase()}
+            </span>
+          </div>
+        </Alan>
+
+        <div className="md:col-span-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={form.sktTakibi} onChange={(e) => setForm({ ...form, sktTakibi: e.target.checked })} />
+            Son kullanma tarihi takibi yapılsın
+          </label>
+
+          {/* İşaretlemenin ne yaptığı görünür olmalı; aksi hâlde kutu "hiçbir şey
+              yapmıyor" gibi görünür. */}
+          {form.sktTakibi ? (
+            <div className="mt-2 rounded border border-bilgi-cizgi bg-bilgi-yumusak p-3 text-xs text-metin-2">
+              <p className="font-medium">Bu ürün için SKT takibi açık:</p>
+              <ul className="mt-1 list-inside list-disc space-y-0.5">
+                <li>
+                  <strong>Mal kabulde</strong> son kullanma tarihi zorunlu olur; girilmeden fatura onaylanamaz.
+                </li>
+                <li>
+                  Lot bazında kalan miktar izlenir; <strong>Stok → SKT Takibi</strong> sekmesinde tarihi yaklaşan partiler
+                  listelenir.
+                </li>
+                <li>Tarihi geçen partiler kırmızı görünür, fire çıkışında “SKT geçti” nedeni seçilebilir.</li>
+              </ul>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-metin-4">
+              Süt, et, şarküteri gibi tarihli ürünlerde açın. Kapalıyken mal kabulde SKT sorulmaz.
+            </p>
+          )}
+        </div>
+
+        <div className="md:col-span-2">
+          <Alan etiket="Notlar">
+            <textarea
+              className="alan"
+              rows={2}
+              value={form.notlar}
+              onChange={(e) => setForm({ ...form, notlar: e.target.value })}
+            />
+          </Alan>
+        </div>
+      </div>
+    </Diyalog>
+  );
+}
+
+/**
+ * Kategori yönetimi.
+ *
+ * Kategori silinmez, **pasifleştirilir**: silinseydi o kategoriye bağlı geçmiş
+ * ürünlerin bağlantısı kopar ve eski raporlar bozulurdu (§8.5).
+ */
+function KategoriDiyalogu({
+  acik,
+  kategoriler,
+  onKapat,
+  onDegisti,
+}: {
+  acik: boolean;
+  kategoriler: Kategori[];
+  onKapat: () => void;
+  onDegisti: () => void;
+}) {
+  const [yeniAd, setYeniAd] = useState('');
+  const [duzenlenenId, setDuzenlenenId] = useState<string | null>(null);
+  const [duzenlenenAd, setDuzenlenenAd] = useState('');
+  const [calisiyor, setCalisiyor] = useState(false);
+
+  useEffect(() => {
+    if (acik) {
+      setYeniAd('');
+      setDuzenlenenId(null);
+    }
+  }, [acik]);
+
+  const kaydet = async (girdi: { id?: string; ad: string; aktif_mi?: boolean }) => {
+    if (!girdi.ad.trim()) return;
+    setCalisiyor(true);
+    try {
+      await cagir('kategori.kaydet', { id: girdi.id, ad: girdi.ad.trim(), aktif_mi: girdi.aktif_mi ?? true });
+      bildir.basari(girdi.id ? 'Kategori güncellendi' : 'Kategori eklendi');
+      setYeniAd('');
+      setDuzenlenenId(null);
+      onDegisti();
+    } catch (hata) {
+      hatayiBildir(hata, 'Kategori');
+    } finally {
+      setCalisiyor(false);
+    }
+  };
+
+  const sil = async (k: Kategori) => {
+    const onay = window.confirm(
+      `"${k.ad}" kategorisi silinsin mi?\n\nİçinde ürün ya da alt kategori varsa silinemez — bunun yerine listeden gizlenir.`,
+    );
+    if (!onay) return;
+    setCalisiyor(true);
+    try {
+      const sonuc = await cagir<{ silindi: boolean; urunSayisi: number; altKategoriSayisi: number; ad: string }>('kategori.sil', {
+        kategoriId: k.id,
+      });
+      if (sonuc.silindi) {
+        bildir.basari(`${sonuc.ad} silindi`);
+      } else {
+        const parcalar = [
+          sonuc.urunSayisi > 0 ? `${sonuc.urunSayisi} ürün` : null,
+          sonuc.altKategoriSayisi > 0 ? `${sonuc.altKategoriSayisi} alt kategori` : null,
+        ].filter(Boolean);
+        bildir.uyari(
+          `${sonuc.ad} silinemedi — listeden gizlendi`,
+          `İçinde ${parcalar.join(' ve ')} var. Ürünlerin kategorisi bozulmasın diye kategori pasife alındı.`,
+        );
+      }
+      onDegisti();
+    } catch (hata) {
+      hatayiBildir(hata, 'Kategori silme');
+    } finally {
+      setCalisiyor(false);
+    }
+  };
+
+  return (
+    <Diyalog
+      acik={acik}
+      baslik="Kategoriler"
+      aciklama="Ürünleri gruplamak için kullanılır. Kategori adı fişte görünmez; raporlarda ve hızlı ürün ekranında filtre olarak çalışır."
+      onKapat={onKapat}
+      altBilgi={
+        <button type="button" className="tus-ikincil" onClick={onKapat}>
+          Kapat
+        </button>
+      }
+    >
+      <div className="mb-4 flex gap-2">
+        <input
+          className="alan flex-1"
+          placeholder="Yeni kategori adı…"
+          value={yeniAd}
+          onChange={(e) => setYeniAd(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              void kaydet({ ad: yeniAd });
+            }
+          }}
+          data-odak
+        />
+        <button
+          type="button"
+          className="tus-birincil"
+          onClick={() => kaydet({ ad: yeniAd })}
+          disabled={calisiyor || !yeniAd.trim()}
+        >
+          Ekle
+        </button>
+      </div>
+
+      {kategoriler.length === 0 ? (
+        <p className="py-6 text-center text-sm text-metin-4">Henüz kategori yok. Yukarıdan ekleyebilirsiniz.</p>
+      ) : (
+        <ul className="divide-y divide-cizgi-ince rounded border border-cizgi">
+          {kategoriler.map((k) => (
+            <li key={k.id} className="flex items-center gap-2 px-3 py-2">
+              {duzenlenenId === k.id ? (
+                <>
+                  <input
+                    className="alan flex-1 py-1"
+                    value={duzenlenenAd}
+                    onChange={(e) => setDuzenlenenAd(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void kaydet({ id: k.id, ad: duzenlenenAd });
+                      }
+                      if (e.key === 'Escape') setDuzenlenenId(null);
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="tus-birincil px-3 py-1 text-sm"
+                    onClick={() => kaydet({ id: k.id, ad: duzenlenenAd })}
+                  >
+                    Kaydet
+                  </button>
+                  <button type="button" className="tus-ikincil px-3 py-1 text-sm" onClick={() => setDuzenlenenId(null)}>
+                    Vazgeç
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1">{k.ad}</span>
+                  <button
+                    type="button"
+                    className="text-sm text-vurgu hover:underline"
+                    onClick={() => {
+                      setDuzenlenenId(k.id);
+                      setDuzenlenenAd(k.ad);
+                    }}
+                  >
+                    Yeniden adlandır
+                  </button>
+                  <button type="button" className="text-sm text-tehlike hover:underline" onClick={() => void sil(k)}>
+                    Sil
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Diyalog>
+  );
+}
+
+function TopluFiyatDiyalogu({
+  acik,
+  onKapat,
+  onUygulandi,
+  kategoriler,
+  seciliIdler,
+}: {
+  acik: boolean;
+  onKapat: () => void;
+  onUygulandi: () => void;
+  kategoriler: Kategori[];
+  /** Listeden işaretlenmiş ürünler; doluysa kapsam otomatik "seçililer" olur. */
+  seciliIdler: string[];
+}) {
+  const [tip, setTip] = useState<'YUZDE_ZAM' | 'YUZDE_INDIRIM' | 'MARJ_UYGULA' | 'KDV_DEGISTIR'>('YUZDE_ZAM');
+  const [hedef, setHedef] = useState<'SATIS' | 'ALIS'>('SATIS');
+  const [deger, setDeger] = useState('10');
+  const [kapsam, setKapsam] = useState<'secili' | 'kategori' | 'tumu'>('tumu');
+  const [kategoriId, setKategoriId] = useState('');
+  const [onizleme, setOnizleme] = useState<{ etkilenen: number; ornekler: { ad: string; eski: Kurus; yeni: Kurus }[] } | null>(
+    null,
+  );
+  const [calisiyor, setCalisiyor] = useState(false);
+
+  // Hedef seçimi yalnız yüzde zam/indirimde anlamlıdır (marj ve KDV satışa özeldir).
+  const hedefSecilebilir = tip === 'YUZDE_ZAM' || tip === 'YUZDE_INDIRIM';
+
+  // Diyalog seçim varken açıldıysa doğrudan "seçili ürünler" kapsamıyla gelsin.
+  useEffect(() => {
+    if (acik) {
+      setKapsam(seciliIdler.length > 0 ? 'secili' : 'tumu');
+      setHedef('SATIS');
+      setOnizleme(null);
+    }
+  }, [acik, seciliIdler.length]);
+
+  const calistir = async (uygula: boolean) => {
+    setCalisiyor(true);
+    try {
+      const islem = {
+        tip,
+        deger: Number(deger.replace(',', '.')),
+        hedef: hedefSecilebilir ? hedef : 'SATIS',
+        filtre: {
+          sadeceAktif: true,
+          ...(kapsam === 'kategori' && kategoriId ? { kategoriId } : {}),
+        },
+        ...(kapsam === 'secili' ? { urunIdler: seciliIdler } : {}),
+      };
+      const sonuc = await cagir<{ etkilenen: number; ornekler: { ad: string; eski: Kurus; yeni: Kurus }[] }>('urun.topluFiyat', {
+        islem,
+        uygula,
+      });
+      if (uygula) {
+        bildir.basari(`${sonuc.etkilenen} ürünün fiyatı güncellendi`);
+        onUygulandi();
+      } else {
+        setOnizleme(sonuc);
+      }
+    } catch (hata) {
+      hatayiBildir(hata, 'Toplu fiyat');
+    } finally {
+      setCalisiyor(false);
+    }
+  };
+
+  // Uygulamak için önizleme ZORUNLU DEĞİL; yalnız kapsam/değer geçerli olmalı.
+  const gecerli =
+    Number.isFinite(Number(deger.replace(',', '.'))) &&
+    deger.trim() !== '' &&
+    !(kapsam === 'secili' && seciliIdler.length === 0) &&
+    !(kapsam === 'kategori' && !kategoriId);
+
+  return (
+    <Diyalog
+      acik={acik}
+      baslik="Toplu Fiyat İşlemi"
+      aciklama="İsterseniz Önizle ile sonucu önce görebilirsiniz; doğrudan Uygula da çalışır."
+      onKapat={onKapat}
+      altBilgi={
+        <>
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Vazgeç
+          </button>
+          <button type="button" className="tus-ikincil" onClick={() => calistir(false)} disabled={calisiyor || !gecerli}>
+            Önizle
+          </button>
+          <button type="button" className="tus-birincil" onClick={() => calistir(true)} disabled={calisiyor || !gecerli}>
+            Uygula
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Alan etiket="Hangi ürünlere?" ipucu="Zam çoğu zaman tüm katalog için değil, belirli bir grup için yapılır.">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { deger: 'secili' as const, etiket: 'Seçili ürünler', alt: `${seciliIdler.length} ürün` },
+              { deger: 'kategori' as const, etiket: 'Kategori', alt: 'tek kategori' },
+              { deger: 'tumu' as const, etiket: 'Tüm ürünler', alt: 'aktif olanlar' },
+            ].map((s) => (
+              <button
+                key={s.deger}
+                type="button"
+                disabled={s.deger === 'secili' && seciliIdler.length === 0}
+                className={`${kapsam === s.deger ? 'tus-birincil' : 'tus-ikincil'} flex-col py-2`}
+                onClick={() => {
+                  setKapsam(s.deger);
+                  setOnizleme(null);
+                }}
+              >
+                <span className="text-sm">{s.etiket}</span>
+                <span className="text-xs opacity-70">{s.alt}</span>
+              </button>
+            ))}
+          </div>
+        </Alan>
+
+        {kapsam === 'kategori' && (
+          <Alan etiket="Kategori">
+            <select
+              className="alan"
+              value={kategoriId}
+              onChange={(e) => {
+                setKategoriId(e.target.value);
+                setOnizleme(null);
+              }}
+            >
+              <option value="">Kategori seçin…</option>
+              {kategoriler.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.ad}
+                </option>
+              ))}
+            </select>
+          </Alan>
+        )}
+
+        {kapsam === 'secili' && seciliIdler.length === 0 && (
+          <p className="rounded border border-uyari-cizgi bg-uyari-yumusak p-2 text-sm text-metin-2">
+            Önce listeden ürün işaretleyin.
+          </p>
+        )}
+
+        <Alan etiket="İşlem">
+          <select
+            className="alan"
+            value={tip}
+            onChange={(e) => {
+              setTip(e.target.value as typeof tip);
+              setOnizleme(null);
+            }}
+            data-odak
+          >
+            <option value="YUZDE_ZAM">Yüzde zam</option>
+            <option value="YUZDE_INDIRIM">Yüzde indirim</option>
+            <option value="MARJ_UYGULA">Hedef kâr marjı uygula</option>
+            <option value="KDV_DEGISTIR">KDV oranını değiştir</option>
+          </select>
+        </Alan>
+
+        {hedefSecilebilir && (
+          <Alan
+            etiket="Hangi fiyata?"
+            ipucu={
+              hedef === 'ALIS'
+                ? 'Yalnız alış (maliyet) fiyatı değişir; raf/satış fiyatına dokunulmaz.'
+                : 'Yalnız satış (raf) fiyatı değişir; maliyet kaydına dokunulmaz.'
+            }
+          >
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { deger: 'SATIS' as const, etiket: 'Satış fiyatı', alt: 'raf fiyatı' },
+                { deger: 'ALIS' as const, etiket: 'Alış fiyatı', alt: 'maliyet' },
+              ].map((s) => (
+                <button
+                  key={s.deger}
+                  type="button"
+                  className={`${hedef === s.deger ? 'tus-birincil' : 'tus-ikincil'} flex-col py-2`}
+                  onClick={() => {
+                    setHedef(s.deger);
+                    setOnizleme(null);
+                  }}
+                >
+                  <span className="text-sm">{s.etiket}</span>
+                  <span className="text-xs opacity-70">{s.alt}</span>
+                </button>
+              ))}
+            </div>
+          </Alan>
+        )}
+
+        <Alan etiket={tip === 'KDV_DEGISTIR' ? 'Yeni KDV oranı (%)' : 'Değer (%)'}>
+          <input
+            className="alan sayi"
+            value={deger}
+            onChange={(e) => {
+              setDeger(e.target.value);
+              setOnizleme(null);
+            }}
+          />
+        </Alan>
+
+        {onizleme && (
+          <div className="rounded border border-cizgi bg-yuzey-3 p-3">
+            <p className="mb-2 text-sm font-medium">{onizleme.etkilenen} ürün etkilenecek. Örnekler:</p>
+            <ul className="space-y-1 text-sm">
+              {onizleme.ornekler.map((o, i) => (
+                <li key={i} className="flex justify-between">
+                  <span className="truncate">{o.ad}</span>
+                  <span className="font-mono">
+                    <span className="text-metin-4 line-through">{paraFormat(o.eski, { simge: false })}</span>
+                    {' → '}
+                    <span className="text-vurgu">{paraFormat(o.yeni, { simge: false })}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </Diyalog>
+  );
+}
+
+function IceAktarDiyalogu({ acik, onKapat, onTamam }: { acik: boolean; onKapat: () => void; onTamam: () => void }) {
+  const [icerik, setIcerik] = useState('');
+  const [rapor, setRapor] = useState<{
+    toplam: number;
+    eklenen: number;
+    guncellenen: number;
+    hatali: number;
+    satirlar: { satir: number; durum: string; mesaj?: string; ad?: string }[];
+  } | null>(null);
+  const [calisiyor, setCalisiyor] = useState(false);
+
+  const calistir = async (uygula: boolean) => {
+    if (!icerik.trim()) return;
+    setCalisiyor(true);
+    try {
+      const sonuc = await cagir<typeof rapor>('urun.iceAktar', { icerik, uygula });
+      setRapor(sonuc);
+      if (uygula) {
+        bildir.basari(
+          'İçe aktarma tamamlandı',
+          `${sonuc?.eklenen} eklendi, ${sonuc?.guncellenen} güncellendi, ${sonuc?.hatali} hatalı.`,
+        );
+        onTamam();
+      }
+    } catch (hata) {
+      hatayiBildir(hata, 'İçe aktarma');
+    } finally {
+      setCalisiyor(false);
+    }
+  };
+
+  return (
+    <Diyalog
+      acik={acik}
+      baslik="Ürün Kataloğu İçe Aktarma"
+      aciklama="CSV dosyası; sütunlar: ad;barkod;kategori;marka;birim_tipi;alis_fiyati;satis_fiyati;kdv_orani;kritik_stok;acilis_stogu;raf_konumu"
+      genislik="genis"
+      onKapat={onKapat}
+      altBilgi={
+        <>
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Kapat
+          </button>
+          <button type="button" className="tus-ikincil" onClick={() => calistir(false)} disabled={calisiyor || !icerik.trim()}>
+            Doğrula
+          </button>
+          <button type="button" className="tus-birincil" onClick={() => calistir(true)} disabled={calisiyor || !rapor}>
+            İçe Aktar
+          </button>
+        </>
+      }
+    >
+      <input
+        type="file"
+        accept=".csv,text/csv"
+        className="mb-3 block w-full text-sm"
+        onChange={async (e) => {
+          const dosya = e.target.files?.[0];
+          if (!dosya) return;
+          setIcerik(await dosya.text());
+          setRapor(null);
+        }}
+      />
+      <textarea
+        className="alan font-mono text-xs"
+        rows={6}
+        placeholder="Ya da CSV içeriğini buraya yapıştırın…"
+        value={icerik}
+        onChange={(e) => {
+          setIcerik(e.target.value);
+          setRapor(null);
+        }}
+      />
+
+      {rapor && (
+        <div className="mt-3 rounded border border-cizgi bg-yuzey-3 p-3">
+          <p className="text-sm">
+            Toplam {rapor.toplam} satır · <span className="text-vurgu">{rapor.eklenen} yeni</span> ·{' '}
+            <span className="text-bilgi">{rapor.guncellenen} güncelleme</span> ·{' '}
+            <span className={rapor.hatali > 0 ? 'text-tehlike' : ''}>{rapor.hatali} hatalı</span>
+          </p>
+          {rapor.hatali > 0 && (
+            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-tehlike">
+              {rapor.satirlar
+                .filter((s) => s.durum === 'hata')
+                .map((s) => (
+                  <li key={s.satir}>
+                    Satır {s.satir}: {s.mesaj}
+                  </li>
+                ))}
+            </ul>
+          )}
+          <p className="mt-2 text-xs text-metin-4">Hatalı satırlar atlanır, sağlam satırlar aktarılır.</p>
+        </div>
+      )}
+    </Diyalog>
+  );
+}
+
+/**
+ * Stok düzeltme (§10.6).
+ *
+ * Stok append-only'dur: buraya yazılan sayı mevcut stoğu EZMEZ, servis aradaki
+ * farkı `DUZELTME` hareketi olarak yazar. Sebep zorunludur — "stok neden
+ * değişti" sorusunun cevabı hareket geçmişinde kalsın diye.
+ */
+function StokDuzeltDiyalogu({
+  urun,
+  onKapat,
+  onDuzeltildi,
+}: {
+  urun: UrunSatiri | null;
+  onKapat: () => void;
+  onDuzeltildi: () => void;
+}) {
+  const [metin, setMetin] = useState('');
+  const [neden, setNeden] = useState('');
+  const [calisiyor, setCalisiyor] = useState(false);
+
+  useEffect(() => {
+    if (urun) {
+      setMetin(String(urun.stok / 1000));
+      setNeden('');
+    }
+  }, [urun]);
+
+  if (!urun) return null;
+
+  const birim = urun.birim_tipi === 'ADET' ? 'adet' : urun.birim_tipi.toLowerCase();
+  const yeniMiktar = miktarParse(metin);
+  const fark = yeniMiktar === null ? 0 : yeniMiktar - urun.stok;
+  const gecerli = yeniMiktar !== null && fark !== 0 && neden.trim().length > 0;
+
+  const uygula = async () => {
+    if (!gecerli || yeniMiktar === null) return;
+    setCalisiyor(true);
+    try {
+      await cagir('stok.duzeltme', { urunId: urun.id, yeniMiktar, neden: neden.trim() });
+      bildir.basari(
+        `${urun.ad} stoğu güncellendi`,
+        `${miktarFormat(urun.stok, urun.birim_tipi)} → ${miktarFormat(yeniMiktar, urun.birim_tipi)}`,
+      );
+      onDuzeltildi();
+    } catch (hata) {
+      hatayiBildir(hata, 'Stok düzeltme');
+    } finally {
+      setCalisiyor(false);
+    }
+  };
+
+  return (
+    <Diyalog
+      acik
+      baslik="Stok Düzelt"
+      aciklama={urun.ad}
+      genislik="dar"
+      onKapat={onKapat}
+      altBilgi={
+        <>
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Vazgeç
+          </button>
+          <button type="button" className="tus-birincil" onClick={() => void uygula()} disabled={!gecerli || calisiyor}>
+            {calisiyor ? 'Kaydediliyor…' : 'Düzelt'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Alan etiket={`Yeni miktar (${birim})`} ipucu={`Şu anki: ${miktarFormat(urun.stok, urun.birim_tipi)} ${birim}`}>
+          <div className="flex items-center gap-2">
+            <input
+              className="alan sayi py-3 text-2xl"
+              inputMode="decimal"
+              value={metin}
+              onChange={(e) => setMetin(e.target.value)}
+              // Alan mevcut stokla dolu gelir; seçili gelmezse önce silmek gerekir.
+              onFocus={(e) => e.currentTarget.select()}
+              data-odak
+              autoFocus
+            />
+            <span className="shrink-0 text-sm font-medium text-metin-2">{birim}</span>
+          </div>
+        </Alan>
+
+        {fark !== 0 && (
+          <div className="flex items-baseline justify-between rounded bg-yuzey-3 px-4 py-3">
+            <span className="text-metin-2">Yazılacak hareket</span>
+            <span className={`font-mono text-xl font-bold ${fark > 0 ? 'text-basari' : 'text-uyari'}`}>
+              {fark > 0 ? '+' : ''}
+              {miktarFormat(fark, urun.birim_tipi)} {birim}
+            </span>
+          </div>
+        )}
+
+        <Alan etiket="Sebep" ipucu="Zorunlu — hareket geçmişinde görünür.">
+          <input
+            className="alan"
+            placeholder="Sayım farkı, kırılma, geç girilen mal kabul…"
+            value={neden}
+            onChange={(e) => setNeden(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && gecerli) void uygula();
+            }}
+          />
+        </Alan>
+      </div>
+    </Diyalog>
+  );
+}

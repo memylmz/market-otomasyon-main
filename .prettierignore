@@ -1,0 +1,11 @@
+node_modules
+dist
+out
+release
+.next
+coverage
+package-lock.json
+*.md
+
+# Next.js tarafindan uretilir; her build sonrasi geri yazilir.
+next-env.d.ts

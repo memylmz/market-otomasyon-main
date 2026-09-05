@@ -1,0 +1,659 @@
+/**
+ * Panel uçları — kasadaki ekranların bulut karşılığı (§11).
+ *
+ * Buradaki testler "panel kasayla aynı şeyi gösteriyor mu" sorusunu korur:
+ * fiş dökümü, stok hareketi, cari ekstresi, saatlik/suistimal raporu ve
+ * katalog yönetimi (Türkçe sıralama + alış/satış ayrımı).
+ */
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { bugun, simdi, UCLAR, uuid } from '@market/shared';
+import { parolaHashle, tokenHashle } from '../src/guvenlik.js';
+import { sunucuOlustur } from '../src/sunucu.js';
+import { semayiHazirla, vtOlustur, type MerkezVt } from '../src/vt/baglanti.js';
+import { yapilandirmayiOku } from '../src/yapilandirma.js';
+
+let uygulama: FastifyInstance;
+let vt: MerkezVt;
+let geciciKlasor: string;
+let token: string;
+
+const ISLETME_ID = '11111111-1111-4111-8111-111111111111';
+const CIHAZ_TOKEN = 'test-cihaz-tokeni-yeterince-uzun-1234567890';
+
+beforeEach(async () => {
+  geciciKlasor = mkdtempSync(join(tmpdir(), 'market-panel-test-'));
+  vt = vtOlustur('file:' + join(geciciKlasor, 'merkez.db').replace(/\\/g, '/'));
+  uygulama = await sunucuOlustur({
+    yapilandirma: yapilandirmayiOku({
+      NODE_ENV: 'test',
+      JWT_SECRET: 'test-gizli-anahtar-en-az-otuz-iki-karakter-olmali',
+      LOG_SEVIYESI: 'fatal',
+    } as NodeJS.ProcessEnv),
+    vt,
+  });
+
+  const zaman = simdi();
+  await vt.calistir('INSERT INTO isletmeler (id, ad, lisans_anahtari, aktif_mi, created_at) VALUES (?, ?, ?, 1, ?)', [
+    ISLETME_ID,
+    'Test Market',
+    'TEST-LISANS-0002',
+    zaman,
+  ]);
+  await vt.calistir(
+    `INSERT INTO cihazlar (id, isletme_id, cihaz_id, cihaz_adi, token_hash, aktif_mi, created_at, updated_at)
+     VALUES (?, ?, 'kasa-01', 'Kasa 1', ?, 1, ?, ?)`,
+    [uuid(), ISLETME_ID, tokenHashle(CIHAZ_TOKEN), zaman, zaman],
+  );
+  await vt.calistir(
+    `INSERT INTO panel_kullanicilari (id, isletme_id, ad, kullanici_adi, sifre_hash, rol, aktif_mi, created_at, updated_at)
+     VALUES (?, ?, 'Patron', 'patron', ?, 'ADMIN', 1, ?, ?)`,
+    [uuid(), ISLETME_ID, parolaHashle('Sifre1234'), zaman, zaman],
+  );
+
+  const giris = await uygulama.inject({
+    method: 'POST',
+    url: UCLAR.giris,
+    payload: { kullanici_adi: 'patron', sifre: 'Sifre1234' },
+  });
+  token = (giris.json() as { access_token: string }).access_token;
+});
+
+afterEach(async () => {
+  await uygulama?.close();
+  vt?.kapat();
+  try {
+    if (geciciKlasor) rmSync(geciciKlasor, { recursive: true, force: true });
+  } catch {
+    /* Windows dosya tanıtıcıyı geç bırakabilir; işletim sistemi temizler */
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Yardımcılar
+// ---------------------------------------------------------------------------
+
+function panelGet(yol: string) {
+  return uygulama.inject({ method: 'GET', url: yol, headers: { authorization: `Bearer ${token}` } });
+}
+
+function panelPost(yol: string, govde: unknown) {
+  return uygulama.inject({ method: 'POST', url: yol, headers: { authorization: `Bearer ${token}` }, payload: govde });
+}
+
+function push(olaylar: unknown[]) {
+  return uygulama.inject({
+    method: 'POST',
+    url: UCLAR.senkronPush,
+    headers: { 'x-device-token': CIHAZ_TOKEN },
+    payload: { cihaz_id: 'kasa-01', sema_surumu: 1, protokol_surumu: 1, olaylar },
+  });
+}
+
+const URUN_ID = '22222222-2222-4222-8222-222222222222';
+
+function satisOlayi(secenekler: { tutar?: number; saat?: string; iade?: boolean } = {}) {
+  const id = uuid();
+  const tutar = secenekler.tutar ?? 12_000;
+  return {
+    uuid: uuid(),
+    tip: (secenekler.iade ? 'IADE_YAPILDI' : 'SATIS_YAPILDI') as 'SATIS_YAPILDI' | 'IADE_YAPILDI',
+    entity: 'satis',
+    entity_id: id,
+    olusturma_zamani: simdi(),
+    veri: {
+      id,
+      fis_no: 'A-000001',
+      tarih: `${bugun()}T${secenekler.saat ?? '10'}:30:00.000Z`,
+      ara_toplam: tutar,
+      iskonto_toplam: 0,
+      kdv_toplam: 2000,
+      genel_toplam: tutar,
+      odeme_ozeti: 'NAKIT',
+      brut_kar: 4000,
+      kalemler: [
+        {
+          urun_id: URUN_ID,
+          urun_adi: 'Süt',
+          miktar: 2000,
+          birim_fiyat: 6000,
+          birim_maliyet: 4000,
+          kdv_orani: 20,
+          kdv_tutar: 2000,
+          satir_toplam: tutar,
+        },
+      ],
+      odemeler: [{ tip: 'NAKIT', tutar }],
+    },
+  };
+}
+
+function urunEkle(ad: string, alis: number, satis: number) {
+  return panelPost(UCLAR.urunler, { ad, alis_fiyati: alis, satis_fiyati: satis, kdv_orani: 20 });
+}
+
+// ---------------------------------------------------------------------------
+
+describe('fiş listesi ve detayı (§11.3)', () => {
+  it('fiş kalemleri ve ödemeleriyle birlikte döner', async () => {
+    const olay = satisOlayi();
+    await push([olay]);
+
+    const liste = await panelGet(`${UCLAR.satislar}?from=${bugun()}&to=${bugun()}`);
+    expect(liste.statusCode).toBe(200);
+    const kayitlar = (liste.json() as { data: { id: string; fis_no: string }[] }).data;
+    expect(kayitlar).toHaveLength(1);
+    expect(kayitlar[0]?.fis_no).toBe('A-000001');
+
+    const detay = await panelGet(`${UCLAR.satislar}/${olay.veri.id}`);
+    const govde = detay.json() as {
+      satis: { genel_toplam: number } | null;
+      kalemler: { urun_adi: string }[];
+      odemeler: { odeme_tipi: string; tutar: number }[];
+    };
+    expect(govde.satis?.genel_toplam).toBe(12_000);
+    expect(govde.kalemler).toHaveLength(1);
+    expect(govde.kalemler[0]?.urun_adi).toBe('Süt');
+    expect(govde.odemeler[0]).toMatchObject({ odeme_tipi: 'NAKIT', tutar: 12_000 });
+  });
+
+  it('bulunamayan fiş 500 değil boş gövde döner (henüz senkronlanmamış olabilir)', async () => {
+    const yanit = await panelGet(`${UCLAR.satislar}/${uuid()}`);
+    expect(yanit.statusCode).toBe(200);
+    expect((yanit.json() as { satis: unknown }).satis).toBeNull();
+  });
+
+  it('durum filtresi iptal fişini ayırır', async () => {
+    const normal = satisOlayi();
+    await push([normal]);
+    await push([
+      {
+        uuid: uuid(),
+        tip: 'SATIS_IPTAL_EDILDI',
+        entity: 'satis',
+        entity_id: normal.veri.id,
+        olusturma_zamani: simdi(),
+        veri: { id: normal.veri.id, neden: 'Müşteri vazgeçti' },
+      },
+    ]);
+
+    const gecerli = await panelGet(`${UCLAR.satislar}?from=${bugun()}&to=${bugun()}&durum=gecerli`);
+    expect((gecerli.json() as { data: unknown[] }).data).toHaveLength(0);
+
+    const iptal = await panelGet(`${UCLAR.satislar}?from=${bugun()}&to=${bugun()}&durum=iptal`);
+    const iptalKayitlari = (iptal.json() as { data: { iptal_neden: string }[] }).data;
+    expect(iptalKayitlari).toHaveLength(1);
+    expect(iptalKayitlari[0]?.iptal_neden).toBe('Müşteri vazgeçti');
+  });
+});
+
+describe('stok hareketleri (§11.5)', () => {
+  it('türe göre süzülür ve ortak 200 sınırının üstünde limit kabul eder', async () => {
+    const zaman = simdi();
+    await push([
+      {
+        uuid: uuid(),
+        tip: 'STOK_HAREKETI',
+        entity: 'stok_hareketi',
+        entity_id: uuid(),
+        olusturma_zamani: zaman,
+        veri: { id: uuid(), urun_id: URUN_ID, hareket_tipi: 'GIRIS', miktar: 10_000, created_at: zaman },
+      },
+      {
+        uuid: uuid(),
+        tip: 'STOK_HAREKETI',
+        entity: 'stok_hareketi',
+        entity_id: uuid(),
+        olusturma_zamani: zaman,
+        veri: { id: uuid(), urun_id: URUN_ID, hareket_tipi: 'FIRE', miktar: -2000, created_at: zaman },
+      },
+    ]);
+
+    // Hareket dökümü tanı ekranıdır; 200'de kesmek listeyi yanıltıcı kılardı.
+    const tumu = await panelGet(`${UCLAR.stokHareketler}?from=${bugun()}&to=${bugun()}&limit=300`);
+    expect(tumu.statusCode).toBe(200);
+    expect((tumu.json() as { data: unknown[] }).data).toHaveLength(2);
+
+    const fire = await panelGet(`${UCLAR.stokHareketler}?from=${bugun()}&to=${bugun()}&tip=FIRE`);
+    const fireler = (fire.json() as { data: { hareket_tipi: string; miktar: number }[] }).data;
+    expect(fireler).toHaveLength(1);
+    expect(fireler[0]).toMatchObject({ hareket_tipi: 'FIRE', miktar: -2000 });
+  });
+});
+
+describe('cari ekstresi (§11.6)', () => {
+  it('yürüyen bakiyeyi doğru hesaplar ve en yeni hareketten başlar', async () => {
+    const cariId = '55555555-5555-4555-8555-555555555555';
+    const zaman = simdi();
+    const hareket = (tip: string, tutar: number, tarih: string) => ({
+      uuid: uuid(),
+      tip: 'CARI_HAREKETI',
+      entity: 'cari_hareketi',
+      entity_id: uuid(),
+      olusturma_zamani: zaman,
+      veri: { id: uuid(), cari_id: cariId, hareket_tipi: tip, tutar, tarih },
+    });
+
+    await push([
+      {
+        uuid: uuid(),
+        tip: 'CARI_KAYDEDILDI',
+        entity: 'cari',
+        entity_id: cariId,
+        olusturma_zamani: zaman,
+        veri: { id: cariId, tip: 'MUSTERI', ad_unvan: 'Veresiye Ali', created_at: zaman, updated_at: zaman },
+      },
+      hareket('BORC', 10_000, '2026-01-10T10:00:00.000Z'),
+      hareket('BORC', 5_000, '2026-01-15T10:00:00.000Z'),
+      hareket('TAHSILAT', -4_000, '2026-01-20T10:00:00.000Z'),
+    ]);
+
+    const yanit = await panelGet(`${UCLAR.cariler}/${cariId}/ekstre`);
+    const govde = yanit.json() as {
+      cari: { bakiye: number } | null;
+      hareketler: { hareket_tipi: string; yuruyen_bakiye: number }[];
+    };
+
+    expect(govde.cari?.bakiye).toBe(11_000);
+    // En yeni başta: tahsilat sonrası bakiye 11.000, ilk borçta 10.000.
+    expect(govde.hareketler[0]).toMatchObject({ hareket_tipi: 'TAHSILAT', yuruyen_bakiye: 11_000 });
+    expect(govde.hareketler[2]).toMatchObject({ hareket_tipi: 'BORC', yuruyen_bakiye: 10_000 });
+  });
+});
+
+describe('saatlik ve suistimal raporları (§11.7)', () => {
+  it('saatlik rapor 24 dilim döner ve satışın saatini bulur', async () => {
+    await push([satisOlayi({ saat: '14' })]);
+
+    const yanit = await panelGet(`${UCLAR.raporSaatlik}?from=${bugun()}&to=${bugun()}`);
+    const dilimler = (yanit.json() as { data: { saat: number; ciro: number; islem: number }[] }).data;
+    expect(dilimler).toHaveLength(24);
+    expect(dilimler[14]).toMatchObject({ saat: 14, ciro: 12_000, islem: 1 });
+    expect(dilimler[3]).toMatchObject({ saat: 3, ciro: 0, islem: 0 });
+  });
+
+  it('iade oranı ciroya bölünerek hesaplanır', async () => {
+    await push([satisOlayi({ tutar: 20_000 })]);
+    await push([satisOlayi({ tutar: 5_000, iade: true })]);
+
+    const yanit = await panelGet(`${UCLAR.raporSuistimal}?from=${bugun()}&to=${bugun()}`);
+    const govde = yanit.json() as { ciro: number; iadeTutari: number; iadeOrani: number; kasiyerBazli: unknown[] };
+
+    expect(govde.ciro).toBe(20_000);
+    expect(govde.iadeTutari).toBe(5_000);
+    expect(govde.iadeOrani).toBe(25);
+    expect(govde.kasiyerBazli.length).toBeGreaterThan(0);
+  });
+});
+
+describe('katalog yönetimi — kasa ile aynı kurallar (§11.4)', () => {
+  it('ürünler Türk alfabesine göre sıralanır', async () => {
+    for (const ad of ['zeytin', 'Çilek', 'ırmak', 'incir', 'Ülker', 'armut']) await urunEkle(ad, 100, 200);
+
+    const liste = await panelGet(`${UCLAR.urunler}?limit=50`);
+    const adlar = (liste.json() as { data: { ad: string }[] }).data.map((u) => u.ad);
+    expect(adlar).toEqual(['armut', 'Çilek', 'ırmak', 'incir', 'Ülker', 'zeytin']);
+  });
+
+  it('arama aksan ve harf boyutundan bağımsızdır', async () => {
+    await urunEkle('Çilekli Süt', 900, 1250);
+    await urunEkle('Ülker Çikolata', 1500, 2200);
+
+    const arama = await panelGet(`${UCLAR.urunler}?q=cilekli`);
+    expect((arama.json() as { data: { ad: string }[] }).data.map((u) => u.ad)).toEqual(['Çilekli Süt']);
+
+    const buyuk = await panelGet(`${UCLAR.urunler}?q=ULKER`);
+    expect((buyuk.json() as { data: { ad: string }[] }).data.map((u) => u.ad)).toEqual(['Ülker Çikolata']);
+  });
+
+  it('sayfalama ofseti toplam sayıyla birlikte döner', async () => {
+    for (const ad of ['a-urun', 'b-urun', 'c-urun', 'd-urun']) await urunEkle(ad, 100, 200);
+
+    const sayfa = await panelGet(`${UCLAR.urunler}?limit=2&ofset=2`);
+    const govde = sayfa.json() as { data: { ad: string }[]; toplam: number; has_more: boolean };
+    expect(govde.toplam).toBe(4);
+    expect(govde.data.map((u) => u.ad)).toEqual(['c-urun', 'd-urun']);
+    expect(govde.has_more).toBe(false);
+  });
+
+  it('toplu zam ALIS hedefinde satış fiyatına dokunmaz', async () => {
+    await urunEkle('Maliyet Testi', 1000, 2000);
+
+    const zam = await panelPost(`${UCLAR.urunler}/toplu-fiyat`, { yuzde: 10, hedef: 'ALIS' });
+    expect((zam.json() as { etkilenen: number }).etkilenen).toBe(1);
+
+    const liste = await panelGet(`${UCLAR.urunler}?q=Maliyet`);
+    const urun = (liste.json() as { data: { alis_fiyati: number; satis_fiyati: number }[] }).data[0];
+    expect(urun?.alis_fiyati).toBe(1100);
+    expect(urun?.satis_fiyati).toBe(2000);
+  });
+
+  it('toplu zam SATIS hedefinde alış fiyatına dokunmaz', async () => {
+    await urunEkle('Raf Testi', 1000, 2000);
+
+    await panelPost(`${UCLAR.urunler}/toplu-fiyat`, { yuzde: 25, hedef: 'SATIS' });
+
+    const liste = await panelGet(`${UCLAR.urunler}?q=Raf`);
+    const urun = (liste.json() as { data: { alis_fiyati: number; satis_fiyati: number }[] }).data[0];
+    expect(urun?.alis_fiyati).toBe(1000);
+    expect(urun?.satis_fiyati).toBe(2500);
+  });
+
+  it('toplu zam kategori kapsamında yalnız o kategoriyi etkiler', async () => {
+    const kategori = await panelPost(UCLAR.kategoriler, { ad: 'İçecek', sira: 1, aktif_mi: true });
+    const kategoriId = (kategori.json() as { id: string }).id;
+
+    await panelPost(UCLAR.urunler, { ad: 'Ayran', alis_fiyati: 600, satis_fiyati: 1000, kdv_orani: 20, kategori_id: kategoriId });
+    await urunEkle('Sabun', 600, 1000);
+
+    const zam = await panelPost(`${UCLAR.urunler}/toplu-fiyat`, { yuzde: 10, hedef: 'SATIS', kategori_id: kategoriId });
+    expect((zam.json() as { etkilenen: number }).etkilenen).toBe(1);
+
+    const liste = await panelGet(`${UCLAR.urunler}?limit=50`);
+    const urunler = (liste.json() as { data: { ad: string; satis_fiyati: number }[] }).data;
+    expect(urunler.find((u) => u.ad === 'Ayran')?.satis_fiyati).toBe(1100);
+    expect(urunler.find((u) => u.ad === 'Sabun')?.satis_fiyati).toBe(1000);
+  });
+});
+
+describe('gövdesiz istekler (§9.2)', () => {
+  /**
+   * Tarayıcı istemcileri gövdesiz DELETE'te bile sıklıkla
+   * `content-type: application/json` gönderir. Fastify'ın varsayılan JSON
+   * ayrıştırıcısı bunu "Body cannot be empty" diye reddeder ve kullanıcı
+   * "Beklenmeyen bir hata oluştu" görür. Sunucu bu duruma dayanıklı olmalı.
+   */
+  it('content-type json olup gövde boşsa DELETE çalışır', async () => {
+    const olustur = await panelPost(UCLAR.kullanicilar, {
+      ad: 'Silinecek Personel',
+      kullanici_adi: 'silinecek',
+      rol: 'KASIYER',
+      pin: '4271',
+      aktif_mi: true,
+      ek_yetkiler: [],
+      kaldirilan_yetkiler: [],
+    });
+    const { id } = olustur.json() as { id: string };
+
+    const yanit = await uygulama.inject({
+      method: 'DELETE',
+      url: `${UCLAR.kullanicilar}/${id}`,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: '',
+    });
+
+    expect(yanit.statusCode).toBe(200);
+    expect((yanit.json() as { silindi: boolean }).silindi).toBe(true);
+  });
+
+  it('gövdesi bozuk JSON ise yine 400 döner — boş gövde toleransı bunu gevşetmez', async () => {
+    const yanit = await uygulama.inject({
+      method: 'POST',
+      url: UCLAR.kategoriler,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: '{bozuk',
+    });
+
+    expect(yanit.statusCode).toBeGreaterThanOrEqual(400);
+    expect(yanit.statusCode).toBeLessThan(500);
+  });
+});
+
+describe('stok talimatı tekrarı (§11.5)', () => {
+  const CIHAZ = 'kasa-01';
+
+  async function urunEkle() {
+    const yanit = await panelPost(UCLAR.urunler, { ad: 'Tekrar Testi', satis_fiyati: 1000, birim_tipi: 'ADET' });
+    return (yanit.json() as { id: string }).id;
+  }
+
+  async function talimatlar(urunId: string) {
+    return vt.tumu<{ id: string; hedef_miktar: number; silindi_mi: number }>(
+      'SELECT id, hedef_miktar, silindi_mi FROM stok_duzeltmeleri WHERE isletme_id = ? AND urun_id = ? ORDER BY versiyon',
+      [ISLETME_ID, urunId],
+    );
+  }
+
+  it('uygulanmamış talimatın yerine yenisi geçer — ikisi birden uygulanmaz', async () => {
+    const urunId = await urunEkle();
+
+    // Kasa senkron olmadığı için panelde stok eski görünür; kullanıcı tekrar dener.
+    await panelPost(UCLAR.stokDuzeltmeleri, {
+      urun_id: urunId,
+      tip: 'DUZELTME',
+      hedef_miktar: 26000,
+      neden: 'İlk deneme',
+      hedef_cihaz_id: CIHAZ,
+    });
+    await panelPost(UCLAR.stokDuzeltmeleri, {
+      urun_id: urunId,
+      tip: 'DUZELTME',
+      hedef_miktar: 26000,
+      neden: 'İkinci deneme',
+      hedef_cihaz_id: CIHAZ,
+    });
+
+    const kayitlar = await talimatlar(urunId);
+    expect(kayitlar).toHaveLength(2);
+    // Eskisi iptal, yenisi geçerli: kasa yalnız birini uygular.
+    expect(kayitlar[0]?.silindi_mi).toBe(1);
+    expect(kayitlar[1]?.silindi_mi).toBe(0);
+  });
+
+  it('KASA UYGULADIYSA eski talimat iptal edilmez — geçmiş bozulmaz', async () => {
+    const urunId = await urunEkle();
+
+    const ilk = await panelPost(UCLAR.stokDuzeltmeleri, {
+      urun_id: urunId,
+      tip: 'DUZELTME',
+      hedef_miktar: 26000,
+      neden: 'Uygulanmış talimat',
+      hedef_cihaz_id: CIHAZ,
+    });
+    const ilkId = (ilk.json() as { id: string }).id;
+
+    // Kasa uyguladı: ürettiği hareketin id'si talimatın id'sidir ve geri geldi.
+    await vt.calistir(
+      `INSERT INTO stok_hareketleri (id, isletme_id, urun_id, hareket_tipi, miktar, birim_maliyet, created_at)
+       VALUES (?, ?, ?, 'DUZELTME', 26000, 0, ?)`,
+      [ilkId, ISLETME_ID, urunId, simdi()],
+    );
+
+    await panelPost(UCLAR.stokDuzeltmeleri, {
+      urun_id: urunId,
+      tip: 'DUZELTME',
+      hedef_miktar: 5000,
+      neden: 'Sonraki düzeltme',
+      hedef_cihaz_id: CIHAZ,
+    });
+
+    const kayitlar = await talimatlar(urunId);
+    expect(kayitlar).toHaveLength(2);
+    expect(kayitlar[0]?.silindi_mi).toBe(0);
+    expect(kayitlar[1]?.silindi_mi).toBe(0);
+  });
+});
+
+describe('panel girişi — kasa yöneticisi (§9.2)', () => {
+  /**
+   * Sahip panelde ve kasada AYRI kullanıcı adı taşımak zorunda kalıyordu;
+   * pratikte tek ürettiği şey karışıklıktı. Artık kasadaki ADMIN kendi
+   * kimliğiyle panele de girebilir.
+   */
+  async function kasaKullanicisiEkle(
+    kullaniciAdi: string,
+    rol: 'ADMIN' | 'KASIYER',
+    sifre: string | null,
+    ekstra: { aktif?: number; silindi?: number; pin?: string } = {},
+  ): Promise<void> {
+    const zaman = simdi();
+    await vt.calistir(
+      `INSERT INTO kullanicilar (id, isletme_id, ad, kullanici_adi, sifre_hash, pin_hash, rol,
+                                 aktif_mi, created_at, updated_at, versiyon, silindi_mi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [
+        uuid(),
+        ISLETME_ID,
+        kullaniciAdi,
+        kullaniciAdi,
+        sifre ? parolaHashle(sifre) : null,
+        ekstra.pin ? parolaHashle(ekstra.pin) : null,
+        rol,
+        ekstra.aktif ?? 1,
+        zaman,
+        zaman,
+        ekstra.silindi ?? 0,
+      ],
+    );
+  }
+
+  const girisDene = (kullanici_adi: string, sifre: string) =>
+    uygulama.inject({ method: 'POST', url: UCLAR.giris, payload: { kullanici_adi, sifre } });
+
+  it('kasadaki ADMIN kendi şifresiyle panele girebilir', async () => {
+    await kasaKullanicisiEkle('memylmz', 'ADMIN', 'KasaSifre1234');
+    const yanit = await girisDene('memylmz', 'KasaSifre1234');
+    expect(yanit.statusCode).toBe(200);
+    const govde = yanit.json() as { access_token: string; kullanici: { kullanici_adi: string; rol: string } };
+    expect(govde.access_token).toBeTruthy();
+    expect(govde.kullanici.kullanici_adi).toBe('memylmz');
+    expect(govde.kullanici.rol).toBe('ADMIN');
+  });
+
+  it('kasadaki KASİYER panele giremez', async () => {
+    await kasaKullanicisiEkle('kasiyer1', 'KASIYER', 'KasaSifre1234');
+    expect((await girisDene('kasiyer1', 'KasaSifre1234')).statusCode).toBe(401);
+  });
+
+  /**
+   * 4 hanelik PIN, internete açık bir panel için kimlik bilgisi değildir;
+   * kasada yeterli olmasının sebebi cihazın fiziksel korunmasıdır.
+   */
+  it('yalnız PINi olan ADMIN panele giremez', async () => {
+    await kasaKullanicisiEkle('pinli', 'ADMIN', null, { pin: '4271' });
+    expect((await girisDene('pinli', '4271')).statusCode).toBe(401);
+  });
+
+  it('pasifleştirilmiş veya silinmiş ADMIN panele giremez', async () => {
+    await kasaKullanicisiEkle('pasif', 'ADMIN', 'KasaSifre1234', { aktif: 0 });
+    await kasaKullanicisiEkle('silinmis', 'ADMIN', 'KasaSifre1234', { silindi: 1 });
+    expect((await girisDene('pasif', 'KasaSifre1234')).statusCode).toBe(401);
+    expect((await girisDene('silinmis', 'KasaSifre1234')).statusCode).toBe(401);
+  });
+
+  it('panel kullanıcısı önceliklidir; kasa kullanıcısı onu gölgeleyemez', async () => {
+    // Aynı ada sahip bir kasa kullanıcısı, paneldeki hesabın şifresini ezmemeli.
+    await kasaKullanicisiEkle('patron', 'ADMIN', 'BaskaSifre9999');
+    expect((await girisDene('patron', 'Sifre1234')).statusCode).toBe(200);
+    expect((await girisDene('patron', 'BaskaSifre9999')).statusCode).toBe(401);
+  });
+});
+
+describe('panel yöneticisinin kasaya aynalanması (§12.1)', () => {
+  /**
+   * Yönetici hem panele hem kasaya girebilmelidir. Kasa ÇEVRİMDIŞI çalışır ve
+   * girişi doğrulamak için buluta soramaz; kaydın `kullanicilar` tablosunda
+   * BULUNMASI gerekir. Aynalama bu yüzden vardır.
+   */
+  const kasadakiler = () =>
+    vt.tumu<{ kullanici_adi: string; rol: string; sifre_hash: string; versiyon: number }>(
+      'SELECT kullanici_adi, rol, sifre_hash, versiyon FROM kullanicilar WHERE isletme_id = ? AND silindi_mi = 0',
+      [ISLETME_ID],
+    );
+
+  it('panel ADMİNİ kasa kullanıcılarına aynalanır ve sürüm alır', async () => {
+    await semayiHazirla(vt);
+
+    const patron = (await kasadakiler()).find((k) => k.kullanici_adi === 'patron');
+    expect(patron, 'panel yöneticisi kasaya inmeli').toBeTruthy();
+    expect(patron?.rol).toBe('ADMIN');
+    expect(patron?.sifre_hash).toBeTruthy();
+    // Sürüm almazsa pull onu hiç görmez.
+    expect(Number(patron?.versiyon)).toBeGreaterThan(0);
+  });
+
+  it('tekrar çalıştırmak kopya üretmez ve sürüm şişirmez', async () => {
+    await semayiHazirla(vt);
+    const once = await kasadakiler();
+    await semayiHazirla(vt);
+    const sonra = await kasadakiler();
+
+    expect(sonra).toHaveLength(once.length);
+    expect(sonra.map((k) => k.versiyon)).toEqual(once.map((k) => k.versiyon));
+  });
+
+  it('aynı kullanıcı adına sahip kasa kaydı EZİLMEZ', async () => {
+    // Kasada zaten 'patron' varsa panel şifresi onun şifresini ezmemelidir.
+    const zaman = simdi();
+    const kasaHash = parolaHashle('KasaninKendiSifresi1');
+    await vt.calistir(
+      `INSERT INTO kullanicilar (id, isletme_id, ad, kullanici_adi, sifre_hash, rol, aktif_mi,
+                                 created_at, updated_at, versiyon, silindi_mi)
+       VALUES (?, ?, 'Kasadaki Patron', 'patron', ?, 'ADMIN', 1, ?, ?, 1, 0)`,
+      [uuid(), ISLETME_ID, kasaHash, zaman, zaman],
+    );
+
+    await semayiHazirla(vt);
+
+    const patronlar = (await kasadakiler()).filter((k) => k.kullanici_adi === 'patron');
+    expect(patronlar, 'aynı adla ikinci kayıt açılmamalı').toHaveLength(1);
+    expect(patronlar[0]?.sifre_hash).toBe(kasaHash);
+  });
+});
+
+describe('fiş serisi dağıtımı (§10.2)', () => {
+  /**
+   * Seri eskiden cihaz kimliğinden hash'lenip 26 harfe indiriliyordu. Doğum
+   * günü problemi gereği 4 kasada %21, 6 kasada %46 olasılıkla iki kasa AYNI
+   * harfi alıyordu; o an iki farklı satış aynı fiş numarasını taşıyor ve
+   * müşteri fişiyle geldiğinde yanlış satış iade edilebiliyordu.
+   *
+   * Merkez tek otorite olduğu için çakışma artık yapısal olarak imkânsız.
+   */
+  const aktive = (cihazId: string) =>
+    uygulama.inject({
+      method: 'POST',
+      url: UCLAR.cihazAktivasyon,
+      payload: { lisans_anahtari: 'TEST-LISANS-0002', cihaz_id: cihazId, cihaz_adi: cihazId },
+    });
+
+  it('her kasaya farklı seri verir', async () => {
+    const seriler: string[] = [];
+    for (const ad of ['kasa-a', 'kasa-b', 'kasa-c', 'kasa-d', 'kasa-e']) {
+      const yanit = await aktive(ad);
+      expect(yanit.statusCode).toBe(200);
+      seriler.push((yanit.json() as { seri: string }).seri);
+    }
+    expect(seriler.every(Boolean), 'her aktivasyon seri döndürmeli').toBe(true);
+    expect(new Set(seriler).size, `seriler çakıştı: ${seriler.join(', ')}`).toBe(seriler.length);
+  });
+
+  it('aynı kasa yeniden aktive edilince serisi DEĞİŞMEZ', async () => {
+    const ilk = (await aktive('kasa-sabit')).json() as { seri: string };
+    // Araya başka kasalar girse bile eski seri korunmalı; değişirse aynı kasa
+    // iki farklı seride fiş basmış olur ve geçmiş fişler izlenemez hale gelir.
+    await aktive('kasa-arada-1');
+    await aktive('kasa-arada-2');
+    const ikinci = (await aktive('kasa-sabit')).json() as { seri: string };
+    expect(ikinci.seri).toBe(ilk.seri);
+  });
+
+  it('26 harf dolunca iki harfli seriye geçer', async () => {
+    const zaman = simdi();
+    // 26 harfin tamamı doluymuş gibi davran.
+    for (const h of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+      await vt.calistir(
+        `INSERT INTO cihazlar (id, isletme_id, cihaz_id, cihaz_adi, token_hash, seri, aktif_mi, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'x', ?, 1, ?, ?)`,
+        [uuid(), ISLETME_ID, `dolu-${h}`, `Dolu ${h}`, h, zaman, zaman],
+      );
+    }
+    const yanit = await aktive('kasa-27');
+    expect(yanit.statusCode).toBe(200);
+    expect((yanit.json() as { seri: string }).seri).toBe('AA');
+  });
+});

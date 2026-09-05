@@ -1,0 +1,124 @@
+# Sürekli entegrasyon (§22.2)
+# Her PR: kurulum → lint → tip kontrol → test → build. Yeşil değilse merge edilmez.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  kalite:
+    name: Tip kontrol, test ve derleme
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Bağımlılıkları kur
+        run: npm ci --no-audit --no-fund
+
+      - name: Paylaşılan paketi derle
+        run: npm run build:shared
+
+      - name: Biçim kontrolü
+        run: npm run format:check
+
+      - name: Tip kontrolü
+        run: npm run typecheck
+
+      - name: Testler (kapsam ile)
+        run: npm run test:coverage
+
+      - name: Kapsam raporunu yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kapsam-raporu
+          path: coverage/
+          retention-days: 7
+
+      - name: API derlemesi
+        run: npm run build -w @market/api
+
+      - name: Panel derlemesi
+        run: npm run build -w @market/panel
+
+      - name: Masaüstü derlemesi
+        run: npm run build -w @market/desktop
+
+  guvenlik:
+    name: Bağımlılık güvenlik taraması
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      # Yüksek ve kritik açıklar derlemeyi durdurur (§15.4).
+      #
+      # --omit=dev: kapı, kasaya/sunucuya fiilen kurulan paketleri denetler.
+      # Derleme zamanı araçları (electron-builder ve altındaki node-gyp/tar
+      # zinciri) üretilen .exe içine girmez; oradaki bir açık son kullanıcıya
+      # ulaşmaz. Bu araçlar aşağıdaki bilgi amaçlı adımda izlenmeye devam eder.
+      - name: npm audit (çalışma zamanı bağımlılıkları)
+        run: npm audit --omit=dev --audit-level=high
+
+      # Derleme araçlarındaki açıklar raporlanır ama derlemeyi durdurmaz:
+      # düzeltmeleri çoğu zaman major sürüm atlaması gerektirir ve paketleme
+      # akışının yeniden doğrulanmasını ister.
+      - name: npm audit (derleme araçları — bilgi amaçlı)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+  masaustu-paket:
+    name: Windows kurulum paketi
+    # Yalnız sürüm etiketlerinde çalışır; PR'larda gereksiz süre harcamaz.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    needs: [kalite]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build:shared
+
+      - name: İmzalı kurulum paketi üret
+        run: npm run dist -w @market/desktop
+        env:
+          # Kod imzalama sertifikası depo gizli anahtarlarından gelir (§22.2).
+          CSC_LINK: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-kurulum
+          path: apps/desktop/release/*.exe
+          retention-days: 30

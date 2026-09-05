@@ -1,0 +1,32 @@
+{
+  "name": "@market/api",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Market otomasyonu — bulut senkron API'si (Fastify + libSQL/Turso)",
+  "main": "./dist/sunucu.js",
+  "scripts": {
+    "predev": "npm run build -w @market/shared",
+    "dev": "node --import tsx --env-file-if-exists=.env --watch src/main.ts",
+    "prebuild": "npm run build -w @market/shared",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file-if-exists=.env dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed": "node --import tsx scripts/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/jwt": "^10.2.2",
+    "@fastify/rate-limit": "^10.2.0",
+    "@libsql/client": "^0.14.0",
+    "@market/shared": "*",
+    "fastify": "^5.2.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
