@@ -8,17 +8,22 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { bugun, gunEkle, miktarFormat, paraFormat, tarihFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Kabuk, Kutu, ParaKutusu, Yukleniyor } from '@/bilesen/kabuk';
-import { uclar } from '@/lib/api';
+import { AlisSekmesi } from '@/bilesen/alis-sekmesi';
+import { kullaniciyiOku, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
 
 /*
  * Sekmeler kasadaki Stok ekranıyla eşleşir (§11.5). Kasada ayrıca "Sayım"
  * sekmesi vardır; sayım fiziksel bir işlemdir ve yalnız kasada yapılır.
+ *
+ * "alis" madde 4 taşımasıyla eklendi: eskiden ayrı bir sayfaydı (/alis),
+ * artık kasadaki Stok ekranındaki gibi burada bir sekme (bkz. alis-sekmesi.tsx).
  */
-type Sekme = 'durum' | 'kritik' | 'skt' | 'hareketler';
+type Sekme = 'durum' | 'kritik' | 'skt' | 'hareketler' | 'alis';
 
 interface StokRaporu {
   deger: { maliyet: Kurus; satis: Kurus; kalem: number };
@@ -71,11 +76,27 @@ const HAREKET_ETIKETI: Record<string, string> = {
 };
 
 export default function StokSayfasi() {
-  const [sekme, setSekme] = useState<Sekme>('durum');
+  // useSearchParams açılış sekmesini (?sekme=alis) okumak için gerekir; Next.js
+  // bunu bir Suspense sınırı içinde ister, aksi hâlde derleme hata verir.
+  return (
+    <Suspense fallback={<Kabuk baslik="Stok"><Yukleniyor /></Kabuk>}>
+      <StokIcerigi />
+    </Suspense>
+  );
+}
+
+function StokIcerigi() {
+  const searchParams = useSearchParams();
+  // "/alis" sayfasından yönlendirilen ?sekme=alis burada okunur (madde 4 taşıması).
+  const [sekme, setSekme] = useState<Sekme>(() => (searchParams.get('sekme') === 'alis' ? 'alis' : 'durum'));
   const [bitis, setBitis] = useState(bugun());
   const [baslangic, setBaslangic] = useState(gunEkle(bugun(), -29));
   const [tip, setTip] = useState('');
   const [arama, setArama] = useState('');
+  // Alış sekmesi kasadaki `stok.giris` yetkisiyle aynı kitle: yalnız ADMIN ve
+  // MÜDÜR — eskiden menüdeki `roller: ['ADMIN', 'MUDUR']` koşulunun aynısı.
+  const rol = kullaniciyiOku()?.rol;
+  const alisGorunur = rol === 'ADMIN' || rol === 'MUDUR';
 
   // Durum, Kritik ve SKT aynı uçtan beslenir; tek istek üçünü de doldurur.
   const raporSekmesi = sekme === 'durum' || sekme === 'kritik' || sekme === 'skt';
@@ -114,6 +135,8 @@ export default function StokSayfasi() {
             { anahtar: 'kritik' as const, etiket: 'Kritik Stok' },
             { anahtar: 'skt' as const, etiket: 'SKT Takibi' },
             { anahtar: 'hareketler' as const, etiket: 'Hareketler' },
+            // Kasadaki Stok ekranında olduğu gibi etiket "Alış" (madde 4 taşıması).
+            ...(alisGorunur ? [{ anahtar: 'alis' as const, etiket: 'Alış' }] : []),
           ].map((s) => (
             <button
               key={s.anahtar}
@@ -307,6 +330,8 @@ export default function StokSayfasi() {
               )}
             </section>
           )
+        ) : sekme === 'alis' ? (
+          <AlisSekmesi />
         ) : (
           <>
             <section className="kart space-y-3 p-4">

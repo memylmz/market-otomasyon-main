@@ -30,9 +30,9 @@ const MENU: MenuOgesi[] = [
   { yol: '/urunler', etiket: 'Ürünler', ikon: '📦' },
   { yol: '/stok', etiket: 'Stok', ikon: '🏷️' },
   { yol: '/cari', etiket: 'Cari Hesap', ikon: '📒' },
-  // Alış faturası girmek mali bir işlemdir: stok artar, tedarikçiye borç doğar.
-  // Kasadaki `stok.giris` yetkisiyle aynı kitle — kasiyer giremez (§11.8).
-  { yol: '/alis', etiket: 'Alış Faturaları', ikon: '🧾', roller: ['ADMIN', 'MUDUR'] },
+  // Alış Faturaları menüden kaldırıldı — artık Stok sayfasının "Alış" sekmesi
+  // (madde 4 taşıması, bkz. `app/stok/page.tsx`). Erişim kitlesi (ADMIN,
+  // MUDUR) sekme görünürlüğünde aynen korunur.
   { yol: '/raporlar', etiket: 'Raporlar', ikon: '📊' },
   { yol: '/kampanyalar', etiket: 'Kampanya', ikon: '🎯' },
   { yol: '/kullanicilar', etiket: 'Personel', ikon: '👤', roller: ['ADMIN'] },
