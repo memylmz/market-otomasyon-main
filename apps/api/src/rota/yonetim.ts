@@ -760,20 +760,40 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     vade_tarihi: z.string().nullable().optional(),
     notlar: z.string().max(500).nullable().optional(),
     odenen_tutar: z.number().int().nonnegative().default(0),
-    odeme_tipi: z.enum(['NAKIT', 'KART']).default('NAKIT'),
+    odeme_tipi: z.enum(['NAKIT', 'KART', 'HAVALE']).default('NAKIT'),
     neden: z.string().trim().max(300).optional(),
     kalemler: z
       .array(
-        z.object({
-          urun_id: z.string().uuid(),
-          miktar: z.number().int().positive(),
-          birim_fiyat: z.number().int().nonnegative(),
-          kdv_orani: z.number().min(0).max(100),
-          skt: z.string().nullable().optional(),
-          lot_no: z.string().max(60).nullable().optional(),
-          yeni_satis_fiyati: z.number().int().nonnegative().optional(),
-        }),
+        z
+          .object({
+            urun_id: z.string().uuid().optional(),
+            /**
+             * Faturada açılacak yeni ürün. Bulut ürünü YARATMAZ; kartı da
+             * belgeyi de kasa üretir (§11.8). Buradaki alanlar yalnız taşınır.
+             */
+            yeni_urun: z
+              .object({
+                ad: z.string().trim().min(1).max(200),
+                barkod: z.string().trim().max(32).nullable().optional(),
+                marka: z.string().max(120).nullable().optional(),
+                birim_tipi: z.enum(['ADET', 'KG', 'LT']).default('ADET'),
+                kategori_id: z.string().uuid().nullable().optional(),
+                satis_fiyati: z.number().int().nonnegative(),
+                kritik_stok: z.number().int().nonnegative().optional(),
+              })
+              .optional(),
+            miktar: z.number().int().positive(),
+            birim_fiyat: z.number().int().nonnegative(),
+            kdv_orani: z.number().min(0).max(100),
+            skt: z.string().nullable().optional(),
+            lot_no: z.string().max(60).nullable().optional(),
+            yeni_satis_fiyati: z.number().int().nonnegative().optional(),
+          })
+          .refine((k) => Boolean(k.urun_id) !== Boolean(k.yeni_urun), {
+            message: 'Kalem ya mevcut bir ürüne ya da yeni bir ürüne bağlı olmalıdır',
+          }),
       )
+      .max(200)
       .optional(),
   });
 
@@ -1041,14 +1061,37 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
         if (!tedarikci) throw hatalar.bulunamadi('Tedarikçi');
         if (tedarikci.tip !== 'TEDARIKCI') throw hatalar.dogrulama('Seçilen cari bir tedarikçi değil.');
 
-        // Ürünler burada doğrulanır: kasada bulunamayan ürün talimatı tümden
-        // düşürür ve kullanıcı hatayı ancak çok sonra görürdü.
+        /*
+         * Mevcut ürünler burada doğrulanır: kasada bulunamayan ürün talimatı
+         * tümden düşürür ve kullanıcı hatayı ancak çok sonra görürdü.
+         *
+         * Yeni ürünlerde asıl kontrol kasadadır (barkod tekilliği orada
+         * kesinleşir); buradaki ön kontrol, kullanıcı hâlâ ekrandayken
+         * "bu barkod zaten var" diyebilmek içindir.
+         */
+        const govdedekiBarkodlar = new Set<string>();
         for (const kalem of govde.kalemler) {
-          const urun = await islem.tek<{ id: string }>(
-            'SELECT id FROM urunler WHERE isletme_id = ? AND id = ? AND silindi_mi = 0',
-            [isletmeId, kalem.urun_id],
+          if (kalem.urun_id) {
+            const urun = await islem.tek<{ id: string }>(
+              'SELECT id FROM urunler WHERE isletme_id = ? AND id = ? AND silindi_mi = 0',
+              [isletmeId, kalem.urun_id],
+            );
+            if (!urun) throw hatalar.bulunamadi('Ürün');
+            continue;
+          }
+
+          const barkod = kalem.yeni_urun?.barkod?.trim();
+          if (!barkod) continue;
+          if (govdedekiBarkodlar.has(barkod)) {
+            throw hatalar.dogrulama(`"${barkod}" barkodu aynı belgede iki kez kullanılmış.`);
+          }
+          govdedekiBarkodlar.add(barkod);
+
+          const mevcut = await islem.tek<{ urun_id: string }>(
+            'SELECT urun_id FROM barkodlar WHERE isletme_id = ? AND barkod = ? AND silindi_mi = 0',
+            [isletmeId, barkod],
           );
-          if (!urun) throw hatalar.bulunamadi('Ürün');
+          if (mevcut) throw hatalar.dogrulama(`"${barkod}" barkodu başka bir üründe kayıtlı.`);
         }
         faturaId = null;
       } else {
