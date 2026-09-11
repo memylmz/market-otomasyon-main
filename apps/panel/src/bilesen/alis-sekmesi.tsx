@@ -17,7 +17,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   bugun,
   gunEkle,
@@ -612,6 +612,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
   const [urunSecimi, setUrunSecimi] = useState('');
   const [gonderiliyor, setGonderiliyor] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
+  const barkodAlani = useRef<HTMLInputElement>(null);
 
   const urunHaritasi = useMemo(() => new Map((urunler.veri?.data ?? []).map((u) => [u.id, u])), [urunler.veri]);
 
@@ -648,6 +649,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
     setBarkodGirdi('');
     if (!deger) {
       setSatirlar((s) => [...s, bosSatir()]);
+      barkodAlani.current?.focus();
       return;
     }
     setBarkodAraniyor(true);
@@ -664,6 +666,8 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
       setHata(h instanceof Error ? h.message : 'Barkod sorgulanamadı.');
     } finally {
       setBarkodAraniyor(false);
+      // Elde tarayıcı olan kullanıcı ekrana dokunmadan arka arkaya okutabilsin.
+      barkodAlani.current?.focus();
     }
   };
 
@@ -864,6 +868,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
           <label className="block min-w-[220px] flex-1">
             <span className="etiket">Barkod</span>
             <input
+              ref={barkodAlani}
               className="alan"
               value={barkodGirdi}
               onChange={(e) => setBarkodGirdi(e.target.value)}
