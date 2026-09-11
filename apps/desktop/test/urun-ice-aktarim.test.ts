@@ -5,7 +5,6 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { adet } from '@market/shared';
-import { barkodSahibi } from '../src/main/depo/katalog.js';
 import { stokOku } from '../src/main/depo/stok.js';
 import { urunleriIceAktar } from '../src/main/servis/katalog-servis.js';
 import { testOrtamiKur, type TestOrtami } from './yardimci.js';
