@@ -5,10 +5,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { adet } from '@market/shared';
+import { adet, type Yetki } from '@market/shared';
 import { cariBul } from '../src/main/depo/cari.js';
 import { barkodSahibi, urunBul } from '../src/main/depo/katalog.js';
 import { stokOku } from '../src/main/depo/stok.js';
+import type { Aktor } from '../src/main/servis/baglam.js';
 import { malKabulOnayla } from '../src/main/servis/stok-servis.js';
 import { tedarikciEkle, testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
 
@@ -133,6 +134,40 @@ describe('faturada yeni ürün', () => {
         kalemler: [{ yeni_urun: { ad: 'Kaçak Ürün', satis_fiyati: 1000 }, miktar: adet(1), birim_fiyat: 500, kdv_orani: 20 }],
       }),
     ).toThrow();
+  });
+
+  /*
+   * `stok.giris`i olup `urun.duzenle`si OLMAYAN bir aktör hazır rollerde yoktur
+   * (stok.giris taşıyan MUDUR/ADMIN'de urun.duzenle de var). Yukarıdaki kasiyer
+   * testi genel `stok.giris` kapısını (satır 268) sınıyor, ikinci kapıyı (satır
+   * 279-280) hiç tetiklemiyor: kasiyer zaten ilk kapıda reddediliyor. İkinci
+   * kapıyı gerçekten sınamak için yetkileri elle daraltılmış bir aktör kurulur.
+   */
+  it('stok.giris olan ama urun.duzenle olmayan aktör yeni ürün kalemini reddeder', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    const kisitliAktor: Aktor = { ...ortam.admin, yetkiler: new Set<Yetki>(['stok.giris']) };
+
+    expect(() =>
+      malKabulOnayla(ortam.uygulama.baglam, kisitliAktor, {
+        tedarikci_id: tedarikciId,
+        kalemler: [{ yeni_urun: { ad: 'Kaçak Ürün 2', satis_fiyati: 1000 }, miktar: adet(1), birim_fiyat: 500, kdv_orani: 20 }],
+      }),
+      // Mesaj, ikinci kapının kendi açıklamasını taşır — reddin stok.giris'ten
+      // değil, urun.duzenle'den geldiğini kanıtlar.
+    ).toThrow(/faturada yeni ürün açma/);
+  });
+
+  it('aynı kısıtlı aktörle MEVCUT ürüne bağlı kalem başarıyla geçer (kapı yalnız yeni ürünü engeller)', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    const mevcutId = urunEkle(ortam, { ad: 'Bilinen Yağ' });
+    const kisitliAktor: Aktor = { ...ortam.admin, yetkiler: new Set<Yetki>(['stok.giris']) };
+
+    const sonuc = malKabulOnayla(ortam.uygulama.baglam, kisitliAktor, {
+      tedarikci_id: tedarikciId,
+      kalemler: [{ urun_id: mevcutId, miktar: adet(3), birim_fiyat: 800, kdv_orani: 20 }],
+    });
+
+    expect(sonuc.kalemSayisi).toBe(1);
   });
 
   it('HAVALE ödemede cari kapanır ama kasa çekmecesine dokunulmaz', () => {
