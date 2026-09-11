@@ -1,0 +1,70 @@
+/**
+ * Toplu giriş satırlarının kaleme çevrilmesi. Buradaki hata doğrudan yanlış
+ * fatura demektir: 2,5 kg "2500 bindebir", 15,00 ₺ "1500 kuruş" olmak zorunda.
+ */
+
+import { describe, expect, it } from 'vitest';
+import { topluGirisKalemleri, type TopluGirisSatiri } from '@market/shared';
+
+function satir(ek: Partial<TopluGirisSatiri> = {}): TopluGirisSatiri {
+  return { barkod: '', ad: 'Kola 1L', miktar: '12', alis: '15,00', satis: '25,00', kdv: '20', ...ek };
+}
+
+describe('topluGirisKalemleri', () => {
+  it('metin satırını kuruş ve bindebir kaleme çevirir', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([satir({ barkod: '8690000000017' })]);
+    expect(hatalar).toEqual([]);
+    expect(kalemler).toEqual([
+      {
+        yeni_urun: { ad: 'Kola 1L', barkod: '8690000000017', satis_fiyati: 2500 },
+        miktar: 12_000,
+        birim_fiyat: 1500,
+        kdv_orani: 20,
+      },
+    ]);
+  });
+
+  it('satış fiyatı boşsa kâr marjından hesaplar', () => {
+    const { kalemler } = topluGirisKalemleri([satir({ satis: '' })], { marjYuzde: 40 });
+    // 1500 / (1 - 0,40) = 2500 matrah; %20 KDV → 3000
+    expect(kalemler[0]!.yeni_urun!.satis_fiyati).toBe(3000);
+  });
+
+  it('elle yazılan satış fiyatı marjı ezer', () => {
+    const { kalemler } = topluGirisKalemleri([satir({ satis: '27,50' })], { marjYuzde: 40 });
+    expect(kalemler[0]!.yeni_urun!.satis_fiyati).toBe(2750);
+  });
+
+  it('mevcut ürün satırını urun_id ile bağlar, yeni_urun üretmez', () => {
+    const { kalemler } = topluGirisKalemleri([satir({ urun_id: '44444444-4444-4444-8444-444444444444' })]);
+    expect(kalemler[0]!.urun_id).toBe('44444444-4444-4444-8444-444444444444');
+    expect(kalemler[0]!.yeni_urun).toBeUndefined();
+  });
+
+  it('ondalıklı miktarı bindebire çevirir', () => {
+    const { kalemler } = topluGirisKalemleri([satir({ miktar: '2,5' })]);
+    expect(kalemler[0]!.miktar).toBe(2500);
+  });
+
+  it('eksik ad, sıfır miktar ve okunamayan fiyatı satır numarasıyla bildirir', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([
+      satir({ ad: '  ' }),
+      satir({ miktar: '0' }),
+      satir({ alis: 'abc' }),
+      satir({ satis: '' }),
+    ]);
+    expect(kalemler).toEqual([]);
+    expect(hatalar.map((h) => h.satir)).toEqual([1, 2, 3, 4]);
+    expect(hatalar[0]!.mesaj).toContain('Ürün adı');
+    expect(hatalar[3]!.mesaj).toContain('Satış fiyatı');
+  });
+
+  it('tamamen boş satırı yok sayar (kullanıcı fazladan satır açmış olabilir)', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([
+      { barkod: '', ad: '', miktar: '', alis: '', satis: '', kdv: '20' },
+      satir(),
+    ]);
+    expect(hatalar).toEqual([]);
+    expect(kalemler).toHaveLength(1);
+  });
+});

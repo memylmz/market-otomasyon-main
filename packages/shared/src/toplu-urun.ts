@@ -1,0 +1,105 @@
+/**
+ * Tedarikçiden toplu ürün girişi: arayüz satırlarının fatura kalemine çevrimi.
+ *
+ * Kasa ve panel aynı tabloyu doldurur. Kural tek yerde durmak zorundadır:
+ * aynı satırdan iki ekran farklı fatura üretirse raf etiketi ile panel
+ * ayrışır ve hangisinin doğru olduğu belirsizleşir (§11.8).
+ */
+
+import { marjdanFiyat } from './hesap.js';
+import { barkodNormalize } from './id.js';
+import { miktarParse } from './miktar.js';
+import { paraParse } from './para.js';
+import type { AlisGirdi } from './semalar.js';
+
+export type AlisKalemGirdisi = AlisGirdi['kalemler'][number];
+
+/** Arayüzdeki ham satır — bütün alanlar kullanıcının yazdığı metindir. */
+export interface TopluGirisSatiri {
+  barkod: string;
+  ad: string;
+  miktar: string;
+  /** KDV hariç birim alış fiyatı. */
+  alis: string;
+  /** KDV dahil raf fiyatı. Boşsa marjdan hesaplanır. */
+  satis: string;
+  kdv: string;
+  /** Doluysa satır mevcut bir ürüne bağlıdır; ad/barkod yalnız gösterim içindir. */
+  urun_id?: string;
+}
+
+export interface TopluGirisSonucu {
+  kalemler: AlisKalemGirdisi[];
+  hatalar: { satir: number; mesaj: string }[];
+}
+
+function bosMu(satir: TopluGirisSatiri): boolean {
+  return !satir.urun_id && !satir.ad.trim() && !satir.barkod.trim() && !satir.alis.trim() && !satir.miktar.trim();
+}
+
+/** Satırın raf fiyatı: elle yazılmışsa o, yoksa marjdan hesaplanan. */
+export function satirSatisFiyati(satir: TopluGirisSatiri, marjYuzde: number | null | undefined): number | null {
+  const elle = paraParse(satir.satis);
+  if (elle !== null) return elle;
+  const alis = paraParse(satir.alis);
+  const kdv = Number(String(satir.kdv).replace(',', '.'));
+  if (alis === null || !Number.isFinite(kdv)) return null;
+  if (marjYuzde === null || marjYuzde === undefined || !Number.isFinite(marjYuzde) || marjYuzde >= 100) return null;
+  return marjdanFiyat(alis, marjYuzde, kdv);
+}
+
+export function topluGirisKalemleri(
+  satirlar: readonly TopluGirisSatiri[],
+  secenekler: { marjYuzde?: number | null } = {},
+): TopluGirisSonucu {
+  const kalemler: AlisKalemGirdisi[] = [];
+  const hatalar: { satir: number; mesaj: string }[] = [];
+
+  satirlar.forEach((satir, sira) => {
+    const satirNo = sira + 1;
+    // Kullanıcı fazladan satır açmış olabilir; boş satır hata değildir.
+    if (bosMu(satir)) return;
+
+    const ad = satir.ad.trim();
+    if (!satir.urun_id && !ad) {
+      hatalar.push({ satir: satirNo, mesaj: 'Ürün adı zorunludur.' });
+      return;
+    }
+
+    const miktar = miktarParse(satir.miktar);
+    if (miktar === null || miktar <= 0) {
+      hatalar.push({ satir: satirNo, mesaj: 'Miktar sıfırdan büyük olmalıdır.' });
+      return;
+    }
+
+    const alis = paraParse(satir.alis);
+    if (alis === null) {
+      hatalar.push({ satir: satirNo, mesaj: 'Alış fiyatı okunamadı.' });
+      return;
+    }
+
+    const kdvSayi = Number(String(satir.kdv).replace(',', '.'));
+    const kdvOrani = Number.isFinite(kdvSayi) ? kdvSayi : 20;
+
+    if (satir.urun_id) {
+      kalemler.push({ urun_id: satir.urun_id, miktar, birim_fiyat: alis, kdv_orani: kdvOrani });
+      return;
+    }
+
+    const satis = satirSatisFiyati(satir, secenekler.marjYuzde);
+    if (satis === null) {
+      hatalar.push({ satir: satirNo, mesaj: 'Satış fiyatı yazılmalı ya da kâr marjı girilmelidir.' });
+      return;
+    }
+
+    const barkod = satir.barkod.trim() ? barkodNormalize(satir.barkod) : null;
+    kalemler.push({
+      yeni_urun: { ad, ...(barkod ? { barkod } : {}), satis_fiyati: satis },
+      miktar,
+      birim_fiyat: alis,
+      kdv_orani: kdvOrani,
+    } as AlisKalemGirdisi);
+  });
+
+  return { kalemler, hatalar };
+}
