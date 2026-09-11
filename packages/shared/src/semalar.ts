@@ -407,6 +407,25 @@ export const zAlisKalemi = zOrtakAlanlar.extend({
 });
 export type AlisKalemi = z.infer<typeof zAlisKalemi>;
 
+/**
+ * Faturada açılacak YENİ ürün (§11.8).
+ *
+ * Toptancıdan gelen malın çoğu katalogda yoktur. Kalem ya mevcut bir ürüne
+ * (`urun_id`) ya da burada tarif edilen yeni ürüne bağlanır; ürünü de belgeyi
+ * de KASA üretir, böylece ikisi tek transaction'da doğar.
+ */
+export const zYeniUrunKalemi = z.object({
+  ad: zMetin(200).min(1, 'Ürün adı zorunludur'),
+  barkod: zBarkod.nullable().optional(),
+  marka: zMetin(120).nullable().optional(),
+  birim_tipi: z.enum(BIRIM_TIPI).default('ADET'),
+  kategori_id: zUuid.nullable().default(null),
+  /** KDV **dahil** raf fiyatı. Alış fiyatı kalemin `birim_fiyat` alanından gelir. */
+  satis_fiyati: zKurusPozitif,
+  kritik_stok: zMiktar.optional(),
+});
+export type YeniUrunKalemi = z.infer<typeof zYeniUrunKalemi>;
+
 export const zAlisGirdi = z.object({
   tedarikci_id: zUuid,
   fatura_no: zMetin(60).nullable().optional(),
@@ -418,22 +437,29 @@ export const zAlisGirdi = z.object({
    * Kısmi ödeme desteklenir: kalan tutar tedarikçi cari borcu olarak kalır.
    */
   odenen_tutar: zKurusPozitif.default(0),
-  /** Peşin ödeme NAKIT ise kasadan da düşülür; KART ise yalnız cari kapanır. */
-  odeme_tipi: z.enum(['NAKIT', 'KART'] as const).default('NAKIT'),
+  /** Peşin ödeme NAKIT ise kasadan da düşülür; KART/HAVALE yalnız cariyi kapatır. */
+  odeme_tipi: z.enum(['NAKIT', 'KART', 'HAVALE'] as const).default('NAKIT'),
   kalemler: z
     .array(
-      z.object({
-        urun_id: zUuid,
-        miktar: zMiktar.positive('Miktar sıfırdan büyük olmalıdır'),
-        birim_fiyat: zKurusPozitif,
-        kdv_orani: zKdvOrani,
-        skt: zGun.nullable().optional(),
-        lot_no: zMetin(60).nullable().optional(),
-        /** Doluysa ürünün satış fiyatı da güncellenir. */
-        yeni_satis_fiyati: zKurusPozitif.optional(),
-      }),
+      z
+        .object({
+          urun_id: zUuid.optional(),
+          yeni_urun: zYeniUrunKalemi.optional(),
+          miktar: zMiktar.positive('Miktar sıfırdan büyük olmalıdır'),
+          birim_fiyat: zKurusPozitif,
+          kdv_orani: zKdvOrani,
+          skt: zGun.nullable().optional(),
+          lot_no: zMetin(60).nullable().optional(),
+          /** Doluysa MEVCUT ürünün satış fiyatı da güncellenir. */
+          yeni_satis_fiyati: zKurusPozitif.optional(),
+        })
+        .refine((k) => Boolean(k.urun_id) !== Boolean(k.yeni_urun), {
+          message: 'Kalem ya mevcut bir ürüne ya da yeni bir ürüne bağlı olmalıdır',
+        }),
     )
-    .min(1, 'En az bir kalem gereklidir'),
+    .min(1, 'En az bir kalem gereklidir')
+    // Tek transaction'da yazılıyor: kazara yapıştırılan devasa liste kasayı kilitlemesin.
+    .max(200, 'Tek belgede en fazla 200 kalem girilebilir'),
 });
 export type AlisGirdi = z.infer<typeof zAlisGirdi>;
 
