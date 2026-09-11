@@ -7,6 +7,7 @@ import { UrunSecici, type SecilenUrun } from '../bilesen/UrunSecici';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
+import { AlisFaturasiFormu } from './stok/AlisFaturasiFormu';
 
 type Sekme = 'ozet' | 'kritik' | 'skt' | 'hareketler' | 'sayim' | 'alis';
 
@@ -339,7 +340,7 @@ export function StokSayfasi() {
         )}
       </div>
 
-      <MalKabulDiyalogu
+      <AlisFaturasiFormu
         acik={malKabulAcik}
         onKapat={() => setMalKabulAcik(false)}
         onTamam={() => {
@@ -374,266 +375,6 @@ function Kutu({ baslik, deger, aciklama, uyari }: { baslik: string; deger: strin
       <p className={`mt-1 font-mono text-2xl font-bold ${uyari ? 'text-uyari' : 'text-metin'}`}>{deger}</p>
       {aciklama && <p className="mt-1 text-xs text-metin-4">{aciklama}</p>}
     </div>
-  );
-}
-
-interface KabulSatiri {
-  urunId: string;
-  ad: string;
-  miktar: string;
-  birimFiyat: Kurus;
-  kdvOrani: number;
-  skt: string;
-  lot: string;
-  /** Ürün kartında SKT takibi açıksa bu kalemde tarih zorunludur. */
-  sktZorunlu: boolean;
-}
-
-function MalKabulDiyalogu({ acik, onKapat, onTamam }: { acik: boolean; onKapat: () => void; onTamam: () => void }) {
-  const [tedarikciler, setTedarikciler] = useState<{ id: string; ad_unvan: string }[]>([]);
-  const [tedarikciId, setTedarikciId] = useState('');
-  const [faturaNo, setFaturaNo] = useState('');
-  const [satirlar, setSatirlar] = useState<KabulSatiri[]>([]);
-  const [gonderiliyor, setGonderiliyor] = useState(false);
-  const [odenen, setOdenen] = useState<Kurus>(0);
-  const [odemeTipi, setOdemeTipi] = useState<'NAKIT' | 'KART'>('NAKIT');
-
-  useEffect(() => {
-    if (!acik) return;
-    setSatirlar([]);
-    setFaturaNo('');
-    setOdenen(0);
-    setOdemeTipi('NAKIT');
-    cagir<{ kayitlar: { id: string; ad_unvan: string }[] }>('cari.listele', { filtre: { tip: 'TEDARIKCI' }, limit: 100 })
-      .then((v) => setTedarikciler(v.kayitlar))
-      .catch(() => setTedarikciler([]));
-  }, [acik]);
-
-  const kalemEkle = (urun: SecilenUrun) => {
-    setSatirlar((s) => [
-      ...s,
-      {
-        urunId: urun.id,
-        ad: urun.ad,
-        miktar: '1',
-        birimFiyat: urun.alis_fiyati,
-        kdvOrani: urun.kdv_orani,
-        skt: '',
-        lot: '',
-        sktZorunlu: urun.skt_takibi === true,
-      },
-    ]);
-  };
-
-  // SKT takibi açık ürünlerde tarih girilmeden onay verilmez (ürün kartındaki söz).
-  const sktEksikler = satirlar.filter((s) => s.sktZorunlu && !s.skt);
-
-  // Fatura toplamı: birim fiyatlar KDV hariçtir, KDV satır bazında eklenir.
-  const faturaToplami = satirlar.reduce((toplam, s) => {
-    const miktar = miktarParse(s.miktar) ?? 0;
-    const net = Math.round((miktar * s.birimFiyat) / 1000);
-    return toplam + net + Math.round((net * s.kdvOrani) / 100);
-  }, 0);
-
-  const gonder = async () => {
-    if (!tedarikciId || satirlar.length === 0) return;
-    if (odenen > faturaToplami) {
-      bildir.uyari('Ödenen tutar fatura toplamından fazla olamaz');
-      return;
-    }
-    if (sktEksikler.length > 0) {
-      bildir.uyari(
-        'Son kullanma tarihi eksik',
-        `${sktEksikler.map((s) => s.ad).join(', ')} için SKT takibi açık; tarih girmeden onaylayamazsınız.`,
-      );
-      return;
-    }
-    setGonderiliyor(true);
-    try {
-      const sonuc = await cagir<{ genelToplam: Kurus; odenen: Kurus; kalanBorc: Kurus }>('stok.malKabul', {
-        tedarikci_id: tedarikciId,
-        fatura_no: faturaNo.trim() || undefined,
-        odenen_tutar: odenen,
-        odeme_tipi: odemeTipi,
-        kalemler: satirlar.map((s) => ({
-          urun_id: s.urunId,
-          miktar: miktarParse(s.miktar) ?? 0,
-          birim_fiyat: s.birimFiyat,
-          kdv_orani: s.kdvOrani,
-          skt: s.skt || undefined,
-          lot_no: s.lot || undefined,
-        })),
-      });
-      bildir.basari(
-        'Mal kabul onaylandı',
-        sonuc.odenen > 0
-          ? `Toplam ${paraFormat(sonuc.genelToplam)} · Ödenen ${paraFormat(sonuc.odenen)} · Kalan borç ${paraFormat(sonuc.kalanBorc)}`
-          : `Tedarikçiye ${paraFormat(sonuc.genelToplam)} borç kaydedildi.`,
-      );
-      onTamam();
-    } catch (hata) {
-      hatayiBildir(hata, 'Mal kabul');
-    } finally {
-      setGonderiliyor(false);
-    }
-  };
-
-  return (
-    <Diyalog
-      acik={acik}
-      baslik="Mal Kabul (Alış)"
-      aciklama="Onaylandığında stok artar ve tedarikçiye cari borç oluşur."
-      genislik="genis"
-      onKapat={onKapat}
-      altBilgi={
-        <>
-          <button type="button" className="tus-ikincil" onClick={onKapat}>
-            Vazgeç
-          </button>
-          <button
-            type="button"
-            className="tus-birincil"
-            onClick={gonder}
-            disabled={gonderiliyor || !tedarikciId || satirlar.length === 0 || sktEksikler.length > 0}
-          >
-            Onayla
-          </button>
-        </>
-      }
-    >
-      <div className="mb-3 grid gap-3 md:grid-cols-2">
-        <Alan etiket="Tedarikçi *">
-          <select className="alan" value={tedarikciId} onChange={(e) => setTedarikciId(e.target.value)} data-odak>
-            <option value="">Seçiniz…</option>
-            {tedarikciler.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.ad_unvan}
-              </option>
-            ))}
-          </select>
-        </Alan>
-        <Alan etiket="Fatura no">
-          <input className="alan" value={faturaNo} onChange={(e) => setFaturaNo(e.target.value)} />
-        </Alan>
-      </div>
-
-      <div className="mb-3">
-        <UrunSecici onSec={kalemEkle} placeholder="Barkod okutun veya ürün adı yazarak kalem ekleyin…" />
-      </div>
-
-      {satirlar.length === 0 ? (
-        <p className="py-6 text-center text-sm text-metin-4">Barkod okutarak ya da isim yazarak kalem ekleyin.</p>
-      ) : (
-        <table className="tablo">
-          <thead>
-            <tr>
-              <th>Ürün</th>
-              <th className="w-24">Miktar</th>
-              <th className="w-32">Alış (KDV hariç)</th>
-              <th className="w-32">SKT</th>
-              <th className="w-28">Lot</th>
-              <th className="w-10" />
-            </tr>
-          </thead>
-          <tbody>
-            {satirlar.map((s, i) => (
-              <tr key={i}>
-                <td className="font-medium">{s.ad}</td>
-                <td>
-                  <input
-                    className="alan sayi py-1"
-                    value={s.miktar}
-                    onChange={(e) =>
-                      setSatirlar((liste) => liste.map((x, j) => (j === i ? { ...x, miktar: e.target.value } : x)))
-                    }
-                  />
-                </td>
-                <td>
-                  <ParaAlani
-                    deger={s.birimFiyat}
-                    onDegisim={(v) => setSatirlar((liste) => liste.map((x, j) => (j === i ? { ...x, birimFiyat: v } : x)))}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="date"
-                    className={`alan py-1 ${s.sktZorunlu && !s.skt ? 'border-tehlike' : ''}`}
-                    value={s.skt}
-                    aria-label={`${s.ad} son kullanma tarihi`}
-                    onChange={(e) => setSatirlar((liste) => liste.map((x, j) => (j === i ? { ...x, skt: e.target.value } : x)))}
-                  />
-                  {s.sktZorunlu && !s.skt && <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>}
-                </td>
-                <td>
-                  <input
-                    className="alan py-1"
-                    value={s.lot}
-                    onChange={(e) => setSatirlar((liste) => liste.map((x, j) => (j === i ? { ...x, lot: e.target.value } : x)))}
-                  />
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="text-tehlike"
-                    onClick={() => setSatirlar((liste) => liste.filter((_, j) => j !== i))}
-                  >
-                    ✕
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {satirlar.length > 0 && (
-        <div className="mt-4 grid gap-3 border-t border-cizgi pt-3 md:grid-cols-2">
-          <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-metin-3">Fatura toplamı (KDV dahil)</span>
-              <span className="font-mono font-semibold">{paraFormat(faturaToplami)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-metin-3">Ödenen</span>
-              <span className="font-mono text-vurgu">{paraFormat(odenen)}</span>
-            </div>
-            <div className="flex justify-between border-t border-cizgi-ince pt-1">
-              <span className="font-medium">Kalan borç</span>
-              <span className="font-mono font-bold text-uyari">{paraFormat(Math.max(0, faturaToplami - odenen))}</span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Alan etiket="Şimdi ödenen tutar" ipucu="Boş bırakılırsa tamamı tedarikçi borcu olarak kaydedilir.">
-              <ParaAlani deger={odenen} onDegisim={setOdenen} />
-            </Alan>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className="tus-ikincil px-3 py-1 text-sm" onClick={() => setOdenen(faturaToplami)}>
-                Tamamı ödendi
-              </button>
-              <button
-                type="button"
-                className="tus-ikincil px-3 py-1 text-sm"
-                onClick={() => setOdenen(Math.round(faturaToplami / 2))}
-              >
-                Yarısı
-              </button>
-              <button type="button" className="tus-ikincil px-3 py-1 text-sm" onClick={() => setOdenen(0)}>
-                Tamamı borç
-              </button>
-            </div>
-            {odenen > 0 && (
-              <Alan etiket="Ödeme şekli" ipucu="Nakit seçilirse kasadan da düşülür; kasa açık olmalıdır.">
-                <select className="alan" value={odemeTipi} onChange={(e) => setOdemeTipi(e.target.value as 'NAKIT' | 'KART')}>
-                  <option value="NAKIT">Nakit (kasadan)</option>
-                  <option value="KART">Kart / havale (kasayı etkilemez)</option>
-                </select>
-              </Alan>
-            )}
-          </div>
-        </div>
-      )}
-    </Diyalog>
   );
 }
 
@@ -1274,6 +1015,7 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
   const [iptalAcik, setIptalAcik] = useState(false);
   const [neden, setNeden] = useState('');
   const [yukleniyor, setYukleniyor] = useState(true);
+  const [yeniFaturaAcik, setYeniFaturaAcik] = useState(false);
   const girisYetkisi = useYetki('stok.giris');
 
   const yukle = useCallback(async () => {
@@ -1341,40 +1083,60 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
   };
 
   if (yukleniyor && faturalar.length === 0) return <Yukleniyor />;
-  if (faturalar.length === 0) {
-    return <BosDurum baslik="Alış faturası yok" aciklama="Mal Kabul ile girilen faturalar burada listelenir." />;
-  }
 
   return (
     <div className="p-3">
-      <table className="tablo">
-        <thead>
-          <tr>
-            <th>Tarih</th>
-            <th>Fatura no</th>
-            <th>Tedarikçi</th>
-            <th className="text-right">Ara toplam</th>
-            <th className="text-right">KDV</th>
-            <th className="text-right">Genel toplam</th>
-            <th>Durum</th>
-          </tr>
-        </thead>
-        <tbody>
-          {faturalar.map((f) => (
-            <tr key={f.id} className="cursor-pointer hover:bg-yuzey-2" onClick={() => void detayAc(f)}>
-              <td className="text-metin-3">{tarihSaatFormat(f.tarih)}</td>
-              <td>{f.fatura_no ?? '—'}</td>
-              <td>{f.tedarikci_adi ?? '—'}</td>
-              <td className="sayi">{paraFormat(f.ara_toplam, { simge: false })}</td>
-              <td className="sayi text-metin-3">{paraFormat(f.kdv_toplam, { simge: false })}</td>
-              <td className="sayi font-semibold">{paraFormat(f.genel_toplam, { simge: false })}</td>
-              <td>
-                <Rozet tur={f.durum === 'IPTAL' ? 'tehlike' : f.durum === 'ONAYLANDI' ? 'basari' : 'notr'}>{f.durum}</Rozet>
-              </td>
+      {/* Kasada da fatura girilebilmeli: mal kabulü yapan kişi panele geçmek zorunda kalmamalı. */}
+      {girisYetkisi && (
+        <div className="mb-3 flex justify-end">
+          <button type="button" className="tus-birincil" onClick={() => setYeniFaturaAcik(true)}>
+            Yeni Alış Faturası
+          </button>
+        </div>
+      )}
+
+      {faturalar.length === 0 ? (
+        <BosDurum baslik="Alış faturası yok" aciklama="Mal Kabul ile girilen faturalar burada listelenir." />
+      ) : (
+        <table className="tablo">
+          <thead>
+            <tr>
+              <th>Tarih</th>
+              <th>Fatura no</th>
+              <th>Tedarikçi</th>
+              <th className="text-right">Ara toplam</th>
+              <th className="text-right">KDV</th>
+              <th className="text-right">Genel toplam</th>
+              <th>Durum</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {faturalar.map((f) => (
+              <tr key={f.id} className="cursor-pointer hover:bg-yuzey-2" onClick={() => void detayAc(f)}>
+                <td className="text-metin-3">{tarihSaatFormat(f.tarih)}</td>
+                <td>{f.fatura_no ?? '—'}</td>
+                <td>{f.tedarikci_adi ?? '—'}</td>
+                <td className="sayi">{paraFormat(f.ara_toplam, { simge: false })}</td>
+                <td className="sayi text-metin-3">{paraFormat(f.kdv_toplam, { simge: false })}</td>
+                <td className="sayi font-semibold">{paraFormat(f.genel_toplam, { simge: false })}</td>
+                <td>
+                  <Rozet tur={f.durum === 'IPTAL' ? 'tehlike' : f.durum === 'ONAYLANDI' ? 'basari' : 'notr'}>{f.durum}</Rozet>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <AlisFaturasiFormu
+        acik={yeniFaturaAcik}
+        onKapat={() => setYeniFaturaAcik(false)}
+        onTamam={() => {
+          setYeniFaturaAcik(false);
+          void yukle();
+          onDegisti();
+        }}
+      />
 
       <Diyalog
         acik={Boolean(secili) && !iptalAcik}
