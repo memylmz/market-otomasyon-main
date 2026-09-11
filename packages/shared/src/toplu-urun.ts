@@ -34,7 +34,7 @@ export interface TopluGirisSonucu {
 }
 
 function bosMu(satir: TopluGirisSatiri): boolean {
-  return !satir.urun_id && !satir.ad.trim() && !satir.barkod.trim() && !satir.alis.trim() && !satir.miktar.trim();
+  return !satir.urun_id && !satir.ad.trim() && !satir.barkod.trim() && !satir.alis.trim() && !satir.miktar.trim() && !satir.satis.trim();
 }
 
 /** Satırın raf fiyatı: elle yazılmışsa o, yoksa marjdan hesaplanan. */
@@ -43,7 +43,7 @@ export function satirSatisFiyati(satir: TopluGirisSatiri, marjYuzde: number | nu
   if (elle !== null) return elle;
   const alis = paraParse(satir.alis);
   const kdv = Number(String(satir.kdv).replace(',', '.'));
-  if (alis === null || !Number.isFinite(kdv)) return null;
+  if (alis === null || !Number.isFinite(kdv) || kdv < 0 || kdv > 100) return null;
   if (marjYuzde === null || marjYuzde === undefined || !Number.isFinite(marjYuzde) || marjYuzde >= 100) return null;
   return marjdanFiyat(alis, marjYuzde, kdv);
 }
@@ -78,8 +78,17 @@ export function topluGirisKalemleri(
       return;
     }
 
-    const kdvSayi = Number(String(satir.kdv).replace(',', '.'));
-    const kdvOrani = Number.isFinite(kdvSayi) ? kdvSayi : 20;
+    const kdvMetin = String(satir.kdv).trim().replace(',', '.');
+    if (!kdvMetin) {
+      hatalar.push({ satir: satirNo, mesaj: 'KDV oranı zorunludur.' });
+      return;
+    }
+    const kdvSayi = Number(kdvMetin);
+    if (!Number.isFinite(kdvSayi) || kdvSayi < 0 || kdvSayi > 100) {
+      hatalar.push({ satir: satirNo, mesaj: 'KDV oranı 0-100 aralığında olmalıdır.' });
+      return;
+    }
+    const kdvOrani = kdvSayi;
 
     if (satir.urun_id) {
       kalemler.push({ urun_id: satir.urun_id, miktar, birim_fiyat: alis, kdv_orani: kdvOrani });
@@ -94,11 +103,17 @@ export function topluGirisKalemleri(
 
     const barkod = satir.barkod.trim() ? barkodNormalize(satir.barkod) : null;
     kalemler.push({
-      yeni_urun: { ad, ...(barkod ? { barkod } : {}), satis_fiyati: satis },
+      yeni_urun: {
+        ad,
+        ...(barkod ? { barkod } : {}),
+        satis_fiyati: satis,
+        birim_tipi: 'ADET',
+        kategori_id: null,
+      },
       miktar,
       birim_fiyat: alis,
       kdv_orani: kdvOrani,
-    } as AlisKalemGirdisi);
+    });
   });
 
   return { kalemler, hatalar };

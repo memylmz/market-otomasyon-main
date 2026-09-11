@@ -16,7 +16,7 @@ describe('topluGirisKalemleri', () => {
     expect(hatalar).toEqual([]);
     expect(kalemler).toEqual([
       {
-        yeni_urun: { ad: 'Kola 1L', barkod: '8690000000017', satis_fiyati: 2500 },
+        yeni_urun: { ad: 'Kola 1L', barkod: '8690000000017', satis_fiyati: 2500, birim_tipi: 'ADET', kategori_id: null },
         miktar: 12_000,
         birim_fiyat: 1500,
         kdv_orani: 20,
@@ -66,5 +66,43 @@ describe('topluGirisKalemleri', () => {
     ]);
     expect(hatalar).toEqual([]);
     expect(kalemler).toHaveLength(1);
+  });
+
+  it('sadece satış fiyatı dolu olan satırı hata verir', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([
+      { barkod: '', ad: '', miktar: '', alis: '', satis: '25,00', kdv: '20' },
+    ]);
+    expect(kalemler).toEqual([]);
+    expect(hatalar).toHaveLength(1);
+    expect(hatalar[0]!.mesaj).toContain('Ürün adı');
+  });
+
+  it('KDV boşsa hata verir', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([satir({ kdv: '' })]);
+    expect(kalemler).toEqual([]);
+    expect(hatalar).toHaveLength(1);
+    expect(hatalar[0]!.satir).toBe(1);
+    expect(hatalar[0]!.mesaj).toContain('KDV');
+  });
+
+  it('KDV okunamazsa hata verir', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([satir({ kdv: 'abc' })]);
+    expect(kalemler).toEqual([]);
+    expect(hatalar).toHaveLength(1);
+    expect(hatalar[0]!.mesaj).toContain('KDV');
+  });
+
+  it('KDV 0-100 aralığı dışındaysa hata verir', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([satir({ kdv: '120' })]);
+    expect(kalemler).toEqual([]);
+    expect(hatalar).toHaveLength(1);
+    expect(hatalar[0]!.mesaj).toContain('KDV');
+  });
+
+  it('marj %100 ve üzerindeyken satış fiyatı boşsa hata verir', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([satir({ satis: '' })], { marjYuzde: 100 });
+    expect(kalemler).toEqual([]);
+    expect(hatalar).toHaveLength(1);
+    expect(hatalar[0]!.mesaj).toContain('Satış fiyatı');
   });
 });
