@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   adet,
   barkodNormalize,
@@ -24,7 +25,7 @@ import {
 import { BosDurum, Kisayol, MiktarAlani, ParaAlani, Rozet, TutarSatiri } from '../bilesen/temel';
 import { HizliUrunIzgarasi } from '../bilesen/HizliUrunIzgarasi';
 import { bildir, hatayiBildir } from '../durum/bildirim';
-import { oturumDurumu } from '../durum/oturum';
+import { oturumDurumu, useYetki } from '../durum/oturum';
 import { satisGirdisiOlustur, sepetDurumu, type EklenecekUrun, type SepetAnlik } from '../durum/sepet';
 import { useBarkodOdakYakalayici, useBarkodTekrarKorumasi, useKisayol } from '../kanca/useKisayol';
 import { cagir } from '../kopru';
@@ -84,6 +85,8 @@ export function SatisSayfasi() {
   const hesap = sepet.hesap();
   const kasaAcik = oturumDurumu((s) => Boolean(s.sistem?.oturum?.kasaOturumId));
   const tazele = oturumDurumu((s) => s.tazele);
+  const iadeYetkisiVar = useYetki('satis.iade');
+  const gezin = useNavigate();
 
   const barkodAlani = useRef<HTMLInputElement>(null);
   const [barkodMetni, setBarkodMetni] = useState('');
@@ -777,6 +780,12 @@ export function SatisSayfasi() {
             <button type="button" className="tus-ikincil" onClick={() => setAramaAcik(true)}>
               Ara <Kisayol>F3</Kisayol>
             </button>
+            {/* İade artık kenar menüsünde değil: buradan Iade sayfasına gidilir (madde 3 taşıması). */}
+            {iadeYetkisiVar && (
+              <button type="button" className="tus-ikincil" onClick={() => gezin('/iade')}>
+                İade
+              </button>
+            )}
           </div>
 
           {/*

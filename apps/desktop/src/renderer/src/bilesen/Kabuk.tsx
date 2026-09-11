@@ -25,7 +25,7 @@ interface MenuOgesi {
 const MENU: MenuOgesi[] = [
   // F1 satış ekranında MÜŞTERİ SEÇME kısayoludur; menüye bağlanmaz (§10.3).
   { yol: '/satis', etiket: 'Satış', ikon: '🛒', yetki: 'satis.yap' },
-  { yol: '/iade', etiket: 'İade', ikon: '↩️', yetki: 'satis.iade' },
+  // İade menüden kaldırıldı — artık Satış ekranının üst barında düğme (bkz. Satis.tsx).
   { yol: '/urunler', etiket: 'Ürünler', ikon: '📦', yetki: 'urun.goruntule' },
   { yol: '/stok', etiket: 'Stok', ikon: '🏷️', yetki: 'stok.goruntule' },
   { yol: '/cari', etiket: 'Cari Hesap', ikon: '📒', yetki: 'cari.goruntule' },
