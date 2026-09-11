@@ -100,22 +100,33 @@ export default function CariSayfasi() {
   return (
     <Kabuk baslik="Cari Hesap" tazelik={yaslandirma.veri?.uretim_zamani}>
       <div className="space-y-4">
-        <div className="flex rounded-lg border border-cizgi-kuvvetli">
-          {(['MUSTERI', 'TEDARIKCI'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => {
-                setTip(t);
-                setSeciliId(null);
-              }}
-              className={`flex-1 rounded-lg px-3 py-2 text-sm ${
-                tip === t ? 'bg-vurgu font-medium text-vurgu-uzeri' : 'text-metin-2'
-              }`}
-            >
-              {t === 'MUSTERI' ? 'Müşteri Alacakları' : 'Tedarikçi Borçları'}
+        {/* Tip sekmeleri solda, "Yeni" düğmesi aynı satırın sağ ucunda — kasadaki
+            üst satırla birebir aynı yerleşim (Cari.tsx <header>, ml-auto). Kasada
+            tek satırlık genişlik sorun değildir (masaüstü); panelde dar ekranda
+            taşmasın diye flex-wrap eklendi — mobil-öncelik kısıtı (§brief). */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-cizgi-kuvvetli">
+            {(['MUSTERI', 'TEDARIKCI'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  setTip(t);
+                  setSeciliId(null);
+                }}
+                className={`rounded-lg px-3 py-2 text-sm ${
+                  tip === t ? 'bg-vurgu font-medium text-vurgu-uzeri' : 'text-metin-2'
+                }`}
+              >
+                {t === 'MUSTERI' ? 'Müşteri Alacakları' : 'Tedarikçi Borçları'}
+              </button>
+            ))}
+          </div>
+          {yoneticiMi && (
+            <button type="button" className="tus-birincil ml-auto" onClick={() => setKartAcik('yeni')}>
+              Yeni {tip === 'MUSTERI' ? 'Müşteri' : 'Tedarikçi'}
             </button>
-          ))}
+          )}
         </div>
 
         {liste.yukleniyor && !liste.veri ? (
@@ -125,52 +136,47 @@ export default function CariSayfasi() {
         ) : (
           <>
             {/* Kasadaki üç kutunun aynısı; toplamlar sunucudan gelir, ekrandaki
-                listeden hesaplanmaz — arama yapınca toplam değişmemelidir. */}
+                listeden hesaplanmaz — arama yapınca toplam değişmemelidir.
+                Vurgu kasadaki gibi yalnız "Vadesi geçen" kutusunda ve yalnız
+                tutar sıfırdan büyükken (Cari.tsx: vurgula=vadesiGecenToplam>0 koşulu). */}
             <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-              <ParaKutusu etiket="Müşteri alacağı" tutar={liste.veri?.toplamlar.musteriAlacagi ?? 0} vurgulu />
+              <ParaKutusu etiket="Müşteri alacağı" tutar={liste.veri?.toplamlar.musteriAlacagi ?? 0} />
               <ParaKutusu etiket="Tedarikçi borcu" tutar={liste.veri?.toplamlar.tedarikciBorcu ?? 0} />
               <ParaKutusu
                 etiket="Vadesi geçen (30+ gün)"
                 tutar={vadesiGecen}
                 alt={vadesiGecen > 0 ? 'Takip gerekebilir' : 'Temiz'}
+                vurgulu={vadesiGecen > 0}
               />
             </section>
-
-            {vadesiGecen > 0 && (
-              <section className="kart p-4">
-                <h2 className="mb-3 font-semibold">Yaşlandırma</h2>
-                <YaslandirmaGrafigi dilimler={genelYaslandirma} />
-              </section>
-            )}
 
             <div className="grid gap-4 lg:grid-cols-2">
               {/* Mobilde tek sütun: hesap seçilince liste yerini ekstreye bırakır. */}
               <section className={`space-y-3 ${secili ? 'hidden lg:block' : ''}`}>
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    className="alan min-w-0 flex-1"
-                    placeholder="Ad / unvan ara…"
-                    value={arama}
-                    onChange={(e) => setArama(e.target.value)}
-                  />
-                  {yoneticiMi && (
-                    <button type="button" className="tus-birincil" onClick={() => setKartAcik('yeni')}>
-                      Yeni {tip === 'MUSTERI' ? 'Müşteri' : 'Tedarikçi'}
-                    </button>
-                  )}
-                </div>
+                {/* Arama kasadaki gibi tek başına bir satır (Cari.tsx placeholder'ıyla aynı). */}
+                <input
+                  className="alan"
+                  placeholder="Ad, unvan, telefon…"
+                  value={arama}
+                  onChange={(e) => setArama(e.target.value)}
+                />
 
+                {/* "Hesap Dökümü" başlığı kaldırıldı: kasada liste doğrudan kartın içinde,
+                    başlıksız durur. */}
                 <div className="kart p-4">
-                  <h2 className="mb-3 font-semibold">Hesap Dökümü</h2>
                   {kayitlar.length === 0 ? (
                     <BosDurum
                       baslik="Kayıt yok"
                       aciklama={arama ? 'Arama sonucuna uyan hesap bulunamadı.' : 'Bu türde hesap kaydı bulunmuyor.'}
                     />
                   ) : (
-                    <div className="tablo-sarmal">
+                    // Kasada kart'ın kendisi kaydırma alanıdır (flex-1 min-h-0 overflow-auto),
+                    // bu yüzden sticky thead anlamlıdır. Panel sayfa düzeyinde kaydığı için
+                    // aynısı Kabuk'un kendi sticky üst çubuğunun arkasında kalırdı; liste bu
+                    // yüzden kendi sınırlı kaydırma alanına alınıyor.
+                    <div className="tablo-sarmal max-h-[65vh] overflow-y-auto">
                       <table className="tablo">
-                        <thead>
+                        <thead className="sticky top-0 bg-yuzey">
                           <tr>
                             <th className="text-left">Ad / Unvan</th>
                             <th>Bakiye</th>
@@ -202,7 +208,8 @@ export default function CariSayfasi() {
                               >
                                 {paraFormat(c.bakiye, { simge: false })}
                               </td>
-                              <td className="text-xs text-metin-4">{c.son_hareket ? goreliZaman(c.son_hareket) : '—'}</td>
+                              {/* Son hareket kasadaki gibi tarih-saat; göreli zaman değil (Cari.tsx: tarihSaatFormat). */}
+                              <td className="text-xs text-metin-4">{c.son_hareket ? tarihSaatFormat(c.son_hareket) : '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -234,6 +241,16 @@ export default function CariSayfasi() {
                 )}
               </section>
             </div>
+
+            {/* Genel yaşlandırma kartı kasada yoktur (oradaki karşılığı listedeki kırmızı
+                noktadır); panele özgü bu bilgi silinmiyor, yalnız kasadaki üst yarının
+                sırasını bozmamak için liste + ekstre ızgarasının ALTINA iniyor. */}
+            {vadesiGecen > 0 && (
+              <section className="kart p-4">
+                <h2 className="mb-3 font-semibold">Yaşlandırma</h2>
+                <YaslandirmaGrafigi dilimler={genelYaslandirma} />
+              </section>
+            )}
 
             <p className="text-xs text-metin-4">
               Tahsilat ve ödeme kayıtları kasadan girilir — para fiziksel olarak orada alınır ve aynı anda kasa hareketi oluşur.
