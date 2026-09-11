@@ -24,6 +24,9 @@ export interface TopluGirisSatiri {
   /** KDV dahil raf fiyatı. Boşsa marjdan hesaplanır. */
   satis: string;
   kdv: string;
+  /** Gün, `YYYY-AA-GG`. Boşsa kaleme hiç konmaz (mevcut ve yeni ürün satırında ortak alan). */
+  skt?: string;
+  lot?: string;
   /** Doluysa satır mevcut bir ürüne bağlıdır; ad/barkod yalnız gösterim içindir. */
   urun_id?: string;
 }
@@ -90,8 +93,13 @@ export function topluGirisKalemleri(
     }
     const kdvOrani = kdvSayi;
 
+    // SKT/lot mevcut VE yeni ürün satırında ortaktır; doluysa taşınır, boşsa şemadaki opsiyonel alan hiç konmaz.
+    const skt = satir.skt?.trim();
+    const lot = satir.lot?.trim();
+    const sktLotAlanlari = { ...(skt ? { skt } : {}), ...(lot ? { lot_no: lot } : {}) };
+
     if (satir.urun_id) {
-      kalemler.push({ urun_id: satir.urun_id, miktar, birim_fiyat: alis, kdv_orani: kdvOrani });
+      kalemler.push({ urun_id: satir.urun_id, miktar, birim_fiyat: alis, kdv_orani: kdvOrani, ...sktLotAlanlari });
       return;
     }
 
@@ -113,6 +121,7 @@ export function topluGirisKalemleri(
       miktar,
       birim_fiyat: alis,
       kdv_orani: kdvOrani,
+      ...sktLotAlanlari,
     });
   });
 

@@ -105,4 +105,26 @@ describe('topluGirisKalemleri', () => {
     expect(hatalar).toHaveLength(1);
     expect(hatalar[0]!.mesaj).toContain('Satış fiyatı');
   });
+
+  it('SKT ve lot doluysa kaleme taşınır', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([satir({ skt: '2026-12-31', lot: 'LOT-42' })]);
+    expect(hatalar).toEqual([]);
+    expect(kalemler[0]!.skt).toBe('2026-12-31');
+    expect(kalemler[0]!.lot_no).toBe('LOT-42');
+  });
+
+  it('SKT ve lot boş bırakılırsa kalemde bu alanlar hiç bulunmaz', () => {
+    const { kalemler } = topluGirisKalemleri([satir({ skt: '', lot: '' })]);
+    expect(kalemler[0]).not.toHaveProperty('skt');
+    expect(kalemler[0]).not.toHaveProperty('lot_no');
+  });
+
+  it('mevcut ürün satırında da SKT/lot kaleme taşınır (yalnız yeni ürüne özgü değildir)', () => {
+    const { kalemler } = topluGirisKalemleri([
+      satir({ urun_id: '44444444-4444-4444-8444-444444444444', skt: '2027-01-15', lot: 'L-9' }),
+    ]);
+    expect(kalemler[0]!.urun_id).toBe('44444444-4444-4444-8444-444444444444');
+    expect(kalemler[0]!.skt).toBe('2027-01-15');
+    expect(kalemler[0]!.lot_no).toBe('L-9');
+  });
 });
