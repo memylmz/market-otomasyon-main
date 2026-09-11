@@ -151,7 +151,17 @@ function StokIcerigi() {
           ))}
         </nav>
 
-        {aktif.yukleniyor ? (
+        {/*
+          "Alış" en başta kontrol edilir: kendi useVeri çağrısını kendisi
+          yönetir (bkz. AlisSekmesi), ortak `aktif` durumuna (durum/hareketler)
+          hiç bağlı değildir. Aksi hâlde örneğin Hareketler'de önce bir istek
+          hatası oluşup sonra Alış'a geçilirse, aktif.hata hâlâ Hareketler'e
+          ait olduğu için burada yanlışlıkla hata kutusu gösterilir — Alış
+          sekmesi kendi verisi başarılı olsa bile erişilemez hâle gelir.
+        */}
+        {sekme === 'alis' ? (
+          <AlisSekmesi />
+        ) : aktif.yukleniyor ? (
           <Yukleniyor />
         ) : aktif.hata ? (
           <HataKutusu mesaj={aktif.hata} tekrarDene={aktif.tazele} />
@@ -330,8 +340,6 @@ function StokIcerigi() {
               )}
             </section>
           )
-        ) : sekme === 'alis' ? (
-          <AlisSekmesi />
         ) : (
           <>
             <section className="kart space-y-3 p-4">
