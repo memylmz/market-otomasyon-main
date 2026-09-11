@@ -360,6 +360,100 @@ describe('katalog yönetimi — kasa ile aynı kurallar (§11.4)', () => {
   });
 });
 
+describe('barkodla ürün sorgusu (§11.8 madde 5-6 — panel toplu ürün girişi)', () => {
+  /**
+   * Panel bugün yalnız kısa kodu (≤5 haneli PLU) görüyor, gerçek barkodu
+   * görmüyor. Elindeki kısmi `?limit=500` listesiyle eşleştirmeye kalkarsa
+   * listede olmayan mevcut bir ürünü "yeni" sanıp mükerrer kart açabilir; bu
+   * yüzden barkod eşleşmesi doğrudan bulutta, tam katalog üzerinde yapılır.
+   */
+  async function barkodTanimla(urunId: string, barkod: string, isletmeId = ISLETME_ID) {
+    const zaman = simdi();
+    await vt.calistir(
+      `INSERT INTO barkodlar (id, isletme_id, urun_id, barkod, aktif_mi, created_at, updated_at, versiyon, silindi_mi)
+       VALUES (?, ?, ?, ?, 1, ?, ?, 1, 0)`,
+      [uuid(), isletmeId, urunId, barkod, zaman, zaman],
+    );
+  }
+
+  it('eşleşen barkodun ürününü döner — kataloğun geri kalanı karışmaz', async () => {
+    const olustur = await urunEkle('Kola 1L', 1000, 1500);
+    const urunId = (olustur.json() as { id: string }).id;
+    await barkodTanimla(urunId, '8690000000012');
+    // Barkodsuz ve barkodu FARKLI iki ürün daha: filtre çalışmıyorsa (tüm liste
+    // dönerse) bu satır sayısı 1'den fazla çıkar ve test bunu yakalar.
+    const digerOlustur = await urunEkle('Ayran', 500, 800);
+    await barkodTanimla((digerOlustur.json() as { id: string }).id, '8690000000043');
+
+    const yanit = await panelGet(`${UCLAR.urunler}?barkod=8690000000012`);
+    expect(yanit.statusCode).toBe(200);
+    const veri = (yanit.json() as { data: { id: string; ad: string; alis_fiyati: number }[] }).data;
+    expect(veri).toHaveLength(1);
+    expect(veri[0]?.id).toBe(urunId);
+    expect(veri[0]?.ad).toBe('Kola 1L');
+    expect(veri[0]?.alis_fiyati).toBe(1000);
+  });
+
+  it('eşleşmeyen barkod boş liste döner — bu "yeni ürün" demektir, hata değil', async () => {
+    // Katalogda ürün VAR ama aranan barkoda sahip değil: filtre çalışmıyorsa
+    // (tüm liste dönerse) bu ürün yanlışlıkla "bulundu" sonucu üretir.
+    await urunEkle('Kayıtlı Ürün', 100, 200);
+
+    const yanit = await panelGet(`${UCLAR.urunler}?barkod=9999999999999`);
+    expect(yanit.statusCode).toBe(200);
+    expect((yanit.json() as { data: unknown[] }).data).toEqual([]);
+  });
+
+  it('başka işletmenin barkodu DÖNMEZ — işletme izolasyonu', async () => {
+    // Kendi işletmemizde de ürün var: filtre işletme sınırını atlayıp tüm
+    // listeyi dönerse bu ürün de listeye karışır ve test bunu yakalar.
+    await urunEkle('Kendi Market Ürünü', 300, 500);
+
+    const zaman = simdi();
+    const digerIsletmeId = '99999999-9999-4999-8999-999999999999';
+    const digerUrunId = uuid();
+    await vt.calistir('INSERT INTO isletmeler (id, ad, lisans_anahtari, aktif_mi, created_at) VALUES (?, ?, ?, 1, ?)', [
+      digerIsletmeId,
+      'Başka Market',
+      'TEST-LISANS-0099',
+      zaman,
+    ]);
+    await vt.calistir(
+      `INSERT INTO urunler (isletme_id, id, ad, birim_tipi, alis_fiyati, satis_fiyati, kdv_orani, kritik_stok,
+                            ideal_stok, aktif_mi, skt_takibi, created_at, updated_at, cihaz_id, versiyon)
+       VALUES (?, ?, 'Diğer Market Ürünü', 'ADET', 100, 200, 20, 0, 0, 1, 0, ?, ?, 'test', 1)`,
+      [digerIsletmeId, digerUrunId, zaman, zaman],
+    );
+    await barkodTanimla(digerUrunId, '8690000000029', digerIsletmeId);
+
+    const yanit = await panelGet(`${UCLAR.urunler}?barkod=8690000000029`);
+    expect(yanit.statusCode).toBe(200);
+    expect((yanit.json() as { data: unknown[] }).data).toEqual([]);
+  });
+
+  it('silinmiş barkod artık eşleşmez', async () => {
+    const olustur = await urunEkle('Ayran', 500, 800);
+    const urunId = (olustur.json() as { id: string }).id;
+    const zaman = simdi();
+    await vt.calistir(
+      `INSERT INTO barkodlar (id, isletme_id, urun_id, barkod, aktif_mi, created_at, updated_at, versiyon, silindi_mi)
+       VALUES (?, ?, ?, '8690000000036', 1, ?, ?, 1, 1)`,
+      [uuid(), ISLETME_ID, urunId, zaman, zaman],
+    );
+
+    const yanit = await panelGet(`${UCLAR.urunler}?barkod=8690000000036`);
+    expect((yanit.json() as { data: unknown[] }).data).toEqual([]);
+  });
+
+  it('diğer parametreler (arama, sayfalama) barkod verilmediğinde bugünkü gibi çalışmaya devam eder', async () => {
+    for (const ad of ['a-urun', 'b-urun']) await urunEkle(ad, 100, 200);
+    const yanit = await panelGet(`${UCLAR.urunler}?limit=1&ofset=1`);
+    const govde = yanit.json() as { data: { ad: string }[]; toplam: number };
+    expect(govde.toplam).toBe(2);
+    expect(govde.data).toHaveLength(1);
+  });
+});
+
 describe('gövdesiz istekler (§9.2)', () => {
   /**
    * Tarayıcı istemcileri gövdesiz DELETE'te bile sıklıkla

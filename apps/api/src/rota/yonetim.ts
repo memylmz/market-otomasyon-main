@@ -7,6 +7,7 @@
 
 import {
   aramaNormalize,
+  barkodNormalize,
   hatalar,
   merkeziAyarMi,
   MERKEZI_AYARLAR,
@@ -155,6 +156,31 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
   uygulama.get(UCLAR.urunler, korumali, async (istek) => {
     const sorgu = zSayfaIstegi.parse(istek.query);
     const isletmeId = istek.kullanici?.isletmeId;
+
+    /*
+     * Barkod sorgusu (§11.8 madde 5-6 — panel toplu ürün girişi): diğer tüm
+     * parametrelerden BAĞIMSIZ, ayrı bir yoldur. Panel toptancı faturasında
+     * barkod okutunca "bu ürün kayıtlı mı" sorusunu tam katalog üzerinde
+     * sorar — kısmi `?limit=500` listesiyle eşleştirseydi listede olmayan
+     * mevcut bir ürünü "yeni" sanıp mükerrer ürün kartı açardı. Eşleşme
+     * yoksa boş liste döner; bu bir hata değil, "yeni ürün" bilgisidir.
+     */
+    const q0 = istek.query as { barkod?: string };
+    if (q0.barkod?.trim()) {
+      const barkod = barkodNormalize(q0.barkod);
+      const veri = await uygulama.vt.tumu<Record<string, unknown>>(
+        `SELECT u.id, u.ad, u.kategori_id, u.marka, u.birim_tipi, u.alis_fiyati, u.satis_fiyati, u.kdv_orani,
+                u.kritik_stok, u.ideal_stok, u.raf_konumu, u.aktif_mi, u.skt_takibi, u.notlar, u.updated_at,
+                COALESCE(s.miktar, 0) AS stok, k.ad AS kategori_adi, b.barkod AS barkod
+         FROM barkodlar b
+         JOIN urunler u ON u.isletme_id = b.isletme_id AND u.id = b.urun_id
+         LEFT JOIN stok_ozet s ON s.isletme_id = u.isletme_id AND s.urun_id = u.id
+         LEFT JOIN kategoriler k ON k.isletme_id = u.isletme_id AND k.id = u.kategori_id
+         WHERE b.isletme_id = ? AND b.barkod = ? AND b.silindi_mi = 0 AND u.silindi_mi = 0`,
+        [isletmeId, barkod],
+      );
+      return { data: veri, toplam: veri.length, next_cursor: null, has_more: false };
+    }
 
     /*
      * Arama ve sıralama JS'te yapılır (kasa ile aynı davranış):
