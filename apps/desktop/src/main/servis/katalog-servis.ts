@@ -741,7 +741,7 @@ export function urunleriIceAktar(baglam: Baglam, aktor: Aktor, icerik: string, u
           );
           if (barkod) barkodEkle(vt, urunId, barkod, null, cihazId, zaman);
           if (!mevcutUrunId && acilisStogu > 0) {
-            hareketEkle(
+            const acilisHareketId = hareketEkle(
               vt,
               {
                 urun_id: urunId,
@@ -755,6 +755,9 @@ export function urunleriIceAktar(baglam: Baglam, aktor: Aktor, icerik: string, u
               cihazId,
               zaman,
             );
+            // Olay ŞART: hareket yalnız yerelde kalırsa merkezdeki stok özeti
+            // açılış miktarını hiç görmez ve panel ile kasa ilk günden ayrışır.
+            stokOlayiYaz(baglam, acilisHareketId, urunId, 'ACILIS', acilisStogu, aktor, zaman);
           }
           const kayit = urunBul(vt, urunId);
           olayYaz(
