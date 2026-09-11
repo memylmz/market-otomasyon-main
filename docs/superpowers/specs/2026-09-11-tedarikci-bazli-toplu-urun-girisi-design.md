@@ -139,6 +139,9 @@ zaten var.
 - Panelden gönderilen talimat kasada uygulanamazsa (ör. arada aynı barkod kasada açılmışsa)
   hata yalnız kasada kalır, panele geri dönmez — mevcut davranış, bu tasarım değiştirmiyor.
   Buluttaki barkod ön kontrolü pratikte bu hâlleri ekranda yakalar.
+- Panele bugün **yalnız ADMIN** giriş yapabiliyor (`kimlik.ts` girişte `rol = 'ADMIN'` arıyor);
+  uçtaki `yonetici` guard'ı ADMIN+MÜDÜR'e açık olsa da müdür panelde oturum açamaz. Kasada
+  müdür kendi yetkileriyle çalışır. Mevcut davranış, bu iş kapsamında değiştirilmiyor.
 - Toplu girişte **miktar zorunludur**: fatura kalemi miktarsız olamaz. "Ürünü şimdi tanımlayayım,
   malı sonra alayım" için tekil "Yeni Ürün" kullanılır.
 - Ürünleri tedarikçiye göre listeleme/filtreleme bu işin dışında bırakıldı. Kasadaki katalog
