@@ -654,6 +654,167 @@ export const GOCLER: readonly Goc[] = [
       DELETE FROM sync_outbox WHERE olay_tipi = 'KULLANICI_KAYDEDILDI';
     `,
   },
+  {
+    surum: 4,
+    ad: 'miktar_bazli_kampanyalar',
+    /*
+     * Miktar bazlı kampanyalar (§10.8): "3 al 2 öde", "3 kg üzeri 8,00/kg".
+     *
+     * İki değişiklik gerekiyor: `esik_miktar` sütunu (kampanyanın eşiği,
+     * bindebir cinsinden) ve `tip` sütunundaki CHECK kısıtının genişlemesi.
+     *
+     * SQLite'ta CHECK kısıtı ALTER ile değiştirilemez; tablo yeniden kurulur.
+     * Veri kopyalanır, eski tablo düşürülür, yenisi adını alır.
+     */
+    yukari: `
+      CREATE TABLE kampanyalar_yeni (
+        id               TEXT PRIMARY KEY,
+        ad               TEXT NOT NULL,
+        tip              TEXT NOT NULL CHECK (tip IN ('YUZDE','TUTAR','SABIT_FIYAT','N_AL_M_ODE','KADEMELI_FIYAT')),
+        kapsam           TEXT NOT NULL CHECK (kapsam IN ('URUN','KATEGORI','TUM')),
+        hedef_id         TEXT,
+        deger            REAL NOT NULL,
+        esik_miktar      INTEGER,
+        baslangic        TEXT NOT NULL,
+        bitis            TEXT NOT NULL,
+        oncelik          INTEGER NOT NULL DEFAULT 0,
+        aktif_mi         INTEGER NOT NULL DEFAULT 1 CHECK (aktif_mi IN (0,1)),
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        cihaz_id         TEXT,
+        sunucu_versiyonu INTEGER NOT NULL DEFAULT 0
+      );
+
+      INSERT INTO kampanyalar_yeni
+        (id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi,
+         created_at, updated_at, cihaz_id, sunucu_versiyonu)
+      SELECT id, ad, tip, kapsam, hedef_id, deger, NULL, baslangic, bitis, oncelik, aktif_mi,
+             created_at, updated_at, cihaz_id, sunucu_versiyonu
+        FROM kampanyalar;
+
+      DROP TABLE kampanyalar;
+      ALTER TABLE kampanyalar_yeni RENAME TO kampanyalar;
+    `,
+    asagi: `
+      DELETE FROM kampanyalar WHERE tip IN ('N_AL_M_ODE','KADEMELI_FIYAT');
+    `,
+  },
+  {
+    surum: 5,
+    ad: 'iade_talimatlari',
+    /*
+     * Panelden gelen kısmi iade talimatları (§10.4).
+     *
+     * Talimat pull'da YEREL OLARAK SAKLANIR, hemen uygulanmaz. Sebebi: iade
+     * bir kasa oturumu gerektirir (iade fişi bir vardiyaya aittir ve nakit
+     * iadede para çekmeceden çıkar). Senkron kasa kapalıyken de çalıştığı için
+     * talimat o an uygulanamayabilir; pull imleci geçtiğinde kayıt bir daha
+     * gelmeyeceğinden burada tutulur ve kasa açıldığında işlenir.
+     */
+    yukari: `
+      CREATE TABLE IF NOT EXISTS iade_talimatlari (
+        id             TEXT PRIMARY KEY,
+        satis_id       TEXT NOT NULL,
+        kalemler       TEXT NOT NULL,
+        iade_yontemi   TEXT NOT NULL,
+        neden          TEXT NOT NULL,
+        hedef_cihaz_id TEXT NOT NULL,
+        kullanici_id   TEXT,
+        uygulandi_mi   INTEGER NOT NULL DEFAULT 0,
+        sonuc_satis_id TEXT,
+        hata           TEXT,
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ix_iade_talimat_bekleyen ON iade_talimatlari(uygulandi_mi);
+    `,
+    asagi: `DROP TABLE IF EXISTS iade_talimatlari;`,
+  },
+  {
+    surum: 6,
+    ad: 'cari_talimatlari',
+    /*
+     * Panelden gelen cari talimatları (§10.7): açılış bakiyesi, bakiye
+     * düzeltmesi, tahsilat iptali.
+     *
+     * İade talimatlarındaki desenin aynısı ve aynı sebeple: `cari_hareketler`
+     * değiştirilemez bir defterdir, tek yazıcısı kasadır. Talimat pull'da
+     * yerelde saklanır çünkü nakit tahsilatın iptali bir KASA OTURUMU ister
+     * (para çekmeceden geri çıkar) ve senkron kasa kapalıyken de çalışır;
+     * pull imleci geçtiğinde kayıt bir daha gelmeyeceğinden burada beklet.
+     */
+    yukari: `
+      CREATE TABLE IF NOT EXISTS cari_talimatlari (
+        id               TEXT PRIMARY KEY,
+        cari_id          TEXT NOT NULL,
+        tip              TEXT NOT NULL,
+        tutar            INTEGER NOT NULL DEFAULT 0,
+        hedef_hareket_id TEXT,
+        neden            TEXT NOT NULL,
+        hedef_cihaz_id   TEXT NOT NULL,
+        kullanici_id     TEXT,
+        uygulandi_mi     INTEGER NOT NULL DEFAULT 0,
+        sonuc_hareket_id TEXT,
+        hata             TEXT,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ix_cari_talimat_bekleyen ON cari_talimatlari(uygulandi_mi);
+    `,
+    asagi: `DROP TABLE IF EXISTS cari_talimatlari;`,
+  },
+  {
+    surum: 7,
+    ad: 'alis_talimatlari',
+    /*
+     * Panelden gelen alış faturası talimatları (§11.8): oluştur, iptal, güncelle.
+     *
+     * Fatura kaydedildiğinde stok ARTAR ve tedarikçiye cari BORÇ doğar; iki
+     * defterin de tek yazıcısı kasadır. Panel yalnız niyeti bildirir, belgeyi ve
+     * hareketleri kasa kendi mal kabul servisiyle üretir.
+     *
+     * `veri` alanı talimatın gövdesini JSON olarak taşır: OLUSTUR'da mal kabul
+     * girdisi, IPTAL'de neden, GUNCELLE'de değişen alanlar. Talimat tipleri
+     * farklı şekiller taşıdığı için her biri ayrı sütun olmaz.
+     */
+    yukari: `
+      CREATE TABLE IF NOT EXISTS alis_talimatlari (
+        id             TEXT PRIMARY KEY,
+        tip            TEXT NOT NULL,
+        fatura_id      TEXT,
+        veri           TEXT NOT NULL,
+        hedef_cihaz_id TEXT NOT NULL,
+        kullanici_id   TEXT,
+        uygulandi_mi   INTEGER NOT NULL DEFAULT 0,
+        sonuc_fatura_id TEXT,
+        hata           TEXT,
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ix_alis_talimat_bekleyen ON alis_talimatlari(uygulandi_mi);
+    `,
+    asagi: `DROP TABLE IF EXISTS alis_talimatlari;`,
+  },
+  {
+    surum: 8,
+    ad: 'fiyat_guncelleme_zamani',
+    /*
+     * Satış fiyatının EN SON NE ZAMAN değiştiği (§13.3).
+     *
+     * "Fiyatı değişen ürünlerin etiketlerini bas" için gerekiyor. `updated_at`
+     * bu iş için yetmez: ürünün adı ya da raf kodu değişince o da güncellenir
+     * ve etiket kuyruğu fiyatı hiç değişmemiş yüzlerce ürünle dolar. Rafta
+     * yanlış fiyat kalmasın diye basılan etiket, doğru ürünleri hedeflemeli.
+     *
+     * Alan `urunKaydet` içinde SQL tarafında dolar: fiyat gerçekten değiştiyse
+     * yazılır. Çağıranın hatırlaması gereken bir şey yok.
+     */
+    yukari: `
+      ALTER TABLE urunler ADD COLUMN fiyat_guncelleme TEXT;
+      UPDATE urunler SET fiyat_guncelleme = updated_at WHERE fiyat_guncelleme IS NULL;
+    `,
+    asagi: ``,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

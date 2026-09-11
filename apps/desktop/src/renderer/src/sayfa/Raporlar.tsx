@@ -101,6 +101,30 @@ export function RaporlarSayfasi() {
       for (const g of gunler) {
         satirlar.push([g.tarih, g.ciro, g.iade_toplam, g.islem_sayisi, g.nakit, g.kart, g.veresiye, g.brut_kar].join(';'));
       }
+    } else if (sekme === 'urun') {
+      /*
+       * Ürün raporu da SÜTUNLU çıkar.
+       *
+       * Eskiden özet dışındaki her sekme ham JSON olarak dışa aktarılıyordu:
+       * dosya .csv uzantılıydı ama Excel'de tek hücrede bir metin yığını
+       * olarak açılıyordu — yani dışa aktarma pratikte çalışmıyordu.
+       */
+      const k = icerik as Record<string, unknown>;
+      satirlar.push('liste;urun;adet;ciro;kar');
+      for (const u of dizi(k.enCokSatan) as Record<string, number | string>[]) {
+        satirlar.push(['En çok satan', u.urun_adi, u.adet, u.ciro, u.kar].join(';'));
+      }
+      for (const u of dizi(k.enKarli) as Record<string, number | string>[]) {
+        satirlar.push(['En kârlı', u.urun_adi, u.adet, u.ciro, u.kar].join(';'));
+      }
+      for (const u of dizi(k.oluStok) as Record<string, number | string>[]) {
+        satirlar.push(['Ölü stok', u.ad, u.stok, '', u.bagli_sermaye].join(';'));
+      }
+    } else if (sekme === 'saatlik') {
+      satirlar.push('saat;ciro;islem');
+      for (const d of icerik as { saat: number; ciro: number; islem: number }[]) {
+        satirlar.push([`${String(d.saat).padStart(2, '0')}:00`, d.ciro, d.islem].join(';'));
+      }
     } else {
       satirlar.push(JSON.stringify(icerik));
     }
@@ -243,6 +267,12 @@ function CiroOzetiGorunumu({ veri, karGorebilir }: { veri: Record<string, unknow
         ))}
       </div>
 
+      {/*
+        Günlük dökümde ÖDEME KIRILIMI da vardır.
+
+        Üstteki üç kutu dönemin tamamını verir; "dün nakit ne kadardı" sorusunun
+        cevabı yoktu. Veri günlük özette zaten duruyordu, yalnız gösterilmiyordu.
+      */}
       <table className="tablo">
         <thead>
           <tr>
@@ -251,6 +281,9 @@ function CiroOzetiGorunumu({ veri, karGorebilir }: { veri: Record<string, unknow
             <th className="text-right">İade</th>
             <th className="text-right">İşlem</th>
             <th className="text-right">Ort. sepet</th>
+            <th className="text-right">Nakit</th>
+            <th className="text-right">Kart</th>
+            <th className="text-right">Veresiye</th>
             {karGorebilir && <th className="text-right">Kâr</th>}
           </tr>
         </thead>
@@ -262,9 +295,19 @@ function CiroOzetiGorunumu({ veri, karGorebilir }: { veri: Record<string, unknow
               <td className="sayi text-uyari">{paraFormat(Number(g.iade_toplam), { simge: false })}</td>
               <td className="sayi">{String(g.islem_sayisi)}</td>
               <td className="sayi">{paraFormat(Number(g.ortalama_sepet), { simge: false })}</td>
+              <td className="sayi">{paraFormat(Number(g.nakit), { simge: false })}</td>
+              <td className="sayi">{paraFormat(Number(g.kart), { simge: false })}</td>
+              <td className="sayi">{paraFormat(Number(g.veresiye), { simge: false })}</td>
               {karGorebilir && <td className="sayi text-vurgu">{paraFormat(Number(g.brut_kar), { simge: false })}</td>}
             </tr>
           ))}
+          {gunler.length === 0 && (
+            <tr>
+              <td colSpan={karGorebilir ? 9 : 8} className="text-center text-metin-4">
+                Bu aralıkta veri yok.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </>
@@ -273,63 +316,133 @@ function CiroOzetiGorunumu({ veri, karGorebilir }: { veri: Record<string, unknow
 
 function UrunRaporuGorunumu({ veri, karGorebilir }: { veri: Record<string, unknown>; karGorebilir: boolean }) {
   const enCok = (veri.enCokSatan ?? []) as Record<string, number | string>[];
+  const enKarli = (veri.enKarli ?? []) as Record<string, number | string>[];
   const olu = (veri.oluStok ?? []) as Record<string, number | string>[];
+
+  const listeCiro = enCok.reduce((t, u) => t + Number(u.ciro), 0);
+  const listeKar = enCok.reduce((t, u) => t + Number(u.kar), 0);
+  const bagliSermaye = olu.reduce((t, u) => t + Number(u.bagli_sermaye), 0);
+  const marj = listeCiro > 0 ? Math.round((listeKar / listeCiro) * 1000) / 10 : 0;
+
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <div>
-        <h3 className="mb-2 font-semibold">En Çok Satanlar</h3>
-        <table className="tablo">
-          <thead>
-            <tr>
-              <th>Ürün</th>
-              <th className="text-right">Adet</th>
-              <th className="text-right">Ciro</th>
-              {karGorebilir && <th className="text-right">Kâr</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {enCok.map((u) => (
-              <tr key={String(u.urun_id)}>
-                <td>{String(u.urun_adi)}</td>
-                <td className="sayi">{miktarFormat(Number(u.adet))}</td>
-                <td className="sayi">{paraFormat(Number(u.ciro), { simge: false })}</td>
-                {karGorebilir && <td className="sayi text-vurgu">{paraFormat(Number(u.kar), { simge: false })}</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div>
-        <h3 className="mb-2 font-semibold">
-          Ölü Stok <span className="text-xs text-metin-4">(dönemde hiç satılmayan)</span>
-        </h3>
-        <table className="tablo">
-          <thead>
-            <tr>
-              <th>Ürün</th>
-              <th className="text-right">Stok</th>
-              <th className="text-right">Bağlı sermaye</th>
-            </tr>
-          </thead>
-          <tbody>
-            {olu.map((u) => (
-              <tr key={String(u.urun_id)}>
-                <td>{String(u.ad)}</td>
-                <td className="sayi">{miktarFormat(Number(u.stok))}</td>
-                <td className="sayi text-uyari">{paraFormat(Number(u.bagli_sermaye), { simge: false })}</td>
-              </tr>
-            ))}
-            {olu.length === 0 && (
+    <>
+      <KutuIzgara
+        ogeler={[
+          { etiket: 'Listelenen ciro', deger: paraFormat(listeCiro), alt: `${enCok.length} ürün`, vurgu: true },
+          ...(karGorebilir ? [{ etiket: 'Brüt kâr', deger: paraFormat(listeKar), alt: `Marj %${marj}` }] : []),
+          { etiket: 'Ölü stok kalemi', deger: String(olu.length), alt: 'Dönemde hiç satılmadı' },
+          { etiket: 'Bağlı sermaye', deger: paraFormat(bagliSermaye), alt: 'Ölü stokta duran' },
+        ]}
+      />
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div>
+          <h3 className="mb-2 font-semibold">En Çok Satanlar</h3>
+          <table className="tablo">
+            <thead>
               <tr>
-                <td colSpan={3} className="text-center text-metin-4">
-                  Ölü stok yok.
-                </td>
+                <th>Ürün</th>
+                <th className="text-right">Adet</th>
+                <th className="text-right">Ciro</th>
+                {karGorebilir && <th className="text-right">Kâr</th>}
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {enCok.map((u) => (
+                <tr key={String(u.urun_id)}>
+                  <td>{String(u.urun_adi)}</td>
+                  <td className="sayi">{miktarFormat(Number(u.adet))}</td>
+                  <td className="sayi">{paraFormat(Number(u.ciro), { simge: false })}</td>
+                  {karGorebilir && <td className="sayi text-vurgu">{paraFormat(Number(u.kar), { simge: false })}</td>}
+                </tr>
+              ))}
+              {enCok.length === 0 && (
+                <tr>
+                  <td colSpan={karGorebilir ? 4 : 3} className="text-center text-metin-4">
+                    Bu aralıkta satış yok.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/*
+          EN KÂRLI ayrı bir listedir: çok satan ürün her zaman kazandıran ürün
+          değildir. İşletme sahibinin asıl baktığı sıralama budur.
+
+          Bu liste servis tarafından ZATEN hesaplanıyordu (`urunRaporu.enKarli`)
+          ama ekranda hiç gösterilmiyordu — panelde vardı, kasada yoktu.
+        */}
+        {karGorebilir && (
+          <div>
+            <h3 className="mb-2 font-semibold">
+              En Kârlılar <span className="text-xs font-normal text-metin-4">(brüt kâra göre, ciroya göre değil)</span>
+            </h3>
+            <table className="tablo">
+              <thead>
+                <tr>
+                  <th>Ürün</th>
+                  <th className="text-right">Adet</th>
+                  <th className="text-right">Kâr</th>
+                  <th className="text-right">Marj</th>
+                </tr>
+              </thead>
+              <tbody>
+                {enKarli.map((u) => (
+                  <tr key={String(u.urun_id)}>
+                    <td>{String(u.urun_adi)}</td>
+                    <td className="sayi">{miktarFormat(Number(u.adet))}</td>
+                    <td className="sayi text-vurgu">{paraFormat(Number(u.kar), { simge: false })}</td>
+                    <td className="sayi text-metin-3">
+                      {Number(u.ciro) > 0 ? `%${Math.round((Number(u.kar) / Number(u.ciro)) * 1000) / 10}` : '—'}
+                    </td>
+                  </tr>
+                ))}
+                {enKarli.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="text-center text-metin-4">
+                      Bu aralıkta satış yok.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div>
+          <h3 className="mb-2 font-semibold">
+            Ölü Stok <span className="text-xs font-normal text-metin-4">(dönemde hiç satılmayan)</span>
+          </h3>
+          <table className="tablo">
+            <thead>
+              <tr>
+                <th>Ürün</th>
+                <th className="text-right">Stok</th>
+                <th className="text-right">Bağlı sermaye</th>
+              </tr>
+            </thead>
+            <tbody>
+              {olu.map((u) => (
+                <tr key={String(u.urun_id)}>
+                  <td>{String(u.ad)}</td>
+                  <td className="sayi">{miktarFormat(Number(u.stok))}</td>
+                  <td className="sayi text-uyari">{paraFormat(Number(u.bagli_sermaye), { simge: false })}</td>
+                </tr>
+              ))}
+              {olu.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="text-center text-metin-4">
+                    Ölü stok yok.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

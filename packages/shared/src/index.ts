@@ -16,3 +16,4 @@ export * from './hata.js';
 export * from './id.js';
 export * from './semalar.js';
 export * from './api-sozlesme.js';
+export * from './barkod-cizim.js';

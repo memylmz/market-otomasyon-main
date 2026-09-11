@@ -147,6 +147,10 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
       };
     });
 
+    /*
+     * Gider ve KDV toplamları kasadaki Ciro Özeti'nde vardı, panelde yoktu.
+     * Satır verisi zaten geliyordu; yalnız toplanmıyordu.
+     */
     const toplam = data.reduce(
       (t, g) => ({
         ciro: t.ciro + g.ciro,
@@ -156,8 +160,10 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
         nakit: t.nakit + g.nakit,
         kart: t.kart + g.kart,
         veresiye: t.veresiye + g.veresiye,
+        gider: t.gider + g.gider,
+        kdv: t.kdv + g.kdv_toplam,
       }),
-      { ciro: 0, iade: 0, islem: 0, kar: 0, nakit: 0, kart: 0, veresiye: 0 },
+      { ciro: 0, iade: 0, islem: 0, kar: 0, nakit: 0, kart: 0, veresiye: 0, gider: 0, kdv: 0 },
     );
 
     return { from, to, data, toplam, uretim_zamani: simdi() };
@@ -174,12 +180,24 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
       .default(50)
       .parse((istek.query as { limit?: string }).limit);
 
-    const [enCok, oluStok] = await Promise.all([
+    /*
+     * Kasadaki Ürün Performansı üç liste gösterir: en çok satan, EN KÂRLI ve
+     * ölü stok. Panelde en kârlı yoktu — oysa işletme sahibinin asıl baktığı
+     * liste odur: çok satan ürün her zaman kazandıran ürün değildir.
+     */
+    const [enCok, enKarli, oluStok] = await Promise.all([
       uygulama.vt.tumu<Record<string, unknown>>(
         `SELECT o.urun_id, u.ad AS urun_adi, SUM(o.adet) adet, SUM(o.ciro) ciro, SUM(o.kar) kar
          FROM urun_satis_ozet o LEFT JOIN urunler u ON u.isletme_id = o.isletme_id AND u.id = o.urun_id
          WHERE o.isletme_id = ? AND o.donem >= ? AND o.donem <= ?
          GROUP BY o.urun_id ORDER BY ciro DESC LIMIT ?`,
+        [istek.kullanici?.isletmeId, from, to, limit],
+      ),
+      uygulama.vt.tumu<Record<string, unknown>>(
+        `SELECT o.urun_id, u.ad AS urun_adi, SUM(o.adet) adet, SUM(o.ciro) ciro, SUM(o.kar) kar
+         FROM urun_satis_ozet o LEFT JOIN urunler u ON u.isletme_id = o.isletme_id AND u.id = o.urun_id
+         WHERE o.isletme_id = ? AND o.donem >= ? AND o.donem <= ?
+         GROUP BY o.urun_id ORDER BY kar DESC LIMIT ?`,
         [istek.kullanici?.isletmeId, from, to, limit],
       ),
       uygulama.vt.tumu<Record<string, unknown>>(
@@ -196,7 +214,7 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
       ),
     ]);
 
-    return { from, to, en_cok_satan: enCok, olu_stok: oluStok, uretim_zamani: simdi() };
+    return { from, to, en_cok_satan: enCok, en_karli: enKarli, olu_stok: oluStok, uretim_zamani: simdi() };
   });
 
   // --------------------------------------------------------- CARİ RAPORU
@@ -307,7 +325,14 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
   // -------------------------------------------------------- STOK DURUMU
   uygulama.get(UCLAR.raporStok, korumali, async (istek) => {
     const isletmeId = istek.kullanici?.isletmeId;
-    const [deger, kritikler] = await Promise.all([
+    /*
+     * Kasadaki Stok ekranı dört şey gösterir: değer, kritik stok, SKT takibi ve
+     * NEGATİF stok. Panelde yalnız ilk ikisi vardı. Negatif stok özellikle
+     * önemli: sayım hatasının ya da atlanmış mal kabulün ilk işaretidir.
+     */
+    const sktGun = Number((istek.query as { skt_gun?: string }).skt_gun ?? 30) || 30;
+    const sktSinir = gunEkle(bugun(), sktGun);
+    const [deger, kritikler, negatifler, sktYaklasanlar] = await Promise.all([
       uygulama.vt.tek<Record<string, unknown>>(
         `SELECT COALESCE(SUM(s.miktar * u.alis_fiyati), 0) / 1000.0 maliyet,
                 COALESCE(SUM(s.miktar * u.satis_fiyati), 0) / 1000.0 satis,
@@ -325,11 +350,38 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
          ORDER BY (COALESCE(s.miktar,0) - u.kritik_stok) LIMIT 200`,
         [isletmeId],
       ),
+      uygulama.vt.tumu(
+        `SELECT u.id urun_id, u.ad, s.miktar stok, u.birim_tipi
+         FROM urunler u JOIN stok_ozet s ON s.isletme_id = u.isletme_id AND s.urun_id = u.id
+         WHERE u.isletme_id = ? AND u.silindi_mi = 0 AND s.miktar < 0
+         ORDER BY s.miktar LIMIT 200`,
+        [isletmeId],
+      ),
+      /*
+       * SKT takibi — kasadaki sorgunun aynısı: lot bazında KALAN miktar.
+       * Giriş ve çıkış hareketleri aynı (ürün, skt, lot) altında toplanır;
+       * kalanı sıfırlanmış lot listede görünmez.
+       */
+      uygulama.vt.tumu(
+        `SELECT h.urun_id, u.ad, h.skt, h.lot_no, SUM(h.miktar) AS kalan_miktar, u.birim_tipi
+         FROM stok_hareketleri h
+         JOIN urunler u ON u.isletme_id = h.isletme_id AND u.id = h.urun_id
+         WHERE h.isletme_id = ? AND h.skt IS NOT NULL AND h.skt <= ?
+         GROUP BY h.urun_id, h.skt, h.lot_no
+         HAVING SUM(h.miktar) > 0
+         ORDER BY h.skt, u.ad LIMIT 200`,
+        [isletmeId, sktSinir],
+      ),
     ]);
 
     return {
       deger: { maliyet: Math.round(sayi(deger?.maliyet)), satis: Math.round(sayi(deger?.satis)), kalem: sayi(deger?.kalem) },
       kritikler,
+      negatifler,
+      skt_yaklasanlar: (sktYaklasanlar as Record<string, unknown>[]).map((r) => ({
+        ...r,
+        kalan_gun: Math.round((Date.parse(String(r.skt) + 'T00:00:00Z') - Date.parse(bugun() + 'T00:00:00Z')) / 86400000),
+      })),
       uretim_zamani: simdi(),
     };
   });

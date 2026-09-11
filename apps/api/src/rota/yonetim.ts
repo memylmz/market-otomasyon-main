@@ -38,6 +38,16 @@ const zUrunGovde = z.object({
   aktif_mi: z.boolean().default(true),
   skt_takibi: z.boolean().default(false),
   notlar: z.string().max(1000).nullable().optional(),
+  /**
+   * Kısa kod (PLU) — barkodsuz ürünlerde kasiyerin yazıp Enter'ladığı numara.
+   * Barkodun aksine ELLE yazılır, okutulmaz; bu yüzden panelden yönetilebilir.
+   * Boş string gönderilirse mevcut kısa kod kaldırılır.
+   */
+  kisa_kod: z
+    .string()
+    .trim()
+    .regex(/^(\d{2,5})?$/, 'Kısa kod 2-5 rakam olmalıdır')
+    .optional(),
 });
 
 /**
@@ -72,10 +82,12 @@ const zKategoriGovde = z.object({
 const zKampanyaGovde = z.object({
   id: z.string().uuid().optional(),
   ad: z.string().trim().min(1).max(120),
-  tip: z.enum(['YUZDE', 'TUTAR', 'SABIT_FIYAT']),
+  tip: z.enum(['YUZDE', 'TUTAR', 'SABIT_FIYAT', 'N_AL_M_ODE', 'KADEMELI_FIYAT']),
   kapsam: z.enum(['URUN', 'KATEGORI', 'TUM']),
   hedef_id: z.string().uuid().nullable().optional(),
   deger: z.number(),
+  /** Miktar kampanyalarının eşiği, bindebir (3 adet → 3000). */
+  esik_miktar: z.number().int().positive().nullable().optional(),
   baslangic: z.string().datetime({ offset: true }),
   bitis: z.string().datetime({ offset: true }),
   oncelik: z.number().int().default(0),
@@ -154,7 +166,10 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     const satirlar = await uygulama.vt.tumu<Record<string, unknown>>(
       `SELECT u.id, u.ad, u.kategori_id, u.marka, u.birim_tipi, u.alis_fiyati, u.satis_fiyati, u.kdv_orani,
               u.kritik_stok, u.ideal_stok, u.raf_konumu, u.aktif_mi, u.skt_takibi, u.notlar, u.updated_at,
-              COALESCE(s.miktar, 0) AS stok, k.ad AS kategori_adi
+              COALESCE(s.miktar, 0) AS stok, k.ad AS kategori_adi,
+              (SELECT b.barkod FROM barkodlar b
+                WHERE b.isletme_id = u.isletme_id AND b.urun_id = u.id AND b.silindi_mi = 0
+                  AND LENGTH(b.barkod) <= 5 AND b.barkod GLOB '[0-9]*' LIMIT 1) AS kisa_kod
        FROM urunler u
        LEFT JOIN stok_ozet s ON s.isletme_id = u.isletme_id AND s.urun_id = u.id
        LEFT JOIN kategoriler k ON k.isletme_id = u.isletme_id AND k.id = u.kategori_id
@@ -229,6 +244,32 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
           versiyon,
         ],
       );
+      /*
+       * KISA KOD (PLU) — depoda ayrı bir alan değil, KISA BİR BARKODTUR.
+       * Böylece okutma, arama ve satış yolu hiç değişmez; tek fark uzunluktur.
+       * Ürünün eski kısa kodu silinir, yenisi yazılır: bir üründe tek kısa kod
+       * olmalıdır, aksi hâlde hangisinin geçerli olduğu belirsizleşir.
+       */
+      if (govde.kisa_kod !== undefined) {
+        const zamanKisa = simdi();
+        await islem.calistir(
+          `DELETE FROM barkodlar
+           WHERE isletme_id = ? AND urun_id = ? AND LENGTH(barkod) <= 5 AND barkod GLOB '[0-9]*'`,
+          [isletmeId, id],
+        );
+        if (govde.kisa_kod !== '') {
+          const barkodVersiyon = await sonrakiVersiyon(islem, isletmeId);
+          await islem.calistir(
+            `INSERT INTO barkodlar (id, isletme_id, urun_id, barkod, aktif_mi, created_at, updated_at, cihaz_id, versiyon, silindi_mi)
+             VALUES (?, ?, ?, ?, 1, ?, ?, 'panel', ?, 0)
+             ON CONFLICT(isletme_id, id) DO UPDATE SET
+               urun_id = excluded.urun_id, barkod = excluded.barkod, aktif_mi = 1,
+               updated_at = excluded.updated_at, versiyon = excluded.versiyon, silindi_mi = 0`,
+            [uuid(), isletmeId, id, govde.kisa_kod, zamanKisa, zamanKisa, barkodVersiyon],
+          );
+        }
+      }
+
       await denetle(islem, isletmeId, istek.kullanici?.id as string, govde.id ? 'URUN_GUNCELLE' : 'URUN_EKLE', 'urun', id, govde);
     });
 
@@ -321,7 +362,7 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
   // --------------------------------------------------------- KAMPANYALAR
   uygulama.get(UCLAR.kampanyalar, korumali, async (istek) => {
     const veri = await uygulama.vt.tumu(
-      `SELECT id, ad, tip, kapsam, hedef_id, deger, baslangic, bitis, oncelik, aktif_mi
+      `SELECT id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi
        FROM kampanyalar WHERE isletme_id = ? AND silindi_mi = 0 ORDER BY baslangic DESC`,
       [istek.kullanici?.isletmeId],
     );
@@ -338,12 +379,13 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     await uygulama.vt.islem(async (islem) => {
       const versiyon = await sonrakiVersiyon(islem, isletmeId);
       await islem.calistir(
-        `INSERT INTO kampanyalar (isletme_id, id, ad, tip, kapsam, hedef_id, deger, baslangic, bitis,
+        `INSERT INTO kampanyalar (isletme_id, id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis,
                                   oncelik, aktif_mi, created_at, updated_at, cihaz_id, versiyon)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?)
          ON CONFLICT(isletme_id, id) DO UPDATE SET
            ad = excluded.ad, tip = excluded.tip, kapsam = excluded.kapsam, hedef_id = excluded.hedef_id,
-           deger = excluded.deger, baslangic = excluded.baslangic, bitis = excluded.bitis,
+           deger = excluded.deger, esik_miktar = excluded.esik_miktar,
+           baslangic = excluded.baslangic, bitis = excluded.bitis,
            oncelik = excluded.oncelik, aktif_mi = excluded.aktif_mi, updated_at = excluded.updated_at,
            versiyon = excluded.versiyon`,
         [
@@ -354,6 +396,7 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
           govde.kapsam,
           govde.hedef_id ?? null,
           govde.deger,
+          govde.esik_miktar ?? null,
           govde.baslangic,
           govde.bitis,
           govde.oncelik,
@@ -373,7 +416,16 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     const sorgu = zSayfaIstegi.parse(istek.query);
     const tip = (istek.query as { tip?: string }).tip ?? null;
     const veri = await uygulama.vt.tumu(
-      `SELECT c.id, c.tip, c.ad_unvan, c.telefon, c.eposta, c.kredi_limiti, c.vade_gun, c.aktif_mi,
+      /*
+       * Kart alanları da döner (adres, vergi no, notlar, rıza).
+       *
+       * Eskiden dönmüyordu ve panel formu bunları BOŞ başlatıyordu: mevcut bir
+       * cariyi düzenleyip kaydetmek, kasadan girilmiş adresi/notu siliyor,
+       * KVKK açık rızasını sıfırlıyordu. Formun mevcut değeri gösterebilmesi
+       * için önce onu görmesi gerekir.
+       */
+      `SELECT c.id, c.tip, c.ad_unvan, c.telefon, c.eposta, c.adres, c.vergi_dairesi, c.vergi_no,
+              c.notlar, c.kredi_limiti, c.vade_gun, c.aktif_mi, c.iletisim_rizasi, c.anonimlestirildi_mi,
               COALESCE(o.bakiye, 0) AS bakiye, o.son_hareket
        FROM cariler c
        LEFT JOIN cari_ozet o ON o.isletme_id = c.isletme_id AND o.cari_id = c.id
@@ -381,7 +433,29 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
        ORDER BY ABS(COALESCE(o.bakiye, 0)) DESC, c.ad_unvan LIMIT ?`,
       [istek.kullanici?.isletmeId, tip, tip, sorgu.limit],
     );
-    return { data: veri, next_cursor: null, has_more: veri.length >= sorgu.limit };
+
+    /*
+     * Toplamlar TÜM hesaplardan gelir, ekrandaki listeden değil.
+     *
+     * Panel eskiden toplamı görünen 200 satırı toplayarak buluyordu; arama
+     * kutusuna bir şey yazınca "toplam alacak" da değişiyordu. Kasadaki Cari
+     * ekranı bu iki rakamı tek bir özet sorgusundan okur — aynı borcun iki
+     * ekranda farklı görünmemesi için hesabın da tek olması gerekir (§11.6).
+     */
+    const toplam = await uygulama.vt.tek<{ musteri: number; tedarikci: number }>(
+      `SELECT COALESCE(SUM(CASE WHEN c.tip = 'MUSTERI' AND o.bakiye > 0 THEN o.bakiye ELSE 0 END), 0) AS musteri,
+              COALESCE(SUM(CASE WHEN c.tip = 'TEDARIKCI' AND o.bakiye > 0 THEN o.bakiye ELSE 0 END), 0) AS tedarikci
+       FROM cariler c JOIN cari_ozet o ON o.isletme_id = c.isletme_id AND o.cari_id = c.id
+       WHERE c.isletme_id = ? AND c.silindi_mi = 0`,
+      [istek.kullanici?.isletmeId],
+    );
+
+    return {
+      data: veri,
+      toplamlar: { musteriAlacagi: Number(toplam?.musteri ?? 0), tedarikciBorcu: Number(toplam?.tedarikci ?? 0) },
+      next_cursor: null,
+      has_more: veri.length >= sorgu.limit,
+    };
   });
 
   uygulama.post(UCLAR.cariler, yonetici, async (istek) => {
@@ -429,6 +503,44 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     });
     return { id };
   });
+
+  /**
+   * KVKK veri taşınabilirliği (§16.2) — kişisel veri + hareket dökümü.
+   *
+   * Veri sahibi "hakkımdaki bilgileri ver" dediğinde verilecek dosya budur.
+   * Kasadaki `cari.kvkkDisaAktar` ile aynı şekli döner; ADMIN'e özeldir ve
+   * dışa aktarımın kendisi denetim kaydına yazılır — kişisel veriyi kimin ne
+   * zaman çıkardığı sorusunun cevabı da kayıtta durmalıdır.
+   */
+  uygulama.get<{ Params: { id: string } }>(
+    `${UCLAR.cariler}/:id/kvkk`,
+    { preHandler: [panelKorumasi, rolIste('ADMIN')] },
+    async (istek) => {
+      const isletmeId = istek.kullanici?.isletmeId as string;
+      const cari = await uygulama.vt.tek<Record<string, unknown>>(
+        `SELECT c.*, COALESCE(o.bakiye, 0) AS bakiye
+         FROM cariler c
+         LEFT JOIN cari_ozet o ON o.isletme_id = c.isletme_id AND o.cari_id = c.id
+         WHERE c.isletme_id = ? AND c.id = ?`,
+        [isletmeId, istek.params.id],
+      );
+      if (!cari) throw hatalar.bulunamadi('Cari hesap');
+
+      const hareketler = await uygulama.vt.tumu<Record<string, unknown>>(
+        `SELECT id, hareket_tipi, tutar, aciklama, belge_id, belge_tipi, tarih, vade_tarihi
+         FROM cari_hareketler WHERE isletme_id = ? AND cari_id = ? ORDER BY tarih`,
+        [isletmeId, istek.params.id],
+      );
+
+      await uygulama.vt.islem(async (islem) => {
+        await denetle(islem, isletmeId, istek.kullanici?.id as string, 'KVKK_DISA_AKTARIM', 'cari', istek.params.id, {
+          hareket_sayisi: hareketler.length,
+        });
+      });
+
+      return { cari, hareketler, uretim_zamani: simdi() };
+    },
+  );
 
   /** KVKK anonimleştirme (§16.2) — mali kayıtlar korunur, kişisel alanlar silinir. */
   uygulama.post<{ Params: { id: string } }>(
@@ -602,6 +714,69 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     return { data: veri };
   });
 
+  const zIadeTalimatiGovde = z.object({
+    satis_id: z.string().uuid(),
+    kalemler: z
+      .array(z.object({ satis_kalemi_id: z.string().uuid(), miktar: z.number().int().positive() }))
+      .min(1, 'En az bir kalem seçilmelidir'),
+    iade_yontemi: z.enum(['NAKIT', 'KART', 'VERESIYE']),
+    neden: z.string().trim().min(3).max(300),
+    /** Talimatı uygulayacak kasa (cihazlar.id). */
+    hedef_cihaz_id: z.string().uuid(),
+  });
+
+  /**
+   * Panelden verilen cari talimatı (§10.7).
+   *
+   * DUZELTME'de `tutar` fark değil, olması istenen HEDEF BAKİYEDİR — farkı
+   * kasa kendi güncel bakiyesine göre hesaplar. Stok düzeltmesindeki gerekçenin
+   * aynısı: panelin gördüğü bakiye senkron beklerken bayatlar, fark burada
+   * hesaplanırsa yanlış tabana oturur ve sonuç kullanıcının yazdığı rakam olmaz.
+   */
+  const zCariTalimatiGovde = z.object({
+    cari_id: z.string().uuid(),
+    tip: z.enum(['ACILIS', 'DUZELTME', 'TAHSILAT_IPTAL']),
+    tutar: z.number().int().default(0),
+    /** TAHSILAT_IPTAL'de iptal edilecek hareket. Kimlikler uuid olmayabilir. */
+    hedef_hareket_id: z.string().min(1).max(120).optional(),
+    neden: z.string().trim().max(300).default(''),
+  });
+
+  /**
+   * Panelden verilen alış faturası talimatı (§11.8).
+   *
+   * OLUSTUR gövdesi kasadaki mal kabul girdisinin AYNISIDIR ve doğrulamayı
+   * kasa kendi şemasıyla yapar — panel ile kasa aynı kurala tabi olsun diye
+   * burada yeniden tanımlanmaz; burada yalnız şeklin kabaca doğru olduğuna
+   * ve ürünlerle tedarikçinin var olduğuna bakılır.
+   */
+  const zAlisTalimatiGovde = z.object({
+    tip: z.enum(['OLUSTUR', 'IPTAL', 'GUNCELLE']),
+    /** IPTAL ve GUNCELLE'de zorunlu. */
+    fatura_id: z.string().uuid().optional(),
+    tedarikci_id: z.string().uuid().optional(),
+    fatura_no: z.string().trim().max(60).nullable().optional(),
+    tarih: z.string().optional(),
+    vade_tarihi: z.string().nullable().optional(),
+    notlar: z.string().max(500).nullable().optional(),
+    odenen_tutar: z.number().int().nonnegative().default(0),
+    odeme_tipi: z.enum(['NAKIT', 'KART']).default('NAKIT'),
+    neden: z.string().trim().max(300).optional(),
+    kalemler: z
+      .array(
+        z.object({
+          urun_id: z.string().uuid(),
+          miktar: z.number().int().positive(),
+          birim_fiyat: z.number().int().nonnegative(),
+          kdv_orani: z.number().min(0).max(100),
+          skt: z.string().nullable().optional(),
+          lot_no: z.string().max(60).nullable().optional(),
+          yeni_satis_fiyati: z.number().int().nonnegative().optional(),
+        }),
+      )
+      .optional(),
+  });
+
   const zAyarGovde = z.object({
     degerler: z.record(z.string(), z.string().max(2000)),
   });
@@ -653,6 +828,302 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     });
 
     return { basarili: true, yazilan: Object.keys(govde.degerler).length, uretim_zamani: zaman };
+  });
+
+  // ------------------------------------------------------- KISMİ İADE
+  /*
+   * Panelden kısmi iade TALİMATI (§10.4).
+   *
+   * Panel iadeyi kendisi İŞLEMEZ: stok ve cari hareketlerinin tek üreticisi
+   * kasadır. Bulut kendi başına hareket üretirse kasa ondan habersiz kalır ve
+   * iki taraf ayrışır — bu oturumda tam bu sınıftan hatalar düzeltildi.
+   *
+   * Talimat tek bir kasaya yazılır; iki kasa uygularsa iade iki kez işlenir.
+   */
+  uygulama.post(UCLAR.iadeTalimatlari, yonetici, async (istek) => {
+    const govde = zIadeTalimatiGovde.parse(istek.body);
+    const isletmeId = istek.kullanici?.isletmeId as string;
+    const zaman = simdi();
+    const id = uuid();
+
+    await uygulama.vt.islem(async (islem) => {
+      const satis = await islem.tek<{ id: string; iptal_mi: number; iade_mi: number }>(
+        'SELECT id, iptal_mi, iade_mi FROM satislar WHERE isletme_id = ? AND id = ?',
+        [isletmeId, govde.satis_id],
+      );
+      if (!satis) throw hatalar.bulunamadi('Satış');
+      if (Number(satis.iptal_mi) === 1) throw hatalar.dogrulama('İptal edilmiş satış iade edilemez.');
+
+      // Aynı satışa bekleyen ikinci talimat, iadeyi iki kez uygulatırdı.
+      const bekleyen = await islem.tek<{ id: string }>(
+        'SELECT id FROM iade_talimatlari WHERE isletme_id = ? AND satis_id = ? AND silindi_mi = 0',
+        [isletmeId, govde.satis_id],
+      );
+      if (bekleyen) throw hatalar.dogrulama('Bu satış için zaten bekleyen bir iade talimatı var.');
+
+      const cihaz = await islem.tek<{ cihaz_id: string }>(
+        'SELECT cihaz_id FROM cihazlar WHERE isletme_id = ? AND id = ? AND aktif_mi = 1',
+        [isletmeId, govde.hedef_cihaz_id],
+      );
+      if (!cihaz) throw hatalar.bulunamadi('Kasa');
+
+      const versiyon = await sonrakiVersiyon(islem, isletmeId);
+      await islem.calistir(
+        `INSERT INTO iade_talimatlari (id, isletme_id, satis_id, kalemler, iade_yontemi, neden,
+                                       hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id, versiyon, silindi_mi)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?, 0)`,
+        [
+          id,
+          isletmeId,
+          govde.satis_id,
+          JSON.stringify(govde.kalemler),
+          govde.iade_yontemi,
+          govde.neden,
+          String(cihaz.cihaz_id),
+          istek.kullanici?.id ?? null,
+          zaman,
+          zaman,
+          versiyon,
+        ],
+      );
+    });
+
+    return { id, basarili: true, uretim_zamani: zaman };
+  });
+
+  // -------------------------------------------------------- CARİ TALİMATI
+  /*
+   * Açılış bakiyesi, bakiye düzeltmesi ve tahsilat iptali (§10.7).
+   *
+   * Üçü de `cari_hareketler`e yazar ve o defterin tek yazıcısı kasadır — panel
+   * yalnız niyeti bildirir, hareketi kasa kendi servisiyle üretir. Böylece
+   * panelden yapılan düzeltme, kasadan yapılanla birebir aynı yoldan geçer:
+   * aynı doğrulama, aynı denetim kaydı, aynı ters kayıt mantığı.
+   */
+  uygulama.post(UCLAR.cariTalimatlari, yonetici, async (istek) => {
+    const govde = zCariTalimatiGovde.parse(istek.body);
+    const isletmeId = istek.kullanici?.isletmeId as string;
+    const zaman = simdi();
+    const id = uuid();
+
+    if (govde.tip !== 'ACILIS' && govde.neden.length < 3) {
+      throw hatalar.dogrulama('Gerekçe zorunludur (en az 3 karakter).');
+    }
+
+    await uygulama.vt.islem(async (islem) => {
+      const cari = await islem.tek<{ id: string; ad_unvan: string }>(
+        'SELECT id, ad_unvan FROM cariler WHERE isletme_id = ? AND id = ? AND silindi_mi = 0',
+        [isletmeId, govde.cari_id],
+      );
+      if (!cari) throw hatalar.bulunamadi('Cari hesap');
+
+      // Aynı hesaba bekleyen ikinci talimat, düzeltmeyi iki kez uygulatırdı.
+      const bekleyen = await islem.tek<{ id: string }>(
+        'SELECT id FROM cari_talimatlari WHERE isletme_id = ? AND cari_id = ? AND silindi_mi = 0',
+        [isletmeId, govde.cari_id],
+      );
+      if (bekleyen) throw hatalar.dogrulama('Bu hesap için kasada uygulanmayı bekleyen bir talimat zaten var.');
+
+      /*
+       * İptal edilecek hareketin kaydını yazan kasa tercih edilir: nakit
+       * tahsilatın iptalinde para o çekmeceden çıkmalıdır. Hareket kaydı yoksa
+       * ya da o kasa artık aktif değilse ilk aktif kasaya düşer.
+       */
+      let tercihEdilenCihaz: string | null = null;
+
+      if (govde.tip === 'ACILIS') {
+        // Hareket görmüş hesaba "açılış" yazmak defteri bozar; oradaki doğru
+        // araç bakiye düzeltmesidir (kasadaki Cari ekranı da böyle davranır).
+        const hareket = await islem.tek<{ n: number }>(
+          'SELECT COUNT(*) AS n FROM cari_hareketler WHERE isletme_id = ? AND cari_id = ?',
+          [isletmeId, govde.cari_id],
+        );
+        if (Number(hareket?.n ?? 0) > 0) {
+          throw hatalar.dogrulama('Hesapta hareket var; açılış bakiyesi yerine bakiye düzeltmesi kullanın.');
+        }
+        if (govde.tutar === 0) throw hatalar.dogrulama('Açılış bakiyesi sıfır olamaz.');
+      } else if (govde.tip === 'TAHSILAT_IPTAL') {
+        if (!govde.hedef_hareket_id) throw hatalar.dogrulama('İptal edilecek hareket belirtilmedi.');
+        const hareket = await islem.tek<{ hareket_tipi: string; cari_id: string; cihaz_id: string | null }>(
+          'SELECT hareket_tipi, cari_id, cihaz_id FROM cari_hareketler WHERE isletme_id = ? AND id = ?',
+          [isletmeId, govde.hedef_hareket_id],
+        );
+        if (!hareket) throw hatalar.bulunamadi('Cari hareketi');
+        if (hareket.cari_id !== govde.cari_id) throw hatalar.dogrulama('Hareket bu hesaba ait değil.');
+        if (hareket.hareket_tipi !== 'TAHSILAT' && hareket.hareket_tipi !== 'ODEME') {
+          throw hatalar.dogrulama('Yalnız tahsilat ve tedarikçi ödemesi iptal edilebilir.');
+        }
+        const oncekiIptal = await islem.tek<{ id: string }>(
+          "SELECT id FROM cari_hareketler WHERE isletme_id = ? AND belge_id = ? AND belge_tipi = 'TAHSILAT_IPTAL'",
+          [isletmeId, govde.hedef_hareket_id],
+        );
+        if (oncekiIptal) throw hatalar.dogrulama('Bu tahsilat zaten iptal edilmiş.');
+        tercihEdilenCihaz = hareket.cihaz_id;
+      }
+
+      const cihaz = tercihEdilenCihaz
+        ? await islem.tek<{ cihaz_id: string }>(
+            'SELECT cihaz_id FROM cihazlar WHERE isletme_id = ? AND cihaz_id = ? AND aktif_mi = 1',
+            [isletmeId, tercihEdilenCihaz],
+          )
+        : null;
+      const hedefCihaz =
+        cihaz ??
+        (await islem.tek<{ cihaz_id: string }>(
+          'SELECT cihaz_id FROM cihazlar WHERE isletme_id = ? AND aktif_mi = 1 ORDER BY created_at LIMIT 1',
+          [isletmeId],
+        ));
+      if (!hedefCihaz) throw hatalar.bulunamadi('Talimatı uygulayacak kasa');
+
+      const versiyon = await sonrakiVersiyon(islem, isletmeId);
+      await islem.calistir(
+        `INSERT INTO cari_talimatlari (id, isletme_id, cari_id, tip, tutar, hedef_hareket_id, neden,
+                                       hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id, versiyon, silindi_mi)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?, 0)`,
+        [
+          id,
+          isletmeId,
+          govde.cari_id,
+          govde.tip,
+          govde.tutar,
+          govde.hedef_hareket_id ?? null,
+          govde.neden || 'Açılış bakiyesi',
+          String(hedefCihaz.cihaz_id),
+          istek.kullanici?.id ?? null,
+          zaman,
+          zaman,
+          versiyon,
+        ],
+      );
+      await denetle(islem, isletmeId, istek.kullanici?.id as string, 'CARI_TALIMATI', 'cari', govde.cari_id, {
+        tip: govde.tip,
+        tutar: govde.tutar,
+        hedef_hareket_id: govde.hedef_hareket_id ?? null,
+        neden: govde.neden,
+        hedef_cihaz_id: String(hedefCihaz.cihaz_id),
+      });
+    });
+
+    return { id, basarili: true, uretim_zamani: zaman };
+  });
+
+  // -------------------------------------------------------- ALIŞ TALİMATI
+  /*
+   * Alış faturası oluşturma / iptal / güncelleme (§11.8).
+   *
+   * Panel faturayı KENDİSİ İŞLEMEZ: fatura kaydedildiğinde stok artar ve
+   * tedarikçiye cari borç doğar; iki defterin de tek yazıcısı kasadır. Panel
+   * niyeti yazar, belgeyi kasa kendi mal kabul servisiyle üretir — böylece
+   * panelden girilen fatura, kasadan girilenle birebir aynı yoldan geçer:
+   * aynı doğrulama, aynı stok hareketi, aynı denetim kaydı.
+   *
+   * `yonetici` koruması ADMIN ve MÜDÜR'dür; kasadaki `stok.giris` yetkisiyle
+   * aynı kitle. Kasiyer ne panelden ne kasadan alış faturası giremez.
+   */
+  uygulama.post(UCLAR.alisTalimatlari, yonetici, async (istek) => {
+    const govde = zAlisTalimatiGovde.parse(istek.body);
+    const isletmeId = istek.kullanici?.isletmeId as string;
+    const zaman = simdi();
+    const id = uuid();
+
+    await uygulama.vt.islem(async (islem) => {
+      let faturaId: string | null = govde.fatura_id ?? null;
+      let tercihEdilenCihaz: string | null = null;
+
+      if (govde.tip === 'OLUSTUR') {
+        if (!govde.tedarikci_id) throw hatalar.dogrulama('Tedarikçi seçilmelidir.');
+        if (!govde.kalemler?.length) throw hatalar.dogrulama('Faturada en az bir kalem olmalıdır.');
+
+        const tedarikci = await islem.tek<{ id: string; tip: string }>(
+          'SELECT id, tip FROM cariler WHERE isletme_id = ? AND id = ? AND silindi_mi = 0',
+          [isletmeId, govde.tedarikci_id],
+        );
+        if (!tedarikci) throw hatalar.bulunamadi('Tedarikçi');
+        if (tedarikci.tip !== 'TEDARIKCI') throw hatalar.dogrulama('Seçilen cari bir tedarikçi değil.');
+
+        // Ürünler burada doğrulanır: kasada bulunamayan ürün talimatı tümden
+        // düşürür ve kullanıcı hatayı ancak çok sonra görürdü.
+        for (const kalem of govde.kalemler) {
+          const urun = await islem.tek<{ id: string }>(
+            'SELECT id FROM urunler WHERE isletme_id = ? AND id = ? AND silindi_mi = 0',
+            [isletmeId, kalem.urun_id],
+          );
+          if (!urun) throw hatalar.bulunamadi('Ürün');
+        }
+        faturaId = null;
+      } else {
+        if (!faturaId) throw hatalar.dogrulama('Fatura seçilmedi.');
+        const fatura = await islem.tek<{ id: string; durum: string; cihaz_id: string | null }>(
+          'SELECT id, durum, cihaz_id FROM alis_faturalari WHERE isletme_id = ? AND id = ?',
+          [isletmeId, faturaId],
+        );
+        if (!fatura) throw hatalar.bulunamadi('Alış faturası');
+        if (fatura.durum === 'IPTAL') throw hatalar.dogrulama('İptal edilmiş fatura üzerinde işlem yapılamaz.');
+        if (govde.tip === 'IPTAL' && (govde.neden ?? '').trim().length < 3) {
+          throw hatalar.dogrulama('İptal nedeni zorunludur (en az 3 karakter).');
+        }
+
+        // Faturayı yazan kasa tercih edilir: nakit ödemenin iadesi o çekmeceden çıkar.
+        tercihEdilenCihaz = fatura.cihaz_id;
+
+        const bekleyen = await islem.tek<{ id: string }>(
+          'SELECT id FROM alis_talimatlari WHERE isletme_id = ? AND fatura_id = ? AND silindi_mi = 0',
+          [isletmeId, faturaId],
+        );
+        if (bekleyen) throw hatalar.dogrulama('Bu fatura için kasada uygulanmayı bekleyen bir talimat zaten var.');
+      }
+
+      const cihaz = tercihEdilenCihaz
+        ? await islem.tek<{ cihaz_id: string }>(
+            'SELECT cihaz_id FROM cihazlar WHERE isletme_id = ? AND cihaz_id = ? AND aktif_mi = 1',
+            [isletmeId, tercihEdilenCihaz],
+          )
+        : null;
+      const hedefCihaz =
+        cihaz ??
+        (await islem.tek<{ cihaz_id: string }>(
+          'SELECT cihaz_id FROM cihazlar WHERE isletme_id = ? AND aktif_mi = 1 ORDER BY created_at LIMIT 1',
+          [isletmeId],
+        ));
+      if (!hedefCihaz) throw hatalar.bulunamadi('Talimatı uygulayacak kasa');
+
+      const versiyon = await sonrakiVersiyon(islem, isletmeId);
+      await islem.calistir(
+        `INSERT INTO alis_talimatlari (id, isletme_id, tip, fatura_id, veri, hedef_cihaz_id, kullanici_id,
+                                       created_at, updated_at, cihaz_id, versiyon, silindi_mi)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?, 0)`,
+        [
+          id,
+          isletmeId,
+          govde.tip,
+          faturaId,
+          JSON.stringify(govde),
+          String(hedefCihaz.cihaz_id),
+          istek.kullanici?.id ?? null,
+          zaman,
+          zaman,
+          versiyon,
+        ],
+      );
+
+      await denetle(
+        islem,
+        isletmeId,
+        istek.kullanici?.id as string,
+        `ALIS_TALIMATI_${govde.tip}`,
+        'alis_faturasi',
+        faturaId ?? id,
+        {
+          tip: govde.tip,
+          tedarikci_id: govde.tedarikci_id ?? null,
+          kalem_sayisi: govde.kalemler?.length ?? 0,
+          neden: govde.neden ?? null,
+          hedef_cihaz_id: String(hedefCihaz.cihaz_id),
+        },
+      );
+    });
+
+    return { id, basarili: true, uretim_zamani: zaman };
   });
 
   uygulama.post(UCLAR.stokDuzeltmeleri, yonetici, async (istek) => {

@@ -342,8 +342,9 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       if (musteriId && veresiye > 0) {
         const imzali = iadeMi ? -veresiye : veresiye;
         const eklendi = await islem.calistir(
-          `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id, tarih, cihaz_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id,
+                                        belge_tipi, tarih, cihaz_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'SATIS', ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
           [
             `${satisId}-veresiye`,
@@ -451,8 +452,9 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       const miktar = sayi(veri.miktar);
       await islem.calistir(
         `INSERT INTO stok_hareketleri (id, isletme_id, urun_id, hareket_tipi, miktar, birim_maliyet,
-                                       belge_id, kullanici_id, cihaz_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       belge_id, belge_tipi, skt, lot_no, neden_kodu, aciklama,
+                                       kullanici_id, cihaz_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(isletme_id, id) DO NOTHING`,
         [
           metin(veri.id),
@@ -462,6 +464,11 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
           miktar,
           sayi(veri.birim_maliyet),
           veri.belge_id ?? null,
+          veri.belge_tipi ?? null,
+          veri.skt ?? null,
+          veri.lot_no ?? null,
+          veri.neden_kodu ?? null,
+          veri.aciklama ?? null,
           veri.kullanici_id ?? null,
           baglam.cihazId,
           metin(veri.created_at, baglam.zaman),
@@ -477,8 +484,8 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       const tarih = metin(veri.tarih, baglam.zaman);
       await islem.calistir(
         `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id,
-                                      tarih, vade_tarihi, kullanici_id, cihaz_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      belge_tipi, tarih, vade_tarihi, kullanici_id, cihaz_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(isletme_id, id) DO NOTHING`,
         [
           metin(veri.id),
@@ -488,6 +495,7 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
           tutar,
           veri.aciklama ?? null,
           veri.belge_id ?? null,
+          veri.belge_tipi ?? null,
           tarih,
           veri.vade_tarihi ?? null,
           veri.kullanici_id ?? null,
@@ -819,9 +827,10 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
          * cevaplanamıyordu. `ON CONFLICT DO NOTHING` ile yeniden işleme güvenli.
          */
         await islem.calistir(
-          `INSERT INTO alis_faturalari (id, isletme_id, tedarikci_id, fatura_no, tarih, genel_toplam,
-                                        odenen_tutar, created_at, updated_at, cihaz_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO alis_faturalari (id, isletme_id, tedarikci_id, fatura_no, tarih, ara_toplam, kdv_toplam,
+                                        genel_toplam, odenen_tutar, durum, vade_tarihi, notlar, kullanici_id,
+                                        created_at, updated_at, cihaz_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ONAYLANDI', ?, ?, ?, ?, ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
           [
             faturaId,
@@ -829,8 +838,13 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
             tedarikciId,
             faturaNo || null,
             faturaTarihi,
+            sayi(veri.ara_toplam),
+            sayi(veri.kdv_toplam),
             genelToplam,
             sayi(veri.odenen_tutar),
+            veri.vade_tarihi ?? null,
+            veri.notlar ?? null,
+            veri.kullanici_id ?? null,
             faturaTarihi,
             baglam.zaman,
             baglam.cihazId,
@@ -840,11 +854,23 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         const kalemler = Array.isArray(veri.kalemler) ? (veri.kalemler as Record<string, unknown>[]) : [];
         for (const [sira, kalem] of kalemler.entries()) {
           await islem.calistir(
-            `INSERT INTO alis_kalemleri (id, isletme_id, fatura_id, urun_id, miktar, birim_fiyat)
-             VALUES (?, ?, ?, ?, ?, ?)
+            `INSERT INTO alis_kalemleri (id, isletme_id, fatura_id, urun_id, miktar, birim_fiyat,
+                                         kdv_orani, satir_toplam, skt, lot_no)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(isletme_id, id) DO NOTHING`,
             // Kalem id'si yükte yok; fatura + sıra deterministik ve tekrar güvenlidir.
-            [`${faturaId}-${sira}`, isletmeId, faturaId, metin(kalem.urun_id), sayi(kalem.miktar), sayi(kalem.birim_fiyat)],
+            [
+              `${faturaId}-${sira}`,
+              isletmeId,
+              faturaId,
+              metin(kalem.urun_id),
+              sayi(kalem.miktar),
+              sayi(kalem.birim_fiyat),
+              sayi(kalem.kdv_orani),
+              sayi(kalem.satir_toplam),
+              kalem.skt ?? null,
+              kalem.lot_no ?? null,
+            ],
           );
         }
 
@@ -915,6 +941,92 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
           JSON.stringify(veri),
           baglam.zaman,
           baglam.cihazId,
+        ],
+      );
+      return;
+    }
+
+    /*
+     * Fatura iptali (§11.8).
+     *
+     * Belge SİLİNMEZ, durumu IPTAL olur — "bu mal hiç gelmedi" ile "bu fatura
+     * yanlıştı, düzeltildi" farklı şeylerdir ve ikisi de görünmelidir. Stok
+     * geri alınması ayrı STOK_HAREKETI olaylarıyla gelir; buradaki iş cari
+     * borcu ters kayıtla geri almak ve belgeyi işaretlemektir.
+     */
+    case 'ALIS_FATURASI_IPTAL': {
+      const faturaId = metin(veri.id);
+      const tedarikciId = metin(veri.tedarikci_id);
+      const tutar = sayi(veri.genel_toplam);
+      const zaman = metin(veri.tarih, baglam.zaman);
+      if (!faturaId) return;
+
+      await islem.calistir(
+        `UPDATE alis_faturalari SET durum = 'IPTAL', iptal_neden = ?, iptal_zamani = ?, updated_at = ?
+         WHERE isletme_id = ? AND id = ?`,
+        [metin(veri.neden) || null, zaman, baglam.zaman, isletmeId, faturaId],
+      );
+
+      if (tedarikciId && tutar > 0) {
+        const eklendi = await islem.calistir(
+          `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id,
+                                        belge_tipi, tarih, kullanici_id, cihaz_id)
+           VALUES (?, ?, ?, 'DUZELTME', ?, ?, ?, 'ALIS_IPTAL', ?, ?, ?)
+           ON CONFLICT(isletme_id, id) DO NOTHING`,
+          [
+            `${faturaId}-iptal`,
+            isletmeId,
+            tedarikciId,
+            -tutar,
+            `Alış faturası iptali${metin(veri.neden) ? `: ${metin(veri.neden)}` : ''}`,
+            faturaId,
+            zaman,
+            veri.kullanici_id ?? null,
+            baglam.cihazId,
+          ],
+        );
+        if (eklendi.rowsAffected > 0) await cariOzetEkle(islem, baglam, tedarikciId, -tutar, zaman);
+
+        // Peşin ödeme yapılmıştıysa onun da tersi yazılır, yoksa tedarikçi alacaklı görünür.
+        const odenen = sayi(veri.odenen_tutar);
+        if (odenen > 0) {
+          const odemeIptal = await islem.calistir(
+            `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id,
+                                          belge_tipi, tarih, kullanici_id, cihaz_id)
+             VALUES (?, ?, ?, 'DUZELTME', ?, ?, ?, 'ALIS_ODEME_IPTAL', ?, ?, ?)
+             ON CONFLICT(isletme_id, id) DO NOTHING`,
+            [
+              `${faturaId}-odeme-iptal`,
+              isletmeId,
+              tedarikciId,
+              odenen,
+              'Alış ödemesi iptali',
+              faturaId,
+              zaman,
+              veri.kullanici_id ?? null,
+              baglam.cihazId,
+            ],
+          );
+          if (odemeIptal.rowsAffected > 0) await cariOzetEkle(islem, baglam, tedarikciId, odenen, zaman);
+        }
+      }
+      return;
+    }
+
+    /** Belge bilgisi düzeltmesi — mali etkisi yoktur, yalnız alanlar güncellenir. */
+    case 'ALIS_FATURASI_GUNCELLENDI': {
+      const faturaId = metin(veri.id);
+      if (!faturaId) return;
+      await islem.calistir(
+        `UPDATE alis_faturalari SET fatura_no = ?, vade_tarihi = ?, notlar = ?, updated_at = ?
+         WHERE isletme_id = ? AND id = ? AND durum <> 'IPTAL'`,
+        [
+          veri.fatura_no ?? null,
+          veri.vade_tarihi ?? null,
+          veri.notlar ?? null,
+          metin(veri.updated_at, baglam.zaman),
+          isletmeId,
+          faturaId,
         ],
       );
       return;

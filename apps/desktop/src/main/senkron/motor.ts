@@ -33,6 +33,9 @@ import { stokOlayiYaz } from '../servis/stok-servis.js';
 import { kategoriyiSenkrondanSil } from '../servis/katalog-servis.js';
 import { SISTEM_AKTORU } from '../servis/baglam.js';
 import { ayarMetin, ayarYaz } from '../depo/ayar.js';
+import { alisTalimatiniSakla } from '../servis/alis-talimat-servis.js';
+import { cariTalimatiniSakla } from '../servis/cari-talimat-servis.js';
+import { iadeTalimatiniSakla } from '../servis/iade-talimat-servis.js';
 import {
   bekleyenOlaylar,
   bekleyenSayisi,
@@ -216,6 +219,36 @@ export function pullKaydiniUygula(
       }
       return { uygulandi: false, cakisma: false };
     }
+    case 'iade_talimatlari':
+      /*
+       * Talimat YERELE YAZILIR, burada uygulanmaz: iade bir kasa oturumu ister
+       * ve senkron kasa kapalıyken de çalışır. Uygulama, kasa açıkken
+       * `bekleyenIadeleriIsle` ile yapılır (§10.4).
+       */
+      if (kayit.silindi_mi) return { uygulandi: false, cakisma: false };
+      iadeTalimatiniSakla(vt, veri);
+      return { uygulandi: true, cakisma: false };
+
+    case 'alis_talimatlari':
+      /*
+       * Alış talimatı da yerele yazılır, burada uygulanmaz: nakit ödemeli bir
+       * fatura kasa oturumu ister ve senkron kasa kapalıyken de çalışır.
+       * Uygulama `bekleyenAlisTalimatlariniIsle` ile yapılır (§11.8).
+       */
+      if (kayit.silindi_mi) return { uygulandi: false, cakisma: false };
+      alisTalimatiniSakla(vt, veri);
+      return { uygulandi: true, cakisma: false };
+
+    case 'cari_talimatlari':
+      /*
+       * Cari talimatı da yerele yazılır, burada uygulanmaz: nakit bir
+       * tahsilatın iptali kasa oturumu ister ve senkron kasa kapalıyken de
+       * çalışır. Uygulama `bekleyenCariTalimatlariniIsle` ile yapılır (§10.7).
+       */
+      if (kayit.silindi_mi) return { uygulandi: false, cakisma: false };
+      cariTalimatiniSakla(vt, veri);
+      return { uygulandi: true, cakisma: false };
+
     case 'stok_duzeltmeleri':
       // İptal edilmiş talimat uygulanmaz: panelde aynı ürüne yeni bir stok
       // girilince eskisi mezar taşıyla iptal edilir. Buna bakmazsak iki

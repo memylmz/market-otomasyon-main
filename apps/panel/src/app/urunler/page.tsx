@@ -43,6 +43,8 @@ interface Urun {
   ideal_stok: number;
   raf_konumu: string | null;
   skt_takibi: number;
+  /** Kısa kod (PLU) — barkodsuz üründe kasiyerin yazdığı numara. */
+  kisa_kod?: string | null;
   stok: number;
   aktif_mi: number;
 }
@@ -303,6 +305,7 @@ function UrunFormu({
     kritikStok: mevcut?.kritik_stok ? String(mevcut.kritik_stok / 1000) : '',
     idealStok: mevcut?.ideal_stok ? String(mevcut.ideal_stok / 1000) : '',
     rafKonumu: mevcut?.raf_konumu ?? '',
+    kisaKod: mevcut?.kisa_kod ?? '',
     sktTakibi: mevcut?.skt_takibi === 1,
     aktif: mevcut ? mevcut.aktif_mi === 1 : true,
     // Stok miktarı. Yeni üründe "açılış stoğu", mevcutta "yeni sayım" anlamına
@@ -367,6 +370,7 @@ function UrunFormu({
           kritik_stok: miktarKurus(form.kritikStok),
           ideal_stok: miktarKurus(form.idealStok),
           raf_konumu: form.rafKonumu.trim() || null,
+          kisa_kod: form.kisaKod.trim(),
           skt_takibi: form.sktTakibi,
           notlar: form.notlar.trim() || null,
           aktif_mi: form.aktif,
@@ -496,6 +500,25 @@ function UrunFormu({
             <input className="alan" value={form.rafKonumu} onChange={(e) => setForm({ ...form, rafKonumu: e.target.value })} />
           </label>
         </div>
+
+        {/*
+          Kısa kod (PLU) panelden yönetilir çünkü ELLE yazılır, okutulmaz.
+          Barkod ekleme kasada kalır: okuyucu orada olduğu için yanlış yazım
+          riski en aza iner.
+        */}
+        <label className="block">
+          <span className="etiket">Kısa kod (PLU)</span>
+          <input
+            className="alan sayi w-32"
+            inputMode="numeric"
+            placeholder="örn. 24"
+            value={form.kisaKod}
+            onChange={(e) => setForm({ ...form, kisaKod: e.target.value.replace(/\D/g, '').slice(0, 5) })}
+          />
+          <span className="mt-1 block text-xs text-metin-4">
+            Barkodsuz ürünlerde kasiyer bu kodu yazıp Enter'lar; aramaya gerek kalmaz. 2-5 rakam, boş bırakılırsa kaldırılır.
+          </span>
+        </label>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">

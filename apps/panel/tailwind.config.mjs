@@ -1,40 +1,19 @@
 /**
- * Panel renk sistemi — masaüstü kasa uygulamasıyla AYNI anlamsal isimler.
+ * Panel (yönetim) Tailwind yapılandırması.
  *
- * Renkler CSS değişkenlerinden "R G B" kanal biçiminde okunur; bu sayede
- * Tailwind saydamlık eki (`bg-yuzey/60`) çalışır ve tek bir `data-tema`
- * özniteliğiyle açık/koyu tema değişir (global.css).
+ * Renkler, yazı tipleri ve bileşen sınıfları `@market/tema` içindeki ORTAK
+ * kaynaktan gelir; kasa ve panel aynı eklentiyi kullanır, ayrışamazlar.
+ * Bileşenler sabit bir ton (`slate-700` gibi) kullanmaz; `cizgi`, `metin-3`
+ * gibi **anlamsal** adlar kullanır — açık/koyu tema tek yerden değişir.
  *
- * @type {import("tailwindcss").Config}
+ * @type {import('tailwindcss').Config}
  */
-const kanal = (ad) => `rgb(var(${ad}) / <alpha-value>)`;
+import { temelTema, temaEklentisi } from '@market/tema/tailwind-temel.mjs';
 
 export default {
-  content: ["./src/**/*.{ts,tsx}"],
+  content: ['./src/**/*.{ts,tsx}'],
   theme: {
-    extend: {
-      colors: {
-        zemin: kanal("--zemin"),
-        yuzey: { DEFAULT: kanal("--yuzey"), 2: kanal("--yuzey-2"), 3: kanal("--yuzey-3"), 4: kanal("--yuzey-4") },
-        cizgi: { DEFAULT: kanal("--cizgi"), kuvvetli: kanal("--cizgi-kuvvetli"), ince: kanal("--cizgi-ince") },
-        metin: { DEFAULT: kanal("--metin"), 2: kanal("--metin-2"), 3: kanal("--metin-3"), 4: kanal("--metin-4") },
-        vurgu: {
-          DEFAULT: kanal("--vurgu"),
-          koyu: kanal("--vurgu-koyu"),
-          yumusak: kanal("--vurgu-yumusak"),
-          uzeri: kanal("--vurgu-uzeri"),
-        },
-        uyari: { DEFAULT: kanal("--uyari"), yumusak: kanal("--uyari-yumusak"), cizgi: kanal("--uyari-cizgi") },
-        tehlike: {
-          DEFAULT: kanal("--tehlike"),
-          koyu: kanal("--tehlike-koyu"),
-          yumusak: kanal("--tehlike-yumusak"),
-          cizgi: kanal("--tehlike-cizgi"),
-        },
-        bilgi: { DEFAULT: kanal("--bilgi"), yumusak: kanal("--bilgi-yumusak"), cizgi: kanal("--bilgi-cizgi") },
-        ortu: kanal("--ortu"),
-      },
-    },
+    extend: { ...temelTema },
   },
-  plugins: [],
+  plugins: [temaEklentisi],
 };

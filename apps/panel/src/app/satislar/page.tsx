@@ -10,11 +10,11 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { bugun, gunEkle, miktarFormat, paraFormat, tarihFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { CiroTrendi } from '@/bilesen/grafik';
 import { AralikSecici, BosDurum, HataKutusu, Kabuk, Kutu, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
-import { uclar } from '@/lib/api';
+import { api, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
 
 type Sekme = 'ozet' | 'fisler';
@@ -319,25 +319,29 @@ export default function SatislarSayfasi() {
   );
 }
 
+interface FisKalemi {
+  id: string;
+  urun_adi: string;
+  barkod: string | null;
+  birim_tipi?: string | null;
+  miktar: number;
+  birim_fiyat: Kurus;
+  iskonto: Kurus;
+  kdv_orani: number;
+  kdv_tutar: Kurus;
+  satir_toplam: Kurus;
+}
+
 interface FisDetayVerisi {
   satis: (FisSatiri & { ara_toplam: Kurus; iskonto_toplam: Kurus; kdv_toplam: Kurus }) | null;
-  kalemler: {
-    id: string;
-    urun_adi: string;
-    barkod: string | null;
-    miktar: number;
-    birim_fiyat: Kurus;
-    iskonto: Kurus;
-    kdv_orani: number;
-    kdv_tutar: Kurus;
-    satir_toplam: Kurus;
-  }[];
+  kalemler: FisKalemi[];
   odemeler: { id: string; odeme_tipi: string; tutar: Kurus }[];
 }
 
 /** Geçmiş fişin tam dökümü — kasadaki fiş detay diyaloğunun panel karşılığı. */
 function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void }) {
   const { veri, yukleniyor, hata, tazele } = useVeri<FisDetayVerisi>(`${uclar.satislar}/${satisId}`);
+  const [iadeAcik, setIadeAcik] = useState(false);
 
   // İade fişlerinde tutarlar negatiftir; okunurluk için mutlak değer gösterilir.
   const mutlak = (d: Kurus) => paraFormat(Math.abs(d), { simge: false });
@@ -356,11 +360,34 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
       genis
       onKapat={onKapat}
       altBilgi={
-        <button type="button" className="tus-birincil ml-auto" onClick={onKapat}>
-          Kapat
-        </button>
+        <>
+          {/*
+            Kısmi iade: satışın TAMAMI değil, seçilen kalemler iade edilir.
+            Panel iadeyi kendisi işlemez; kasaya talimat yazar (§10.4).
+          */}
+          {veri?.satis && !veri.satis.iptal_mi && !veri.satis.iade_mi && (
+            <button type="button" className="tus-ikincil" onClick={() => setIadeAcik(true)}>
+              Kısmi İade
+            </button>
+          )}
+          <button type="button" className="tus-birincil ml-auto" onClick={onKapat}>
+            Kapat
+          </button>
+        </>
       }
     >
+      {iadeAcik && veri?.satis && (
+        <KismiIadeDiyalogu
+          satisId={satisId}
+          fisNo={veri.satis.fis_no}
+          kalemler={veri.kalemler}
+          onKapat={() => setIadeAcik(false)}
+          onTamam={() => {
+            setIadeAcik(false);
+            tazele();
+          }}
+        />
+      )}
       {yukleniyor ? (
         <Yukleniyor />
       ) : hata ? (
@@ -473,6 +500,190 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
           </div>
         </div>
       )}
+    </Modal>
+  );
+}
+
+/**
+ * Kısmi iade — panelden verilen TALİMAT (§10.4).
+ *
+ * Panel iadeyi kendisi İŞLEMEZ. Stok ve cari hareketlerinin tek üreticisi
+ * kasadır; bulut kendi başına hareket üretirse kasa ondan habersiz kalır ve iki
+ * taraf ayrışır. Bu yüzden burada yalnız talimat yazılır: kasa onu senkronda
+ * alır, kendi iade servisiyle uygular, iade fişini basar, stoğu artırır ve
+ * veresiyeyse müşterinin borcundan düşer.
+ *
+ * Sonucu: iade ANINDA olmaz. Kasa bir sonraki senkronda (ya da kasa açılışında)
+ * uygular. Bu, ekranda açıkça söylenir.
+ */
+function KismiIadeDiyalogu({
+  satisId,
+  fisNo,
+  kalemler,
+  onKapat,
+  onTamam,
+}: {
+  satisId: string;
+  fisNo: string;
+  kalemler: FisKalemi[];
+  onKapat: () => void;
+  onTamam: () => void;
+}) {
+  const [miktarlar, setMiktarlar] = useState<Record<string, string>>({});
+  const [yontem, setYontem] = useState<'NAKIT' | 'KART' | 'VERESIYE'>('NAKIT');
+  const [neden, setNeden] = useState('');
+  const [kasalar, setKasalar] = useState<{ id: string; cihaz_adi: string }[]>([]);
+  const [hedefKasa, setHedefKasa] = useState('');
+  const [gonderiliyor, setGonderiliyor] = useState(false);
+  const [hata, setHata] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api<{ data: { id: string; cihaz_adi: string; aktif_mi: number }[] }>(uclar.cihazlar)
+      .then((v) => {
+        const aktif = v.data.filter((c) => c.aktif_mi === 1);
+        setKasalar(aktif);
+        if (aktif[0]) setHedefKasa(aktif[0].id);
+      })
+      .catch(() => setKasalar([]));
+  }, []);
+
+  const secilenler = kalemler
+    .map((k) => ({ k, miktar: Math.round((Number(miktarlar[k.id]?.replace(',', '.')) || 0) * 1000) }))
+    .filter((x) => x.miktar > 0);
+
+  const toplam = secilenler.reduce(
+    (t, x) => t + Math.round((x.miktar / Math.abs(x.k.miktar || 1)) * Math.abs(x.k.satir_toplam)),
+    0,
+  );
+
+  const gonder = async () => {
+    setHata(null);
+    if (secilenler.length === 0) {
+      setHata('En az bir kalem için miktar girin.');
+      return;
+    }
+    for (const x of secilenler) {
+      if (x.miktar > Math.abs(x.k.miktar)) {
+        setHata(`"${x.k.urun_adi}" için satılandan fazla iade edilemez.`);
+        return;
+      }
+    }
+    if (neden.trim().length < 3) {
+      setHata('İade nedeni en az 3 karakter olmalıdır.');
+      return;
+    }
+    if (!hedefKasa) {
+      setHata('İadeyi uygulayacak kasayı seçin.');
+      return;
+    }
+
+    setGonderiliyor(true);
+    try {
+      await api(uclar.iadeTalimatlari, {
+        method: 'POST',
+        body: JSON.stringify({
+          satis_id: satisId,
+          kalemler: secilenler.map((x) => ({ satis_kalemi_id: x.k.id, miktar: x.miktar })),
+          iade_yontemi: yontem,
+          neden: neden.trim(),
+          hedef_cihaz_id: hedefKasa,
+        }),
+      });
+      onTamam();
+    } catch (h) {
+      setHata(h instanceof Error ? h.message : 'Talimat yazılamadı.');
+    } finally {
+      setGonderiliyor(false);
+    }
+  };
+
+  return (
+    <Modal
+      baslik={`Kısmi İade — ${fisNo}`}
+      genis
+      onKapat={onKapat}
+      altBilgi={
+        <>
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Vazgeç
+          </button>
+          <button type="button" className="tus-birincil" onClick={() => void gonder()} disabled={gonderiliyor}>
+            {gonderiliyor ? 'Gönderiliyor…' : 'İade Talimatı Gönder'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="rounded border border-bilgi-cizgi bg-bilgi-yumusak px-3 py-2 text-sm">
+          İade <strong>kasada</strong> uygulanır: iade fişi kasadan basılır, stok artar, veresiye satışta müşterinin borcundan
+          düşülür. Talimat bir sonraki senkronda (kasa kapalıysa açılışında) işlenir.
+        </p>
+
+        <div className="tablo-sarmal">
+          <table className="tablo">
+            <thead>
+              <tr>
+                <th className="text-left">Ürün</th>
+                <th>Satılan</th>
+                <th>Tutar</th>
+                <th>İade miktarı</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kalemler.map((k) => (
+                <tr key={k.id}>
+                  <td className="text-left">{k.urun_adi}</td>
+                  <td className="sayi text-metin-3">{miktarFormat(Math.abs(k.miktar), k.birim_tipi as never)}</td>
+                  <td className="sayi text-metin-3">{paraFormat(Math.abs(k.satir_toplam), { simge: false })}</td>
+                  <td>
+                    <input
+                      className="alan sayi w-24"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={miktarlar[k.id] ?? ''}
+                      onChange={(e) => setMiktarlar({ ...miktarlar, [k.id]: e.target.value })}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="etiket">İade şekli</span>
+            <select className="alan" value={yontem} onChange={(e) => setYontem(e.target.value as typeof yontem)}>
+              <option value="NAKIT">Nakit (kasadan çıkar)</option>
+              <option value="KART">Kart</option>
+              <option value="VERESIYE">Veresiye (borçtan düşülür)</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="etiket">İadeyi uygulayacak kasa</span>
+            <select className="alan" value={hedefKasa} onChange={(e) => setHedefKasa(e.target.value)}>
+              {kasalar.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.cihaz_adi}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="etiket">İade nedeni *</span>
+          <input className="alan" value={neden} onChange={(e) => setNeden(e.target.value)} placeholder="Örn. ürün bozuk çıktı" />
+        </label>
+
+        <div className="flex items-baseline justify-between rounded bg-yuzey-2 px-4 py-3">
+          <span className="text-metin-2">İade edilecek tutar (yaklaşık)</span>
+          <span className="font-mono text-xl font-bold text-uyari">{paraFormat(toplam)}</span>
+        </div>
+        <p className="text-xs text-metin-4">Kesin tutarı kasa hesaplar; iskonto ve kampanya oranları orada yeniden uygulanır.</p>
+
+        {hata && <HataKutusu mesaj={hata} />}
+      </div>
     </Modal>
   );
 }

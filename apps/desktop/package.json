@@ -24,6 +24,7 @@
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
+    "@market/tema": "*",
     "@tanstack/react-query": "^5.62.7",
     "@types/better-sqlite3": "^7.6.12",
     "@types/react": "^18.3.17",

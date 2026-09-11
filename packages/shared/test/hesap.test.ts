@@ -10,6 +10,8 @@ import {
   limitAsimi,
   lwwKazanan,
   marjHesapla,
+  miktarKampanyasiIskontosu,
+  miktarOlustur,
   marjdanFiyat,
   miktarOlustur,
   odemeDogrula,
@@ -319,5 +321,101 @@ describe('LWW çakışma çözümü (§7.4)', () => {
   it('tamamen aynı kayıtta çakışma bildirmez', () => {
     const a = { updated_at: '2026-07-31T10:00:00.000Z', cihaz_id: 'kasa-01' };
     expect(lwwKazanan(a, { ...a }).cakisma).toBe(false);
+  });
+});
+
+describe('miktar bazlı kampanyalar (§10.8)', () => {
+  const zaman = '2026-09-06T12:00:00.000Z';
+  const hedef = { urunId: 'u1', kategoriId: 'k1' };
+  const temel = {
+    id: 'kmp',
+    kapsam: 'URUN' as const,
+    hedefId: 'u1',
+    baslangic: '2026-01-01T00:00:00.000Z',
+    bitis: '2026-12-31T23:59:59.999Z',
+    aktifMi: true,
+  };
+
+  describe('N al M öde', () => {
+    /** "3 al 2 öde": her 3 adette 1 tanesi bedava, kademeli devam eder. */
+    const kampanya = [{ ...temel, tip: 'N_AL_M_ODE' as const, esikMiktar: 3000, deger: 2 }];
+    const iskonto = (adetSayisi: number) =>
+      miktarKampanyasiIskontosu(1000, adet(adetSayisi), 'ADET', hedef, kampanya, zaman).iskonto;
+
+    it('eşiğin altında indirim yok', () => {
+      expect(iskonto(1)).toBe(0);
+      expect(iskonto(2)).toBe(0);
+    });
+
+    it('eşikte bir adet bedava', () => {
+      expect(iskonto(3)).toBe(1000);
+    });
+
+    it('kademeli devam eder', () => {
+      expect(iskonto(4), '4 adette hâlâ 1 bedava').toBe(1000);
+      expect(iskonto(5), '5 adette hâlâ 1 bedava').toBe(1000);
+      expect(iskonto(6), '6 adette 2 bedava').toBe(2000);
+      expect(iskonto(9)).toBe(3000);
+    });
+
+    /** KG üründe "3 kg al 2 kg öde" markette kullanılmaz; yarım kilo bedava anlamsız. */
+    it('KG üründe uygulanmaz', () => {
+      expect(miktarKampanyasiIskontosu(1000, miktarOlustur(6), 'KG', hedef, kampanya, zaman).iskonto).toBe(0);
+    });
+
+    it('geçersiz tanım (ödenen >= alınan) yok sayılır', () => {
+      const bozuk = [{ ...temel, tip: 'N_AL_M_ODE' as const, esikMiktar: 3000, deger: 3 }];
+      expect(miktarKampanyasiIskontosu(1000, adet(9), 'ADET', hedef, bozuk, zaman).iskonto).toBe(0);
+    });
+  });
+
+  describe('kademeli fiyat', () => {
+    /** "3 kg ve üzeri 8,00/kg" — liste 10,00. İndirim TÜM miktara uygulanır. */
+    const kampanya = [{ ...temel, tip: 'KADEMELI_FIYAT' as const, esikMiktar: 3000, deger: 800 }];
+    const iskonto = (kg: number) => miktarKampanyasiIskontosu(1000, miktarOlustur(kg), 'KG', hedef, kampanya, zaman).iskonto;
+
+    it('eşiğin altında indirim yok', () => {
+      expect(iskonto(2)).toBe(0);
+      expect(iskonto(2.999)).toBe(0);
+    });
+
+    it('eşikte ve üstünde tüm miktara uygulanır', () => {
+      expect(iskonto(3), '3 kg × 2,00 fark').toBe(600);
+      expect(iskonto(5.5), '5,5 kg × 2,00 fark').toBe(1100);
+    });
+
+    it('ADET üründe de çalışır', () => {
+      expect(miktarKampanyasiIskontosu(1000, adet(4), 'ADET', hedef, kampanya, zaman).iskonto).toBe(800);
+    });
+
+    it('yeni fiyat listeden yüksekse uygulanmaz', () => {
+      const kotu = [{ ...temel, tip: 'KADEMELI_FIYAT' as const, esikMiktar: 3000, deger: 1500 }];
+      expect(miktarKampanyasiIskontosu(1000, miktarOlustur(5), 'KG', hedef, kotu, zaman).iskonto).toBe(0);
+    });
+  });
+
+  it('en ÇOK indirim veren kampanya kazanır', () => {
+    const kampanyalar = [
+      { ...temel, id: 'az', tip: 'N_AL_M_ODE' as const, esikMiktar: 3000, deger: 2 }, // 6 adette 2000
+      { ...temel, id: 'cok', tip: 'KADEMELI_FIYAT' as const, esikMiktar: 3000, deger: 500 }, // 6 adette 3000
+    ];
+    const sonuc = miktarKampanyasiIskontosu(1000, adet(6), 'ADET', hedef, kampanyalar, zaman);
+    expect(sonuc.iskonto).toBe(3000);
+    expect(sonuc.kampanyaId).toBe('cok');
+  });
+
+  /** Süresi geçmiş ya da pasif kampanya uygulanmamalı. */
+  it('geçersiz kampanya yok sayılır', () => {
+    const pasif = [{ ...temel, tip: 'N_AL_M_ODE' as const, esikMiktar: 3000, deger: 2, aktifMi: false }];
+    expect(miktarKampanyasiIskontosu(1000, adet(6), 'ADET', hedef, pasif, zaman).iskonto).toBe(0);
+  });
+
+  /**
+   * Miktar kampanyaları BİRİM FİYAT motoruna sızmamalı; iki yerde birden
+   * uygulanırsa indirim iki kez düşülür.
+   */
+  it('birim fiyat motoru miktar kampanyasını yok sayar', () => {
+    const kampanya = [{ ...temel, tip: 'N_AL_M_ODE' as const, esikMiktar: 3000, deger: 2 }];
+    expect(kampanyaFiyatiBul(1000, hedef, kampanya, zaman)).toEqual({ fiyat: 1000, kampanyaId: null });
   });
 });

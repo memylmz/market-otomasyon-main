@@ -76,8 +76,13 @@ class AgYazicisi implements Yazici {
       };
 
       soket.setTimeout(zamanAsimi);
-      soket.on('timeout', () => bitir({ basarili: false, hata: `Yazıcı yanıt vermiyor (${host}:${port}).` }));
-      soket.on('error', (hata) => bitir({ basarili: false, hata: `Yazıcıya bağlanılamadı: ${hata.message}` }));
+      soket.on('timeout', () =>
+        bitir({
+          basarili: false,
+          hata: `Yazıcı yanıt vermiyor (${host}:${port}). Yazıcı açık mı ve IP doğru mu kontrol edin.`,
+        }),
+      );
+      soket.on('error', (hata) => bitir({ basarili: false, hata: agHatasiniAcikla(hata, host, port) }));
       soket.on('connect', () => {
         soket.write(baytlar, (hata) => {
           if (hata) bitir({ basarili: false, hata: `Yazdırma hatası: ${hata.message}` });
@@ -199,6 +204,41 @@ class SirasiylaYazici implements Yazici {
 
   test(): Promise<YazdirmaSonucu> {
     return this.dene((y) => y.test());
+  }
+}
+
+/** Adres yerel ağa mı ait? macOS izni yalnız yerel ağı kısıtlar. */
+function yerelAgMi(host: string): boolean {
+  return /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^169\.254\./.test(host);
+}
+
+/**
+ * Ağ hatasını kullanıcının ne yapacağını bilebileceği bir cümleye çevirir (§20).
+ *
+ * `EHOSTUNREACH` özel bir durumdur ve tanısı zordur: macOS 15'ten beri
+ * uygulamaların YEREL AĞA erişimi ayrı bir izne bağlıdır ve izin verilmemişse
+ * bağlantı tam olarak bu kodla düşer. Yazıcıya `ping` atılabiliyor, terminalden
+ * bağlanılabiliyor ama uygulama bağlanamıyor — kullanıcı da haklı olarak
+ * "ağda sorun yok, program bozuk" diye düşünüyor. Yönlendiriciye erişim izinden
+ * MUAF olduğu için sorun daha da kafa karıştırıcı görünür.
+ */
+function agHatasiniAcikla(hata: NodeJS.ErrnoException, host: string, port: number): string {
+  const adres = `${host}:${port}`;
+  switch (hata.code) {
+    case 'EHOSTUNREACH':
+      return yerelAgMi(host)
+        ? `Yazıcıya ulaşılamıyor (${adres}). macOS'ta uygulamanın yerel ağ izni kapalı olabilir: ` +
+            'Sistem Ayarları → Gizlilik ve Güvenlik → Yerel Ağ listesinden uygulamayı açın. ' +
+            'Ağ kablosu ve IP doğruysa sebep genelde budur.'
+        : `Yazıcıya ulaşılamıyor (${adres}).`;
+    case 'ECONNREFUSED':
+      return `${adres} adresinde bir cihaz var ama bağlantıyı reddetti. Yazıcının RAW/JetDirect portu genelde 9100'dür; port numarasını kontrol edin.`;
+    case 'ENETUNREACH':
+      return `${adres} adresine giden bir yol yok. Yazıcı bu bilgisayarla aynı ağda mı?`;
+    case 'ETIMEDOUT':
+      return `${adres} yanıt vermedi. Yazıcı kapalı olabilir ya da IP yanlış olabilir.`;
+    default:
+      return `Yazıcıya bağlanılamadı (${adres}): ${hata.message}`;
   }
 }
 

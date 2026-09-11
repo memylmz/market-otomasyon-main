@@ -1,0 +1,16 @@
+{
+  "name": "@market/tema",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kasa ve yönetim panelinin ORTAK görsel dili: renk belirteçleri ve bileşen sınıfları (Tailwind eklentisi)",
+  "exports": {
+    "./tailwind-temel.mjs": "./tailwind-temel.mjs"
+  },
+  "files": [
+    "tailwind-temel.mjs"
+  ],
+  "peerDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}

@@ -9,10 +9,14 @@
 import { create } from 'zustand';
 import {
   adet,
+  kampanyaFiyatiBul,
   miktarBirimeUyarla,
+  miktarKampanyasiIskontosu,
   sepetHesapla,
+  simdi,
   uuid,
   type BirimTipi,
+  type KampanyaTanimi,
   type Kurus,
   type Miktar,
   type SepetHesap,
@@ -24,6 +28,8 @@ export interface SepetSatiri {
   urunId: string;
   ad: string;
   barkod: string | null;
+  /** Kategori kapsamlı kampanyalar için (§10.8). */
+  kategoriId?: string | null;
   birimTipi: BirimTipi;
   miktar: Miktar;
   birimFiyat: Kurus;
@@ -46,6 +52,8 @@ export interface EklenecekUrun {
   urunId: string;
   ad: string;
   barkod: string | null;
+  /** Kategori kapsamlı kampanyaların eşleşmesi için taşınır (§10.8). */
+  kategoriId?: string | null;
   birimTipi: BirimTipi;
   birimFiyat: Kurus;
   listeFiyati: Kurus;
@@ -120,20 +128,50 @@ interface SepetDurumu {
   /** Ödeme tamamlanınca: aktif sepet kapanır, varsa bekleyen sepete geçilir. */
   satisSonrasi: () => void;
 
+  /** Etkin kampanyalar — miktar bazlı indirim satırda anlık hesaplanır (§10.8). */
+  kampanyalar: KampanyaTanimi[];
+  kampanyalariAyarla: (liste: KampanyaTanimi[]) => void;
+
   /** Diske yazılacak kurtarma anlık görüntüsü (§10.3). */
   anlikGoruntu: () => SepetAnlik;
   /** Kurtarma noktasından geri yükler. Yalnız her şey boşken çağrılmalıdır. */
   geriYukle: (anlik: SepetAnlik) => void;
 }
 
-function satirGirdileri(satirlar: SepetSatiri[]): SatirGirdi[] {
-  return satirlar.map((s) => ({
-    miktar: s.miktar,
-    birimFiyat: s.birimFiyat,
-    kdvOrani: s.kdvOrani,
-    iskontoYuzde: s.iskontoYuzde,
-    iskontoTutar: s.iskontoTutar,
-  }));
+/**
+ * Satır girdileri — miktar kampanyası burada uygulanır (§10.8).
+ *
+ * Kampanya indirimi SATIR İSKONTOSUDUR, birim fiyat değil: "3 al 2 öde"de
+ * indirim miktara bağlı ve kademelidir; birim fiyata gömmek kuruş
+ * yuvarlamasını bozar ve müşteri fişte neyin bedava geldiğini göremez.
+ *
+ * ELLE VERİLEN İSKONTO ÖNCELİKLİ: kasiyer bilerek indirim yazdıysa kampanya
+ * devreye girmez. Sunucu aynı kuralı bağımsız olarak tekrar uygular.
+ */
+function satirGirdileri(satirlar: SepetSatiri[], kampanyalar: KampanyaTanimi[] = []): SatirGirdi[] {
+  const zaman = simdi();
+  return satirlar.map((s) => {
+    const elle = Boolean(s.iskontoYuzde) || Boolean(s.iskontoTutar);
+    const kampanya =
+      elle || kampanyalar.length === 0
+        ? 0
+        : miktarKampanyasiIskontosu(
+            s.birimFiyat,
+            s.miktar,
+            s.birimTipi,
+            { urunId: s.urunId, kategoriId: s.kategoriId ?? null },
+            kampanyalar,
+            zaman,
+          ).iskonto;
+
+    return {
+      miktar: s.miktar,
+      birimFiyat: s.birimFiyat,
+      kdvOrani: s.kdvOrani,
+      iskontoYuzde: s.iskontoYuzde,
+      iskontoTutar: elle ? s.iskontoTutar : kampanya || undefined,
+    };
+  });
 }
 
 /** Aktif sepetin alanlarını bekleyen paket biçiminde toplar. */
@@ -207,6 +245,7 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
         urunId: urun.urunId,
         ad: urun.ad,
         barkod: urun.barkod,
+        kategoriId: urun.kategoriId ?? null,
         birimTipi: urun.birimTipi,
         miktar: eklenecek,
         birimFiyat: urun.birimFiyat,
@@ -346,10 +385,33 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
 
   // Genel tutara indirim UYGULANMAZ (§10.3): yalnız satır iskontosu vardır.
   // `sepetHesapla` hâlâ sepet iskontosunu destekler, buradan beslenmez.
-  hesap: () => sepetHesapla(satirGirdileri(get().satirlar)),
+  kampanyalar: [],
+  kampanyalariAyarla: (liste) => set({ kampanyalar: liste }),
+
+  hesap: () => sepetHesapla(satirGirdileri(get().satirlar, get().kampanyalar)),
 
   bosMu: () => get().satirlar.length === 0,
 }));
+
+/**
+ * Liste fiyatına etkin BİRİM FİYAT kampanyasını uygular (§10.8).
+ *
+ * Sepete ekleyen HER yol bunu kullanmalıdır. Daha önce yalnız barkod okutma
+ * yolu kampanyayı uyguluyordu; hızlı ürün kareleri ve arama diyaloğu ham liste
+ * fiyatını gönderiyordu. Sonuç sessiz bir hataydı: kampanya tanımlı olduğu
+ * hâlde indirim uygulanmıyor, üstelik fiyat değiştirme yetkisi olan kullanıcıda
+ * sunucu bunu "bilerek fiyat değiştirdi" sayıp kabul ediyordu.
+ *
+ * Miktar bazlı kampanyalar burada DEĞİL, satır iskontosu olarak uygulanır.
+ */
+export function kampanyaliFiyat(urun: { id: string; kategori_id?: string | null; satis_fiyati: Kurus }): {
+  fiyat: Kurus;
+  kampanyaId: string | null;
+} {
+  const kampanyalar = sepetDurumu.getState().kampanyalar;
+  if (kampanyalar.length === 0) return { fiyat: urun.satis_fiyati, kampanyaId: null };
+  return kampanyaFiyatiBul(urun.satis_fiyati, { urunId: urun.id, kategoriId: urun.kategori_id ?? null }, kampanyalar, simdi());
+}
 
 /** Sepeti ana sürecin beklediği satış girdisine çevirir. */
 export function satisGirdisiOlustur(

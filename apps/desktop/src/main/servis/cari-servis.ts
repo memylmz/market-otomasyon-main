@@ -228,6 +228,10 @@ export function tahsilatYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): Ta
           cari_id: girdi.cari_id,
           hareket_tipi: hareketTipi,
           tutar: -girdi.tutar,
+          // Merkez, bir tahsilatın iptal edilip edilmediğini `belge_tipi`
+          // üzerinden görür; göndermezsek panel iptal edilmiş tahsilatı
+          // tekrar iptal edilebilir sanır.
+          belge_tipi: hareketTipi,
           odeme_tipi: girdi.odeme_tipi,
           tarih: zaman,
           kullanici_id: aktor.kullaniciId,
@@ -319,7 +323,7 @@ export function acilisBakiyesi(baglam: Baglam, aktor: Aktor, cariId: string, tut
         olay_tipi: 'CARI_HAREKETI',
         entity: 'cari_hareketi',
         entity_id: hareketId,
-        veri: { id: hareketId, cari_id: cariId, hareket_tipi: 'ACILIS', tutar, tarih: zaman },
+        veri: { id: hareketId, cari_id: cariId, hareket_tipi: 'ACILIS', tutar, belge_tipi: 'ACILIS', tarih: zaman },
         olusturma_zamani: zaman,
       },
       cihazId,
@@ -357,7 +361,15 @@ export function bakiyeDuzelt(baglam: Baglam, aktor: Aktor, cariId: string, fark:
         olay_tipi: 'CARI_HAREKETI',
         entity: 'cari_hareketi',
         entity_id: hareketId,
-        veri: { id: hareketId, cari_id: cariId, hareket_tipi: 'DUZELTME', tutar: fark, aciklama: neden, tarih: zaman },
+        veri: {
+          id: hareketId,
+          cari_id: cariId,
+          hareket_tipi: 'DUZELTME',
+          tutar: fark,
+          aciklama: neden,
+          belge_tipi: 'DUZELTME',
+          tarih: zaman,
+        },
         olusturma_zamani: zaman,
       },
       cihazId,

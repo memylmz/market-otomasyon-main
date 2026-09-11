@@ -434,6 +434,14 @@ export interface TopluIslemGirdisi {
 export interface TopluIslemSonucu {
   etkilenen: number;
   ornekler: { ad: string; eski: Kurus; yeni: Kurus }[];
+  /**
+   * SATIŞ fiyatı gerçekten değişen ürünler — raf etiketi basmak için (§13.3).
+   *
+   * Yalnız satış fiyatı değişenler girer: alış fiyatına ya da KDV oranına
+   * dokunmak rafta yazan rakamı değiştirmez, o ürünlerin etiketini yeniden
+   * basmak boşa kağıt harcar.
+   */
+  etiketAdaylari: { id: string; ad: string }[];
 }
 
 export function topluFiyatIslemi(baglam: Baglam, aktor: Aktor, girdi: TopluIslemGirdisi, uygula: boolean): TopluIslemSonucu {
@@ -449,6 +457,7 @@ export function topluFiyatIslemi(baglam: Baglam, aktor: Aktor, girdi: TopluIslem
       : urunleriListele(vt, girdi.filtre, { limit: 500, ofset: 0 }).kayitlar;
 
   const ornekler: { ad: string; eski: Kurus; yeni: Kurus }[] = [];
+  const etiketAdaylari: { id: string; ad: string }[] = [];
   let etkilenen = 0;
 
   // Yüzde zam/indirim maliyete (alış) de uygulanabilir; diğer işlemler satışa özeldir.
@@ -493,6 +502,9 @@ export function topluFiyatIslemi(baglam: Baglam, aktor: Aktor, girdi: TopluIslem
       if (yeniFiyat === urun.satis_fiyati && yeniAlis === urun.alis_fiyati && yeniKdv === urun.kdv_orani) continue;
 
       etkilenen++;
+      if (yeniFiyat !== urun.satis_fiyati && etiketAdaylari.length < 500) {
+        etiketAdaylari.push({ id: urun.id, ad: urun.ad });
+      }
       if (ornekler.length < 10) {
         ornekler.push(
           alisaUygula
@@ -562,7 +574,7 @@ export function topluFiyatIslemi(baglam: Baglam, aktor: Aktor, girdi: TopluIslem
     islem(); // yalnız önizleme; hiçbir şey yazılmaz
   }
 
-  return { etkilenen, ornekler };
+  return { etkilenen, ornekler, etiketAdaylari };
 }
 
 // ---------------------------------------------------------------------------

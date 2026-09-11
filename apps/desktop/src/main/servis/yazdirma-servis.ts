@@ -5,39 +5,76 @@
  * sayılır ve `fis_yazdirildi = 0` kalır; kullanıcı sonradan tekrar yazdırabilir.
  */
 
-import { AYAR, type Kurus } from '@market/shared';
+import { AYAR, ETIKET_VARSAYILAN, type EtiketDili, type Kurus } from '@market/shared';
 import { ayarBool, ayarMetin, ayarSayi } from '../depo/ayar.js';
 import { cariBul, ekstre } from '../depo/cari.js';
 import { oturumBul, oturumOzeti } from '../depo/kasa.js';
 import { urunBul, urununBarkodlari } from '../depo/katalog.js';
 import { fisYazdirildiIsaretle, satisDetayi } from '../depo/satis.js';
-import { cariEkstreFisi, gunSonuFisi, satisFisi, urunEtiketi, type IsletmeBilgisi } from '../donanim/fis.js';
-import { yaziciOlustur, type YazdirmaSonucu, type YaziciAyari, type YaziciTipiDb } from '../donanim/yazici.js';
+import { cariEkstreFisi, gunSonuFisi, satisFisi, type IsletmeBilgisi } from '../donanim/fis.js';
+import {
+  etiketBaytlari,
+  etiketYerlesimi,
+  kalibrasyonEtiketi,
+  kalibrasyonYerlesimi,
+  type EtiketIcerigi,
+  type EtiketOlcusu,
+  type EtiketSecenekleri,
+  type EtiketYerlesimi,
+} from '../donanim/etiket.js';
+import { EscPosYazici, type FisOnizlemesi } from '../donanim/escpos.js';
+import { testFisi, yaziciOlustur, type YazdirmaSonucu, type YaziciAyari, type YaziciTipiDb } from '../donanim/yazici.js';
 import { hatalar } from '@market/shared';
 import type { Aktor, Baglam } from './baglam.js';
 
-export function yaziciAyariniOku(baglam: Baglam): YaziciAyari {
-  const { vt } = baglam;
-  const tipHam = ayarMetin(vt, AYAR.YAZICI_TIPI, 'YOK');
+/**
+ * HENÜZ KAYDEDİLMEMİŞ ayarlar — canlı önizleme için (§13.2, §13.3).
+ *
+ * Ayarlar ekranında kullanıcı bir değeri değiştirdiğinde önizleme ANINDA
+ * güncellenmelidir; "Kaydet"e basmadan. Veritabanı o an hâlâ eski değeri
+ * tutuyor olacağı için ekrandaki değerler bu üstveri ile geçilir. Kaydedilmemiş
+ * ayarlarla baskı YAPILMAZ — üstveri yalnız önizleme yollarına verilir.
+ */
+export type AyarUstverisi = Record<string, string> | undefined;
+
+function ustMetin(baglam: Baglam, ustveri: AyarUstverisi, anahtar: string, varsayilan: string): string {
+  const deger = ustveri?.[anahtar];
+  return deger !== undefined ? deger : ayarMetin(baglam.vt, anahtar, varsayilan);
+}
+
+function ustSayi(baglam: Baglam, ustveri: AyarUstverisi, anahtar: string, varsayilan: number): number {
+  const deger = ustveri?.[anahtar];
+  if (deger === undefined) return ayarSayi(baglam.vt, anahtar, varsayilan);
+  // Kullanıcı yazarken alan bir an boş ya da yarım kalabilir; varsayılana düş.
+  const sayi = Number(String(deger).replace(',', '.'));
+  return Number.isFinite(sayi) && sayi > 0 ? sayi : varsayilan;
+}
+
+function ustBool(baglam: Baglam, ustveri: AyarUstverisi, anahtar: string, varsayilan: boolean): boolean {
+  const deger = ustveri?.[anahtar];
+  return deger !== undefined ? deger === '1' : ayarBool(baglam.vt, anahtar, varsayilan);
+}
+
+export function yaziciAyariniOku(baglam: Baglam, ustveri?: AyarUstverisi): YaziciAyari {
+  const tipHam = ustMetin(baglam, ustveri, AYAR.YAZICI_TIPI, 'YOK');
   const gecerliTipler: YaziciTipiDb[] = ['YOK', 'USB', 'AG', 'OTOMATIK', 'DOSYA', 'WINDOWS_PAYLASIM'];
   const tip = (gecerliTipler as string[]).includes(tipHam) ? (tipHam as YaziciTipiDb) : 'YOK';
   return {
     tip,
-    hedef: ayarMetin(vt, AYAR.YAZICI_HEDEF, ''),
-    usbAdi: ayarMetin(vt, AYAR.YAZICI_USB_ADI, ''),
-    satirGenisligi: ayarSayi(vt, AYAR.YAZICI_GENISLIK, 48),
-    cekmeceAc: ayarBool(vt, AYAR.CEKMECE_ACIK, true),
+    hedef: ustMetin(baglam, ustveri, AYAR.YAZICI_HEDEF, ''),
+    usbAdi: ustMetin(baglam, ustveri, AYAR.YAZICI_USB_ADI, ''),
+    satirGenisligi: ustSayi(baglam, ustveri, AYAR.YAZICI_GENISLIK, 48),
+    cekmeceAc: ustBool(baglam, ustveri, AYAR.CEKMECE_ACIK, true),
   };
 }
 
-export function isletmeBilgisiniOku(baglam: Baglam): IsletmeBilgisi {
-  const { vt } = baglam;
+export function isletmeBilgisiniOku(baglam: Baglam, ustveri?: AyarUstverisi): IsletmeBilgisi {
   return {
-    ad: ayarMetin(vt, AYAR.ISLETME_ADI, 'Market'),
-    adres: ayarMetin(vt, AYAR.ISLETME_ADRES, '') || null,
-    telefon: ayarMetin(vt, AYAR.ISLETME_TELEFON, '') || null,
-    vergiNo: ayarMetin(vt, AYAR.ISLETME_VERGI_NO, '') || null,
-    altMetin: ayarMetin(vt, AYAR.FIS_ALT_METIN, 'Bizi tercih ettiğiniz için teşekkürler.') || null,
+    ad: ustMetin(baglam, ustveri, AYAR.ISLETME_ADI, 'Market'),
+    adres: ustMetin(baglam, ustveri, AYAR.ISLETME_ADRES, '') || null,
+    telefon: ustMetin(baglam, ustveri, AYAR.ISLETME_TELEFON, '') || null,
+    vergiNo: ustMetin(baglam, ustveri, AYAR.ISLETME_VERGI_NO, '') || null,
+    altMetin: ustMetin(baglam, ustveri, AYAR.FIS_ALT_METIN, 'Bizi tercih ettiğiniz için teşekkürler.') || null,
   };
 }
 
@@ -129,20 +166,215 @@ export async function cariEkstresiYazdir(
     .catch((hata) => ({ basarili: false, hata: String(hata) }));
 }
 
-export async function etiketYazdir(baglam: Baglam, urunId: string, adet = 1): Promise<YazdirmaSonucu> {
-  const urun = urunBul(baglam.vt, urunId);
-  if (!urun) throw hatalar.bulunamadi('Ürün');
-  const barkodlar = urununBarkodlari(baglam.vt, urunId).filter((b) => b.aktif_mi);
-  const ayar = yaziciAyariniOku(baglam);
-  const yazici = yaziciOlustur(ayar);
+/**
+ * Etiket yazıcısı ayarları — FİŞ yazıcısından ayrı bir cihaz (§13.3).
+ *
+ * Tanımlı değilse fiş yazıcısına DÜŞMEZ. Eskiden raf etiketi fiş yazıcısına
+ * basılıyordu: 80 mm termal kağıda, sonunda kağıt kesme komutuyla. Ortaya
+ * rafa yapıştırılamayan bir fiş çıkıyordu. Etiket yazıcısı yoksa kullanıcı
+ * bunu bilmeli, yanlış cihazdan çıktı almamalı.
+ */
+export function etiketYaziciAyariniOku(baglam: Baglam, ustveri?: AyarUstverisi): YaziciAyari {
+  const tipHam = ustMetin(baglam, ustveri, AYAR.ETIKET_YAZICI_TIPI, 'YOK');
+  const gecerliTipler: YaziciTipiDb[] = ['YOK', 'USB', 'AG', 'OTOMATIK', 'DOSYA', 'WINDOWS_PAYLASIM'];
+  return {
+    tip: (gecerliTipler as string[]).includes(tipHam) ? (tipHam as YaziciTipiDb) : 'YOK',
+    hedef: ustMetin(baglam, ustveri, AYAR.ETIKET_YAZICI_HEDEF, ''),
+    usbAdi: ustMetin(baglam, ustveri, AYAR.ETIKET_YAZICI_USB_ADI, ''),
+    // Etiket yazıcısında "satır genişliği" kavramı yok; önizleme için taşınır.
+    satirGenisligi: 32,
+    cekmeceAc: false,
+  };
+}
 
-  let son: YazdirmaSonucu = { basarili: true };
-  for (let i = 0; i < Math.min(Math.max(1, adet), 100); i++) {
-    const baytlar = urunEtiketi(urun, barkodlar[0]?.barkod ?? '', Math.min(ayar.satirGenisligi, 32));
-    son = await yazici.yazdir(baytlar).catch((hata) => ({ basarili: false, hata: String(hata) }));
-    if (!son.basarili) break;
+export function etiketOlcusunuOku(baglam: Baglam, ustveri?: AyarUstverisi): EtiketOlcusu {
+  return {
+    enMm: ustSayi(baglam, ustveri, AYAR.ETIKET_EN_MM, ETIKET_VARSAYILAN.EN_MM),
+    boyMm: ustSayi(baglam, ustveri, AYAR.ETIKET_BOY_MM, ETIKET_VARSAYILAN.BOY_MM),
+    boslukMm: ustSayi(baglam, ustveri, AYAR.ETIKET_BOSLUK_MM, ETIKET_VARSAYILAN.BOSLUK_MM),
+    dpi: ustSayi(baglam, ustveri, AYAR.ETIKET_DPI, ETIKET_VARSAYILAN.DPI),
+    sutun: Math.max(1, ustSayi(baglam, ustveri, AYAR.ETIKET_SUTUN, ETIKET_VARSAYILAN.SUTUN)),
+    isi: ustSayi(baglam, ustveri, AYAR.ETIKET_ISI, ETIKET_VARSAYILAN.ISI),
+    hiz: ustSayi(baglam, ustveri, AYAR.ETIKET_HIZ, ETIKET_VARSAYILAN.HIZ),
+  };
+}
+
+function etiketDiliniOku(baglam: Baglam, ustveri?: AyarUstverisi): EtiketDili {
+  return ustMetin(baglam, ustveri, AYAR.ETIKET_DILI, 'TSPL') === 'ZPL' ? 'ZPL' : 'TSPL';
+}
+
+function etiketSecenekleriniOku(baglam: Baglam, ustveri?: AyarUstverisi): EtiketSecenekleri {
+  return {
+    rafGoster: ustBool(baglam, ustveri, AYAR.ETIKET_RAF_GOSTER, false),
+    birimFiyatGoster: ustBool(baglam, ustveri, AYAR.ETIKET_BIRIM_FIYAT_GOSTER, true),
+  };
+}
+
+export interface EtiketKuyrukSatiri {
+  urunId: string;
+  adet: number;
+}
+
+export interface EtiketYazdirmaSonucu extends YazdirmaSonucu {
+  basilanEtiket: number;
+  atlanan: { urunId: string; sebep: string }[];
+}
+
+/**
+ * Etiket kuyruğunu basar (§13.3).
+ *
+ * TEK TEK DEĞİL TOPLU: her satır için ayrı bağlantı açmak yerine bütün
+ * etiketler tek gönderimde yazıcıya iner. 100 kalem etiketi basarken aradaki
+ * fark saniyeler değil dakikalardır — ağ yazıcısında her etiket için TCP
+ * bağlantısı kurmak baskıdan uzun sürer.
+ *
+ * Bir ürün basılamazsa (silinmiş, barkodu yok) kuyruk DURMAZ: o satır atlanır,
+ * sebebi döner. Yüz ürünlük bir kuyruğun tek bir eksik ürün yüzünden hiç
+ * basılmaması, kullanıcıyı hangi ürünün sorunlu olduğunu aramaya iter.
+ */
+export async function etiketKuyruguYazdir(baglam: Baglam, satirlar: EtiketKuyrukSatiri[]): Promise<EtiketYazdirmaSonucu> {
+  const ayar = etiketYaziciAyariniOku(baglam);
+  if (ayar.tip === 'YOK') {
+    throw hatalar.dogrulama('Etiket yazıcısı tanımlı değil. Ayarlar → Etiket Yazıcısı bölümünden tanımlayın.');
   }
-  return son;
+
+  const dil = etiketDiliniOku(baglam);
+  const olcu = etiketOlcusunuOku(baglam);
+  const secenek = etiketSecenekleriniOku(baglam);
+
+  const parcalar: Buffer[] = [];
+  const atlanan: { urunId: string; sebep: string }[] = [];
+  let basilan = 0;
+
+  for (const satir of satirlar) {
+    const adet = Math.min(Math.max(1, Math.trunc(satir.adet)), 500);
+    const urun = urunBul(baglam.vt, satir.urunId);
+    if (!urun) {
+      atlanan.push({ urunId: satir.urunId, sebep: 'Ürün bulunamadı' });
+      continue;
+    }
+    const barkod = urununBarkodlari(baglam.vt, satir.urunId).find((b) => b.aktif_mi)?.barkod ?? '';
+    const icerik: EtiketIcerigi = {
+      ad: urun.ad,
+      fiyat: urun.satis_fiyati,
+      barkod,
+      birimTipi: urun.birim_tipi,
+      rafKonumu: urun.raf_konumu,
+      adet,
+    };
+    parcalar.push(etiketBaytlari(dil, icerik, olcu, secenek));
+    basilan += adet;
+  }
+
+  if (parcalar.length === 0) {
+    return { basarili: false, hata: 'Basılacak etiket yok.', basilanEtiket: 0, atlanan };
+  }
+
+  const sonuc = await yaziciOlustur(ayar)
+    .yazdir(Buffer.concat(parcalar))
+    .catch((hata) => ({ basarili: false, hata: hata instanceof Error ? hata.message : String(hata) }));
+
+  baglam.kayit.bilgi('Etiket basıldı', { satir: parcalar.length, etiket: basilan, basarili: sonuc.basarili });
+  return { ...sonuc, basilanEtiket: sonuc.basarili ? basilan : 0, atlanan };
+}
+
+/** Tek ürünün etiketi — kuyruk mekanizmasının kısayolu. */
+export async function etiketYazdir(baglam: Baglam, urunId: string, adet = 1): Promise<EtiketYazdirmaSonucu> {
+  return etiketKuyruguYazdir(baglam, [{ urunId, adet }]);
+}
+
+/**
+ * Etiket önizlemesi (§13.3).
+ *
+ * Yazıcıya gidecek yerleşimin AYNISINI döner — ekranda çizilen şey ile kağıda
+ * basılan şey tek hesaptan çıkar. Ürün verilmezse örnek bir ürünle çizilir;
+ * kullanıcı ayarı değiştirirken elinde ürün olmayabilir.
+ */
+export function etiketOnizlemesi(
+  baglam: Baglam,
+  secenekler: { urunId?: string; ayarlar?: AyarUstverisi } = {},
+): EtiketYerlesimi & { dil: string } {
+  const { urunId, ayarlar } = secenekler;
+  const olcu = etiketOlcusunuOku(baglam, ayarlar);
+  const dil = etiketDiliniOku(baglam, ayarlar);
+  const urun = urunId ? urunBul(baglam.vt, urunId) : null;
+
+  if (!urun) {
+    return {
+      ...etiketYerlesimi(
+        {
+          ad: 'Örnek Ürün Adı',
+          fiyat: 4550,
+          barkod: '8690000000017',
+          birimTipi: 'ADET',
+          rafKonumu: 'A-3',
+          adet: 1,
+        },
+        olcu,
+        etiketSecenekleriniOku(baglam, ayarlar),
+      ),
+      dil,
+    };
+  }
+
+  const barkod = urununBarkodlari(baglam.vt, urun.id).find((b) => b.aktif_mi)?.barkod ?? '';
+  return {
+    ...etiketYerlesimi(
+      {
+        ad: urun.ad,
+        fiyat: urun.satis_fiyati,
+        barkod,
+        birimTipi: urun.birim_tipi,
+        rafKonumu: urun.raf_konumu,
+        adet: 1,
+      },
+      olcu,
+      etiketSecenekleriniOku(baglam, ayarlar),
+    ),
+    dil,
+  };
+}
+
+/** Kalibrasyon etiketinin önizlemesi — aynı yerleşimden çizilir. */
+export function kalibrasyonOnizlemesi(baglam: Baglam, ayarlar?: AyarUstverisi): EtiketYerlesimi {
+  return kalibrasyonYerlesimi(etiketOlcusunuOku(baglam, ayarlar));
+}
+
+/**
+ * Fiş önizlemesi (§13.2).
+ *
+ * Gerçek fiş baytları üretilir ve geri çözülür; ekranda görünen ile kağıda
+ * basılan tek kaynaktan gelir. Satış yoksa test fişi kullanılır.
+ */
+export function fisOnizlemesi(
+  baglam: Baglam,
+  secenekler: { satisId?: string; ayarlar?: AyarUstverisi } = {},
+): FisOnizlemesi & { satirGenisligi: number } {
+  const { satisId, ayarlar } = secenekler;
+  const ayar = yaziciAyariniOku(baglam, ayarlar);
+  const detay = satisId ? satisDetayi(baglam.vt, satisId) : null;
+
+  const baytlar = detay
+    ? satisFisi(detay, isletmeBilgisiniOku(baglam, ayarlar), {
+        satirGenisligi: ayar.satirGenisligi,
+        kopyaMi: false,
+        kasiyerAdi: detay.satis.kullanici_adi ?? null,
+      })
+    : testFisi(ayar.satirGenisligi);
+
+  return { ...EscPosYazici.onizlemeYapisi(baytlar), satirGenisligi: ayar.satirGenisligi };
+}
+
+/**
+ * Kalibrasyon etiketi: ölçünün doğru olup olmadığı gözle anlaşılsın diye
+ * etiketin dört kenarına çerçeve çizer.
+ */
+export async function etiketKalibrasyonu(baglam: Baglam): Promise<YazdirmaSonucu> {
+  const ayar = etiketYaziciAyariniOku(baglam);
+  if (ayar.tip === 'YOK') throw hatalar.dogrulama('Etiket yazıcısı tanımlı değil.');
+  return yaziciOlustur(ayar)
+    .yazdir(kalibrasyonEtiketi(etiketDiliniOku(baglam), etiketOlcusunuOku(baglam)))
+    .catch((hata) => ({ basarili: false, hata: hata instanceof Error ? hata.message : String(hata) }));
 }
 
 export async function yaziciTesti(baglam: Baglam): Promise<YazdirmaSonucu> {

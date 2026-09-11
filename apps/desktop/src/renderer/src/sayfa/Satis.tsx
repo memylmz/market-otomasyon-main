@@ -17,6 +17,7 @@ import {
   miktarOlustur,
   paraFormat,
   type BirimTipi,
+  type KampanyaTanimi,
   type Kurus,
   type Miktar,
 } from '@market/shared';
@@ -41,6 +42,7 @@ interface BarkodSonucu {
   urun?: {
     id: string;
     ad: string;
+    kategori_id?: string | null;
     birim_tipi: BirimTipi;
     satis_fiyati: Kurus;
     kdv_orani: number;
@@ -103,6 +105,21 @@ export function SatisSayfasi() {
   /** Barkod kutusuna isim yazılıp bulunamadığında arama diyaloğuna aktarılan terim. */
   const [aramaTerimi, setAramaTerimi] = useState('');
   const [musteriAcik, setMusteriAcik] = useState(false);
+
+  /*
+   * Etkin kampanyalar bir kez çekilir (§10.8).
+   *
+   * Miktar bazlı indirim her miktar değişiminde yeniden hesaplanır; bunu her
+   * seferinde IPC'ye sormak sıcak yolu yavaşlatırdı. Liste bellekte durur,
+   * hesap arayüzde yapılır. Satışta sunucu bağımsız olarak tekrar hesaplar.
+   */
+  useEffect(() => {
+    void cagir<KampanyaTanimi[]>('kampanya.etkin')
+      .then((liste) => sepetDurumu.getState().kampanyalariAyarla(liste))
+      .catch(() => {
+        /* kampanya çekilemezse satış normal fiyattan sürer */
+      });
+  }, []);
 
   /*
    * SEPET KURTARMA (§10.3).
@@ -315,6 +332,7 @@ export function SatisSayfasi() {
             urunId: urun.id,
             ad: urun.ad,
             barkod,
+            kategoriId: urun.kategori_id ?? null,
             birimTipi: urun.birim_tipi,
             birimFiyat: fiyat,
             listeFiyati: urun.satis_fiyati,

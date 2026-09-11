@@ -8,7 +8,7 @@ import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
 
-type Sekme = 'ozet' | 'kritik' | 'skt' | 'hareketler' | 'sayim';
+type Sekme = 'ozet' | 'kritik' | 'skt' | 'hareketler' | 'sayim' | 'alis';
 
 interface StokRaporu {
   deger: { maliyet: Kurus; satis: Kurus; kalem: number; toplamMiktar: Miktar };
@@ -86,6 +86,7 @@ export function StokSayfasi() {
     { anahtar: 'kritik', etiket: 'Kritik Stok', sayi: rapor?.kritikSayisi },
     { anahtar: 'skt', etiket: 'SKT Takibi', sayi: rapor?.sktYaklasanlar.length },
     { anahtar: 'hareketler', etiket: 'Hareketler' },
+    { anahtar: 'alis', etiket: 'Alış Faturaları' },
     { anahtar: 'sayim', etiket: 'Sayım' },
   ];
 
@@ -234,6 +235,8 @@ export function StokSayfasi() {
             </tbody>
           </table>
         )}
+
+        {sekme === 'alis' && <AlisFaturalariSekmesi onDegisti={() => void yukle()} />}
 
         {sekme === 'sayim' && <SayimSekmesi onDegisti={() => void yukle()} />}
 
@@ -1224,6 +1227,242 @@ function SayimSekmesi({ onDegisti }: { onDegisti: () => void }) {
           </table>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Alış faturaları (§11.8)
+// ---------------------------------------------------------------------------
+
+interface AlisFaturasi {
+  id: string;
+  tedarikci_id: string;
+  tedarikci_adi?: string;
+  fatura_no: string | null;
+  tarih: string;
+  ara_toplam: Kurus;
+  kdv_toplam: Kurus;
+  genel_toplam: Kurus;
+  durum: 'TASLAK' | 'ONAYLANDI' | 'IPTAL';
+  vade_tarihi: string | null;
+  notlar: string | null;
+}
+
+interface AlisKalemi {
+  id: string;
+  urun_adi: string;
+  miktar: Miktar;
+  birim_fiyat: Kurus;
+  kdv_orani: number;
+  satir_toplam: Kurus;
+  skt: string | null;
+  lot_no: string | null;
+}
+
+/**
+ * Girilmiş alış faturaları — panelle AYNI liste, aynı işlemler.
+ *
+ * Fatura kasada da iptal edilebilmelidir: mal kabulü yapan kişi hatayı fark
+ * ettiğinde panele geçmek zorunda kalmamalı, hem de kasa çevrimdışıyken de
+ * çalışmalıdır.
+ */
+function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
+  const [faturalar, setFaturalar] = useState<AlisFaturasi[]>([]);
+  const [secili, setSecili] = useState<AlisFaturasi | null>(null);
+  const [kalemler, setKalemler] = useState<AlisKalemi[]>([]);
+  const [iptalAcik, setIptalAcik] = useState(false);
+  const [neden, setNeden] = useState('');
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const girisYetkisi = useYetki('stok.giris');
+
+  const yukle = useCallback(async () => {
+    setYukleniyor(true);
+    try {
+      setFaturalar(await cagir<AlisFaturasi[]>('stok.alisFaturalari'));
+    } catch (hata) {
+      hatayiBildir(hata, 'Alış faturaları');
+    } finally {
+      setYukleniyor(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void yukle();
+  }, [yukle]);
+
+  const detayAc = async (fatura: AlisFaturasi) => {
+    setSecili(fatura);
+    try {
+      const veri = await cagir<{ kalemler: AlisKalemi[] }>('stok.alisFaturasi', { faturaId: fatura.id });
+      setKalemler(veri.kalemler);
+    } catch (hata) {
+      hatayiBildir(hata, 'Fatura detayı');
+    }
+  };
+
+  /** Faturadaki ürünlerin etiketlerini, faturadaki adetlerle basar. */
+  const faturaEtiketleriniBas = async () => {
+    if (!secili) return;
+    try {
+      const satirlar = await cagir<{ urunId: string; ad: string; adet: number }[]>('etiket.faturadanDoldur', {
+        faturaId: secili.id,
+      });
+      if (satirlar.length === 0) {
+        bildir.uyari('Faturada etiketlenecek ürün yok');
+        return;
+      }
+      const toplam = satirlar.reduce((t, s) => t + s.adet, 0);
+      if (!window.confirm(`${satirlar.length} üründen toplam ${toplam} etiket basılacak. Devam edilsin mi?`)) return;
+
+      const sonuc = await cagir<{ basarili: boolean; hata?: string; basilanEtiket: number }>('etiket.yazdir', {
+        satirlar: satirlar.map((s) => ({ urunId: s.urunId, adet: s.adet })),
+      });
+      if (sonuc.basarili) bildir.basari(`${sonuc.basilanEtiket} etiket yazıcıya gönderildi`);
+      else bildir.uyari('Etiket basılamadı', sonuc.hata);
+    } catch (hata) {
+      hatayiBildir(hata, 'Etiket yazdırma');
+    }
+  };
+
+  const iptalEt = async () => {
+    if (!secili || neden.trim().length < 3) return;
+    try {
+      await cagir('stok.alisFaturasiIptal', { faturaId: secili.id, neden: neden.trim() });
+      bildir.basari('Fatura iptal edildi', 'Stok ve tedarikçi borcu geri alındı');
+      setIptalAcik(false);
+      setSecili(null);
+      setNeden('');
+      await yukle();
+      onDegisti();
+    } catch (hata) {
+      hatayiBildir(hata, 'Fatura iptali');
+    }
+  };
+
+  if (yukleniyor && faturalar.length === 0) return <Yukleniyor />;
+  if (faturalar.length === 0) {
+    return <BosDurum baslik="Alış faturası yok" aciklama="Mal Kabul ile girilen faturalar burada listelenir." />;
+  }
+
+  return (
+    <div className="p-3">
+      <table className="tablo">
+        <thead>
+          <tr>
+            <th>Tarih</th>
+            <th>Fatura no</th>
+            <th>Tedarikçi</th>
+            <th className="text-right">Ara toplam</th>
+            <th className="text-right">KDV</th>
+            <th className="text-right">Genel toplam</th>
+            <th>Durum</th>
+          </tr>
+        </thead>
+        <tbody>
+          {faturalar.map((f) => (
+            <tr key={f.id} className="cursor-pointer hover:bg-yuzey-2" onClick={() => void detayAc(f)}>
+              <td className="text-metin-3">{tarihSaatFormat(f.tarih)}</td>
+              <td>{f.fatura_no ?? '—'}</td>
+              <td>{f.tedarikci_adi ?? '—'}</td>
+              <td className="sayi">{paraFormat(f.ara_toplam, { simge: false })}</td>
+              <td className="sayi text-metin-3">{paraFormat(f.kdv_toplam, { simge: false })}</td>
+              <td className="sayi font-semibold">{paraFormat(f.genel_toplam, { simge: false })}</td>
+              <td>
+                <Rozet tur={f.durum === 'IPTAL' ? 'tehlike' : f.durum === 'ONAYLANDI' ? 'basari' : 'notr'}>{f.durum}</Rozet>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <Diyalog
+        acik={Boolean(secili) && !iptalAcik}
+        baslik={secili ? `Fatura — ${secili.tedarikci_adi ?? ''}` : ''}
+        aciklama={secili ? `${secili.fatura_no ?? 'Numarasız'} · ${tarihSaatFormat(secili.tarih)}` : ''}
+        onKapat={() => setSecili(null)}
+        altBilgi={
+          <>
+            <button type="button" className="tus-ikincil" onClick={() => setSecili(null)}>
+              Kapat
+            </button>
+            {/*
+              Mal kabul sonrası etiket basmanın doğru anı budur: ürünler daha
+              elde, adetler faturadan geliyor. Sonradan "hangi üründen kaç tane
+              gelmişti" diye aramak pratikte yapılmıyor.
+            */}
+            {secili?.durum !== 'IPTAL' && (
+              <button type="button" className="tus-ikincil" onClick={() => void faturaEtiketleriniBas()}>
+                Etiketlerini Bas
+              </button>
+            )}
+            {girisYetkisi && secili?.durum !== 'IPTAL' && (
+              <button type="button" className="tus-tehlike" onClick={() => setIptalAcik(true)}>
+                Faturayı İptal Et
+              </button>
+            )}
+          </>
+        }
+      >
+        <table className="tablo">
+          <thead>
+            <tr>
+              <th>Ürün</th>
+              <th className="text-right">Miktar</th>
+              <th className="text-right">Birim fiyat</th>
+              <th className="text-right">KDV</th>
+              <th className="text-right">Satır toplamı</th>
+            </tr>
+          </thead>
+          <tbody>
+            {kalemler.map((k) => (
+              <tr key={k.id}>
+                <td>{k.urun_adi}</td>
+                <td className="sayi">{miktarFormat(k.miktar)}</td>
+                <td className="sayi">{paraFormat(k.birim_fiyat, { simge: false })}</td>
+                <td className="sayi text-metin-3">%{k.kdv_orani}</td>
+                <td className="sayi font-semibold">{paraFormat(k.satir_toplam, { simge: false })}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {secili?.notlar && <p className="mt-3 whitespace-pre-line text-xs text-metin-4">{secili.notlar}</p>}
+      </Diyalog>
+
+      <Diyalog
+        acik={iptalAcik}
+        baslik="Faturayı İptal Et"
+        aciklama={secili ? paraFormat(secili.genel_toplam) : ''}
+        genislik="dar"
+        onKapat={() => setIptalAcik(false)}
+        altBilgi={
+          <>
+            <button type="button" className="tus-ikincil" onClick={() => setIptalAcik(false)}>
+              Vazgeç
+            </button>
+            <button type="button" className="tus-tehlike" onClick={() => void iptalEt()} disabled={neden.trim().length < 3}>
+              İptal Et
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
+            Kayıt silinmez: stok girişi ve tedarikçi borcu <strong>ters kayıtla</strong> geri alınır, fatura listede
+            &quot;İPTAL&quot; olarak kalır. Peşin ödeme yapılmışsa o da geri alınır.
+          </div>
+          <Alan etiket="İptal nedeni *" ipucu="En az 3 karakter. Denetim kaydında görünür.">
+            <input
+              className="alan"
+              value={neden}
+              onChange={(e) => setNeden(e.target.value)}
+              placeholder="Örn. fatura iki kez girilmiş"
+              data-odak
+              autoFocus
+            />
+          </Alan>
+        </div>
+      </Diyalog>
     </div>
   );
 }

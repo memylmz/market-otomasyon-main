@@ -36,7 +36,8 @@ const PULL_TABLOLARI: Record<PullVarligi, { tablo: string; sutunlar: string }> =
   kategoriler: { tablo: 'kategoriler', sutunlar: 'id, ad, ust_kategori_id, sira, aktif_mi, created_at, updated_at, cihaz_id' },
   kampanyalar: {
     tablo: 'kampanyalar',
-    sutunlar: 'id, ad, tip, kapsam, hedef_id, deger, baslangic, bitis, oncelik, aktif_mi, created_at, updated_at, cihaz_id',
+    sutunlar:
+      'id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi, created_at, updated_at, cihaz_id',
   },
   kullanicilar: {
     tablo: 'kullanicilar',
@@ -50,9 +51,22 @@ const PULL_TABLOLARI: Record<PullVarligi, { tablo: string; sutunlar: string }> =
                created_at, updated_at, cihaz_id`,
   },
   ayarlar: { tablo: 'ayarlar', sutunlar: 'id, anahtar, deger, aciklama, created_at, updated_at, cihaz_id' },
+  iade_talimatlari: {
+    tablo: 'iade_talimatlari',
+    sutunlar: 'id, satis_id, kalemler, iade_yontemi, neden, hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id',
+  },
   stok_duzeltmeleri: {
     tablo: 'stok_duzeltmeleri',
     sutunlar: 'id, urun_id, tip, fark, hedef_miktar, neden, hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id',
+  },
+  cari_talimatlari: {
+    tablo: 'cari_talimatlari',
+    sutunlar: `id, cari_id, tip, tutar, hedef_hareket_id, neden, hedef_cihaz_id, kullanici_id,
+               created_at, updated_at, cihaz_id`,
+  },
+  alis_talimatlari: {
+    tablo: 'alis_talimatlari',
+    sutunlar: 'id, tip, fatura_id, veri, hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id',
   },
 };
 

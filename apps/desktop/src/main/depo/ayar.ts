@@ -47,8 +47,17 @@ export function ayarSil(vt: Vt, anahtar: string): void {
 
 export function ayarSayi(vt: Vt, anahtar: string, varsayilan: number): number {
   const ham = ayarOku(vt, anahtar);
-  if (ham === null) return varsayilan;
-  const sayi = Number(ham);
+  /*
+   * BOŞ DEĞER "SIFIR" DEĞİL, "AYARLANMAMIŞ" DEMEKTİR.
+   *
+   * `Number('')` sıfır verir ve `Number.isFinite(0)` doğrudur; bu yüzden
+   * ayarlar ekranında bir alan silinip kaydedildiğinde varsayılan yerine SIFIR
+   * okunuyordu. Fiş satır genişliğinde bunun sonucu ağırdır: 0 karakterlik
+   * satırla ayırıcı hiç basılmaz, iki sütunlu satırlar bozulur — ve bu ancak
+   * kağıda basınca fark edilir.
+   */
+  if (ham === null || ham.trim() === '') return varsayilan;
+  const sayi = Number(ham.replace(',', '.'));
   return Number.isFinite(sayi) ? sayi : varsayilan;
 }
 

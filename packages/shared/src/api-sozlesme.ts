@@ -293,10 +293,16 @@ export const UCLAR = {
   satislar: `${API_ONEKI}/satislar`,
   stokHareketler: `${API_ONEKI}/stok/hareketler`,
   stokDuzeltmeleri: `${API_ONEKI}/stok/duzeltmeler`,
+  /** Panelden verilen kısmi iade talimatları (§10.4). */
+  iadeTalimatlari: `${API_ONEKI}/iade-talimatlari`,
+  /** Panelden verilen cari talimatları — açılış, düzeltme, tahsilat iptali (§10.7). */
+  cariTalimatlari: `${API_ONEKI}/cari-talimatlari`,
   /** Mağaza geneli ayarlar — kasalara senkronlanır (§8.3). */
   ayarlar: `${API_ONEKI}/ayarlar`,
   /** Alış faturaları — tedarikçiden ne, hangi belgeyle alındı (§11.8). */
   alisFaturalari: `${API_ONEKI}/alis-faturalari`,
+  /** Panelden verilen alış faturası talimatları — belgeyi kasa üretir (§11.8). */
+  alisTalimatlari: `${API_ONEKI}/alis-talimatlari`,
   raporGunluk: `${API_ONEKI}/raporlar/gunluk`,
   raporUrun: `${API_ONEKI}/raporlar/urun`,
   raporCari: `${API_ONEKI}/raporlar/cari`,

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AYAR, tarihSaatFormat } from '@market/shared';
 import { Alan, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
+import { EtiketOnizleme, FisOnizleme, type EtiketOnizlemeVerisi, type FisOnizlemeVerisi } from '../bilesen/Onizleme';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { oturumDurumu } from '../durum/oturum';
 import { cagir } from '../kopru';
@@ -263,113 +264,180 @@ function DonanimSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; 
   const yaziciTipi = ayarlar[AYAR.YAZICI_TIPI] ?? 'YOK';
 
   return (
-    <div className="grid max-w-2xl gap-3">
-      <Alan etiket="Fiş yazıcısı bağlantısı">
-        <select
-          className="alan"
-          value={ayarlar[AYAR.YAZICI_TIPI] ?? 'YOK'}
-          onChange={(e) => ayarla(AYAR.YAZICI_TIPI, e.target.value)}
-        >
-          <option value="YOK">Yazıcı yok (ekranda önizleme)</option>
-          <option value="USB">USB (bu bilgisayara bağlı)</option>
-          <option value="AG">Ethernet (ağ üzerinden)</option>
-          <option value="OTOMATIK">Otomatik — önce USB, olmazsa Ethernet</option>
-          <option value="DOSYA">Dosya / COM portu (eski kurulum)</option>
-          <option value="WINDOWS_PAYLASIM">Windows paylaşımı, UNC (eski kurulum)</option>
-        </select>
-      </Alan>
+    /*
+     * İki sütun: solda ayarlar, sağda KALICI önizleme.
+     *
+     * Önizleme bir düğmenin arkasındayken kimse açmıyordu; ayarı değiştiren
+     * kişinin görmesi gereken şey tam da o an. Sağdaki sütun ekranda zaten boş
+     * duruyordu. Dar ekranda önizleme ayarların altına düşer.
+     */
+    <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+      <div className="grid gap-3 xl:max-w-2xl xl:flex-1">
+        <Alan etiket="Fiş yazıcısı bağlantısı">
+          <select
+            className="alan"
+            value={ayarlar[AYAR.YAZICI_TIPI] ?? 'YOK'}
+            onChange={(e) => ayarla(AYAR.YAZICI_TIPI, e.target.value)}
+          >
+            <option value="YOK">Yazıcı yok (ekranda önizleme)</option>
+            <option value="USB">USB (bu bilgisayara bağlı)</option>
+            <option value="AG">Ethernet (ağ üzerinden)</option>
+            <option value="OTOMATIK">Otomatik — önce USB, olmazsa Ethernet</option>
+            <option value="DOSYA">Dosya / COM portu (eski kurulum)</option>
+            <option value="WINDOWS_PAYLASIM">Windows paylaşımı, UNC (eski kurulum)</option>
+          </select>
+        </Alan>
 
-      {/* USB seçimi: kullanıcı UNC yolunu ezberlemesin, listeden seçsin. */}
-      {(yaziciTipi === 'USB' || yaziciTipi === 'OTOMATIK') && (
-        <UsbYaziciSecici seciliAd={ayarlar[AYAR.YAZICI_USB_ADI] ?? ''} onSec={(ad) => ayarla(AYAR.YAZICI_USB_ADI, ad)} />
-      )}
+        {/* USB seçimi: kullanıcı UNC yolunu ezberlemesin, listeden seçsin. */}
+        {(yaziciTipi === 'USB' || yaziciTipi === 'OTOMATIK') && (
+          <UsbYaziciSecici seciliAd={ayarlar[AYAR.YAZICI_USB_ADI] ?? ''} onSec={(ad) => ayarla(AYAR.YAZICI_USB_ADI, ad)} />
+        )}
 
-      {(yaziciTipi === 'AG' || yaziciTipi === 'OTOMATIK' || yaziciTipi === 'DOSYA' || yaziciTipi === 'WINDOWS_PAYLASIM') && (
-        <Alan
-          etiket={yaziciTipi === 'AG' || yaziciTipi === 'OTOMATIK' ? 'Ethernet yazıcı adresi' : 'Yazıcı hedefi'}
-          ipucu={
-            yaziciTipi === 'AG' || yaziciTipi === 'OTOMATIK'
-              ? 'Yazıcının IP adresi ve portu. Örn. 192.168.1.50:9100 (port yazılmazsa 9100 kullanılır).'
-              : 'COM portu için COM1 · Paylaşım için \\\\PC\\Yazici'
-          }
-        >
+        {(yaziciTipi === 'AG' || yaziciTipi === 'OTOMATIK' || yaziciTipi === 'DOSYA' || yaziciTipi === 'WINDOWS_PAYLASIM') && (
+          <Alan
+            etiket={yaziciTipi === 'AG' || yaziciTipi === 'OTOMATIK' ? 'Ethernet yazıcı adresi' : 'Yazıcı hedefi'}
+            ipucu={
+              yaziciTipi === 'AG' || yaziciTipi === 'OTOMATIK'
+                ? 'Yazıcının IP adresi ve portu. Örn. 192.168.1.50:9100 (port yazılmazsa 9100 kullanılır).'
+                : 'COM portu için COM1 · Paylaşım için \\\\PC\\Yazici'
+            }
+          >
+            <input
+              className="alan font-mono"
+              placeholder="192.168.1.50:9100"
+              value={ayarlar[AYAR.YAZICI_HEDEF] ?? ''}
+              onChange={(e) => ayarla(AYAR.YAZICI_HEDEF, e.target.value)}
+            />
+          </Alan>
+        )}
+
+        {yaziciTipi === 'OTOMATIK' && (
+          <p className="rounded border border-bilgi-cizgi bg-bilgi-yumusak px-3 py-2 text-xs text-metin-2">
+            Her fişte <strong>önce USB</strong> denenir; yazıcı kapalı ya da kablosu çıkmışsa <strong>Ethernet</strong>
+            adresine gönderilir. Kasiyerin arıza anında ayar değiştirmesi gerekmez.
+          </p>
+        )}
+        <Alan etiket="Satır genişliği (karakter)" ipucu="80 mm kağıt genelde 48, 58 mm kağıt 32 karakterdir.">
           <input
-            className="alan font-mono"
-            placeholder="192.168.1.50:9100"
-            value={ayarlar[AYAR.YAZICI_HEDEF] ?? ''}
-            onChange={(e) => ayarla(AYAR.YAZICI_HEDEF, e.target.value)}
+            className="alan sayi"
+            value={ayarlar[AYAR.YAZICI_GENISLIK] ?? '48'}
+            onChange={(e) => ayarla(AYAR.YAZICI_GENISLIK, e.target.value)}
           />
         </Alan>
-      )}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={(ayarlar[AYAR.OTOMATIK_FIS] ?? '1') === '1'}
+            onChange={(e) => ayarla(AYAR.OTOMATIK_FIS, e.target.checked ? '1' : '0')}
+          />
+          Satış sonrası fişi otomatik yazdır
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={(ayarlar[AYAR.CEKMECE_ACIK] ?? '1') === '1'}
+            onChange={(e) => ayarla(AYAR.CEKMECE_ACIK, e.target.checked ? '1' : '0')}
+          />
+          Nakit ödemede para çekmecesini aç
+        </label>
 
-      {yaziciTipi === 'OTOMATIK' && (
-        <p className="rounded border border-bilgi-cizgi bg-bilgi-yumusak px-3 py-2 text-xs text-metin-2">
-          Her fişte <strong>önce USB</strong> denenir; yazıcı kapalı ya da kablosu çıkmışsa <strong>Ethernet</strong>
-          adresine gönderilir. Kasiyerin arıza anında ayar değiştirmesi gerekmez.
+        <div>
+          <button
+            type="button"
+            className="tus-ikincil"
+            onClick={async () => {
+              try {
+                setTest(await cagir('ayar.yaziciTest'));
+              } catch (hata) {
+                hatayiBildir(hata, 'Yazıcı testi');
+              }
+            }}
+          >
+            Test Fişi Yazdır
+          </button>
+          {test && (
+            <div className="mt-2">
+              {test.basarili ? <Rozet tur="basari">Yazdırma başarılı</Rozet> : <Rozet tur="tehlike">{test.hata}</Rozet>}
+            </div>
+          )}
+        </div>
+
+        <EtiketYaziciBolumu ayarlar={ayarlar} ayarla={ayarla} />
+
+        <div className="rounded border border-cizgi bg-yuzey-3 p-3 text-xs text-metin-3">
+          <p className="font-medium text-metin-2">Barkod okuyucu</p>
+          <p>
+            USB HID (klavye emülasyonu) okuyucular sürücüsüz çalışır — ayar gerekmez. Okuyucunun sonuna "Enter" göndermesi
+            yeterlidir.
+          </p>
+          <p className="mt-2 font-medium text-metin-2">POS / Terazi</p>
+          <p>
+            Bu sürümde banka POS ve terazi entegrasyonu yoktur (bilinçli kapsam kararı). Kart tutarı manuel işaretlenir; kg/lt
+            ürünlerde miktar elle girilir.
+          </p>
+        </div>
+      </div>
+
+      <aside className="xl:sticky xl:top-4 xl:w-[400px] xl:shrink-0">
+        <OnizlemePaneli ayarlar={ayarlar} />
+      </aside>
+    </div>
+  );
+}
+
+/**
+ * Kalıcı önizleme paneli — değer değişir değişmez yenilenir.
+ *
+ * Ayarlar ekranındaki değerler KAYDEDİLMEDEN gönderilir: veritabanı o an hâlâ
+ * eskisini tutuyor, ama kullanıcının görmek istediği yazdığı şeyin sonucu.
+ * Ana süreç bu değerleri yalnız önizlemede kullanır, baskıda değil.
+ */
+function OnizlemePaneli({ ayarlar }: { ayarlar: Record<string, string> }) {
+  const [fis, setFis] = useState<FisOnizlemeVerisi | null>(null);
+  const [etiket, setEtiket] = useState<EtiketOnizlemeVerisi | null>(null);
+  const etiketVar = (ayarlar[AYAR.ETIKET_YAZICI_TIPI] ?? 'YOK') !== 'YOK';
+
+  useEffect(() => {
+    /*
+     * Kısa gecikme: kullanıcı "40" yazarken alan bir an "4" olur ve her tuşta
+     * ana sürece gidip gelmek gereksiz. 200 ms yazmayı bölmeyecek kadar kısa,
+     * her tuşa koşmayacak kadar uzun.
+     */
+    const zamanlayici = setTimeout(() => {
+      void cagir<FisOnizlemeVerisi>('ayar.fisOnizleme', { ayarlar })
+        .then(setFis)
+        .catch(() => setFis(null));
+      void cagir<EtiketOnizlemeVerisi>('etiket.onizleme', { ayarlar })
+        .then(setEtiket)
+        .catch(() => setEtiket(null));
+    }, 200);
+    return () => clearTimeout(zamanlayici);
+  }, [ayarlar]);
+
+  return (
+    <div className="space-y-4">
+      <section className="kart p-3">
+        <h3 className="mb-1 text-sm font-semibold">Fiş Önizleme</h3>
+        <p className="mb-2 text-xs text-metin-4">
+          Kağıtta böyle duracak{fis ? ` — ${fis.satirGenisligi} karakterlik satır` : ''}
         </p>
-      )}
-      <Alan etiket="Satır genişliği (karakter)" ipucu="80 mm kağıt genelde 48, 58 mm kağıt 32 karakterdir.">
-        <input
-          className="alan sayi"
-          value={ayarlar[AYAR.YAZICI_GENISLIK] ?? '48'}
-          onChange={(e) => ayarla(AYAR.YAZICI_GENISLIK, e.target.value)}
-        />
-      </Alan>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={(ayarlar[AYAR.OTOMATIK_FIS] ?? '1') === '1'}
-          onChange={(e) => ayarla(AYAR.OTOMATIK_FIS, e.target.checked ? '1' : '0')}
-        />
-        Satış sonrası fişi otomatik yazdır
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={(ayarlar[AYAR.CEKMECE_ACIK] ?? '1') === '1'}
-          onChange={(e) => ayarla(AYAR.CEKMECE_ACIK, e.target.checked ? '1' : '0')}
-        />
-        Nakit ödemede para çekmecesini aç
-      </label>
+        {fis ? <FisOnizleme veri={fis} /> : <p className="text-xs text-metin-4">Hazırlanıyor…</p>}
+      </section>
 
-      <div>
-        <button
-          type="button"
-          className="tus-ikincil"
-          onClick={async () => {
-            try {
-              setTest(await cagir('ayar.yaziciTest'));
-            } catch (hata) {
-              hatayiBildir(hata, 'Yazıcı testi');
-            }
-          }}
-        >
-          Test Fişi Yazdır
-        </button>
-        {test && (
-          <div className="mt-2">
-            {test.basarili ? <Rozet tur="basari">Yazdırma başarılı</Rozet> : <Rozet tur="tehlike">{test.hata}</Rozet>}
-            {test.onizleme && (
-              <pre className="mt-2 max-h-64 overflow-auto rounded bg-yuzey-3 p-3 font-mono text-xs text-metin-2">
-                {test.onizleme}
-              </pre>
-            )}
-          </div>
+      <section className="kart p-3">
+        <h3 className="mb-1 text-sm font-semibold">Etiket Önizleme</h3>
+        {etiketVar ? (
+          <>
+            <p className="mb-2 text-xs text-metin-4">Etikette böyle duracak — örnek ürünle</p>
+            {etiket ? <EtiketOnizleme veri={etiket} olcek={5} /> : <p className="text-xs text-metin-4">Hazırlanıyor…</p>}
+          </>
+        ) : (
+          <p className="text-xs text-metin-4">
+            Etiket yazıcısı tanımlı değil. Soldaki <strong>Etiket (Barkod) Yazıcısı</strong> bölümünden bağlantıyı seçin; önizleme
+            burada canlanır.
+          </p>
         )}
-      </div>
-
-      <div className="rounded border border-cizgi bg-yuzey-3 p-3 text-xs text-metin-3">
-        <p className="font-medium text-metin-2">Barkod okuyucu</p>
-        <p>
-          USB HID (klavye emülasyonu) okuyucular sürücüsüz çalışır — ayar gerekmez. Okuyucunun sonuna "Enter" göndermesi
-          yeterlidir.
-        </p>
-        <p className="mt-2 font-medium text-metin-2">POS / Terazi</p>
-        <p>
-          Bu sürümde banka POS ve terazi entegrasyonu yoktur (bilinçli kapsam kararı). Kart tutarı manuel işaretlenir; kg/lt
-          ürünlerde miktar elle girilir.
-        </p>
-      </div>
+      </section>
     </div>
   );
 }
@@ -834,5 +902,160 @@ function UsbYaziciSecici({ seciliAd, onSec }: { seciliAd: string; onSec: (ad: st
         </span>
       )}
     </Alan>
+  );
+}
+
+/**
+ * Etiket (barkod) yazıcısı — fiş yazıcısından AYRI bir cihaz (§13.3).
+ *
+ * Ayrı olmasının sebebi teknik: fiş yazıcısı ESC/POS konuşur ve "satır satır
+ * ak, sonunda kes" mantığıyla çalışır; etiket yazıcısı TSPL ya da ZPL konuşur
+ * ve fiziksel ölçü bilir. Aynı baytları göndermek işe yaramaz.
+ */
+function EtiketYaziciBolumu({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ayarla: (a: string, d: string) => void }) {
+  const [test, setTest] = useState<{ basarili: boolean; hata?: string } | null>(null);
+  const tip = ayarlar[AYAR.ETIKET_YAZICI_TIPI] ?? 'YOK';
+
+  const sayiAlani = (anahtar: string, etiket: string, varsayilan: string, ipucu?: string) => (
+    <Alan etiket={etiket} ipucu={ipucu}>
+      <input
+        className="alan sayi"
+        inputMode="decimal"
+        value={ayarlar[anahtar] ?? varsayilan}
+        onChange={(e) => ayarla(anahtar, e.target.value)}
+      />
+    </Alan>
+  );
+
+  return (
+    <div className="grid gap-3 rounded border border-cizgi bg-yuzey-3 p-3">
+      <h3 className="font-semibold">Etiket (Barkod) Yazıcısı</h3>
+      <p className="text-xs text-metin-3">
+        Raf ve ürün etiketleri buradan basılır. Fiş yazıcısından ayrı bir cihazdır ve farklı bir komut dili konuşur; fiş yazıcısı
+        ayarları buraya uygulanmaz.
+      </p>
+
+      <Alan etiket="Bağlantı">
+        <select className="alan" value={tip} onChange={(e) => ayarla(AYAR.ETIKET_YAZICI_TIPI, e.target.value)}>
+          <option value="YOK">Etiket yazıcısı yok</option>
+          <option value="USB">USB (bu bilgisayara bağlı)</option>
+          <option value="AG">Ethernet (ağ üzerinden)</option>
+          <option value="OTOMATIK">Otomatik — önce USB, olmazsa Ethernet</option>
+          <option value="DOSYA">Dosyaya yaz (yazıcı gelmeden denemek için)</option>
+          <option value="WINDOWS_PAYLASIM">Windows paylaşımı, UNC</option>
+        </select>
+      </Alan>
+
+      {tip !== 'YOK' && (
+        <>
+          {(tip === 'USB' || tip === 'OTOMATIK') && (
+            <UsbYaziciSecici
+              seciliAd={ayarlar[AYAR.ETIKET_YAZICI_USB_ADI] ?? ''}
+              onSec={(ad) => ayarla(AYAR.ETIKET_YAZICI_USB_ADI, ad)}
+            />
+          )}
+
+          {(tip === 'AG' || tip === 'OTOMATIK' || tip === 'DOSYA' || tip === 'WINDOWS_PAYLASIM') && (
+            <Alan
+              etiket={tip === 'AG' || tip === 'OTOMATIK' ? 'Ethernet yazıcı adresi' : 'Hedef'}
+              ipucu={
+                tip === 'AG' || tip === 'OTOMATIK'
+                  ? 'Örn. 192.168.1.60:9100'
+                  : /*
+                     * Dosya modunun VARSAYILAN BİR YERİ YOKTUR: komutlar tam
+                     * olarak buraya yazdığınız yola gider. Boş bırakılırsa
+                     * yazdırma "hedef tanımlı değil" diye başarısız olur.
+                     */
+                    'Tam dosya yolu yazın; etiket komutları oraya eklenir. Windows: C:\\etiket-test.txt · macOS/Linux: /Users/ad/Desktop/etiket-test.txt'
+              }
+            >
+              <input
+                className="alan font-mono"
+                placeholder={tip === 'AG' || tip === 'OTOMATIK' ? '192.168.1.60:9100' : '/Users/ad/Desktop/etiket-test.txt'}
+                value={ayarlar[AYAR.ETIKET_YAZICI_HEDEF] ?? ''}
+                onChange={(e) => ayarla(AYAR.ETIKET_YAZICI_HEDEF, e.target.value)}
+              />
+            </Alan>
+          )}
+
+          <Alan
+            etiket="Komut dili"
+            ipucu="TSC, Argox, Godex, Xprinter → TSPL. Zebra → ZPL. Yanlış seçilirse yazıcı boş kağıt çıkarır ya da hiç basmaz."
+          >
+            <select
+              className="alan"
+              value={ayarlar[AYAR.ETIKET_DILI] ?? 'TSPL'}
+              onChange={(e) => ayarla(AYAR.ETIKET_DILI, e.target.value)}
+            >
+              <option value="TSPL">TSPL — TSC, Argox, Godex, Xprinter</option>
+              <option value="ZPL">ZPL — Zebra</option>
+            </select>
+          </Alan>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {sayiAlani(AYAR.ETIKET_EN_MM, 'Etiket eni (mm)', '40')}
+            {sayiAlani(AYAR.ETIKET_BOY_MM, 'Etiket boyu (mm)', '30')}
+            {sayiAlani(AYAR.ETIKET_BOSLUK_MM, 'Aradaki boşluk (mm)', '2', 'İki etiket arasındaki kesim aralığı')}
+            {sayiAlani(AYAR.ETIKET_DPI, 'Çözünürlük (dpi)', '203', '203 ya da 300 — yazıcının etiketinde yazar')}
+            {sayiAlani(AYAR.ETIKET_SUTUN, 'Yan yana etiket', '1')}
+            {sayiAlani(AYAR.ETIKET_ISI, 'Isı / koyuluk', '8', '0-15. Baskı soluksa artırın')}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={(ayarlar[AYAR.ETIKET_RAF_GOSTER] ?? '0') === '1'}
+                onChange={(e) => ayarla(AYAR.ETIKET_RAF_GOSTER, e.target.checked ? '1' : '0')}
+              />
+              Raf kodunu yaz
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={(ayarlar[AYAR.ETIKET_BIRIM_FIYAT_GOSTER] ?? '1') === '1'}
+                onChange={(e) => ayarla(AYAR.ETIKET_BIRIM_FIYAT_GOSTER, e.target.checked ? '1' : '0')}
+              />
+              Kg/lt ürünlerde birim fiyat yaz
+            </label>
+          </div>
+
+          <div>
+            <button
+              type="button"
+              className="tus-ikincil"
+              onClick={async () => {
+                try {
+                  setTest(await cagir('etiket.kalibrasyon'));
+                } catch (hata) {
+                  hatayiBildir(hata, 'Kalibrasyon');
+                }
+              }}
+            >
+              Kalibrasyon Etiketi Bas
+            </button>
+
+            {test &&
+              (test.basarili ? (
+                <span className="ml-2">
+                  <Rozet tur="basari">Gönderildi</Rozet>
+                </span>
+              ) : (
+                <span className="ml-2">
+                  <Rozet tur="tehlike">{test.hata}</Rozet>
+                </span>
+              ))}
+            {/*
+              Barkod yazıcılarında ölçü tutturmak deneme yanılma işidir; bu
+              olmadan kullanıcı hangi mm değerini oynatacağını bilemez.
+            */}
+            <p className="mt-2 text-xs text-metin-3">
+              Etiketin dört kenarına çerçeve basar. <strong>Çerçeve etikete tam oturuyorsa</strong> ölçüler doğrudur; taşıyorsa ya
+              da içeride kalıyorsa en/boy değerlerini düzeltip tekrar basın.
+            </p>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

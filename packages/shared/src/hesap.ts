@@ -11,7 +11,7 @@
 
 import { MIKTAR_OLCEK, type Miktar } from './miktar.js';
 import { dagit, kdvAyir, yuvarla, yuzdeUygula, type Kurus } from './para.js';
-import type { KampanyaKapsami, KampanyaTipi, OdemeTipi } from './sabitler.js';
+import type { BirimTipi, KampanyaKapsami, KampanyaTipi, OdemeTipi } from './sabitler.js';
 
 // ---------------------------------------------------------------------------
 // Satır hesabı
@@ -206,8 +206,16 @@ export interface KampanyaTanimi {
   tip: KampanyaTipi;
   kapsam: KampanyaKapsami;
   hedefId: string | null;
-  /** YUZDE → indirim yüzdesi, TUTAR → indirim kuruşu, SABIT_FIYAT → yeni birim fiyat. */
+  /**
+   * YUZDE → indirim yüzdesi · TUTAR → indirim kuruşu · SABIT_FIYAT → yeni birim fiyat
+   * N_AL_M_ODE → ödenen adet · KADEMELI_FIYAT → eşik sonrası birim fiyat
+   */
   deger: number;
+  /**
+   * Miktar kampanyalarının eşiği, BİNDEBİR cinsinden (3 adet → 3000).
+   * Miktar birimiyle aynı ölçekte tutulur ki KG kampanyası da yazılabilsin.
+   */
+  esikMiktar?: number;
   baslangic: string;
   bitis: string;
   aktifMi: boolean;
@@ -253,6 +261,8 @@ export function kampanyaFiyatiBul(
 
   for (const k of kampanyalar) {
     if (!kampanyaGecerliMi(k, zaman) || !kampanyaUrunuKapsiyorMu(k, hedef)) continue;
+    // Miktar kampanyaları burada DEĞİL, satır iskontosu olarak uygulanır.
+    if (miktarKampanyasiMi(k.tip)) continue;
 
     let aday: Kurus;
     switch (k.tip) {
@@ -278,6 +288,79 @@ export function kampanyaFiyatiBul(
   }
 
   return { fiyat: enIyiFiyat, kampanyaId: enIyiId };
+}
+
+/**
+ * Miktara bağlı kampanyanın SATIR İSKONTOSUNU hesaplar (§10.8).
+ *
+ * NEDEN İSKONTO, BİRİM FİYAT DEĞİL: "3 al 2 öde"de indirim miktara bağlıdır ve
+ * kademelidir (3'te 1, 6'da 2 bedava). Bunu birim fiyata gömmek 6,666… gibi
+ * bölünemez bir sayı üretir, kuruş yuvarlaması satır toplamını tutturmaz ve
+ * fişte müşteri neyin bedava geldiğini göremez. İskonto olarak yazınca hem
+ * kuruş tam olur hem fişte "3 al 2 öde −10,00" satırı görünür.
+ *
+ * En ÇOK indirim veren kampanya kazanır; eşitlikte önceliği yüksek olan.
+ */
+export function miktarKampanyasiIskontosu(
+  birimFiyat: Kurus,
+  miktar: Miktar,
+  birimTipi: BirimTipi,
+  hedef: KampanyaHedefi,
+  kampanyalar: readonly KampanyaTanimi[],
+  zaman: string,
+): { iskonto: Kurus; kampanyaId: string | null } {
+  let enIyi = 0;
+  let enIyiId: string | null = null;
+  let enIyiOncelik = -Infinity;
+
+  for (const k of kampanyalar) {
+    if (!kampanyaGecerliMi(k, zaman) || !kampanyaUrunuKapsiyorMu(k, hedef)) continue;
+    const esik = k.esikMiktar ?? 0;
+    if (esik <= 0) continue;
+
+    let aday = 0;
+    switch (k.tip) {
+      case 'N_AL_M_ODE': {
+        /*
+         * Yalnız ADET üründe: "3 kg al 2 kg öde" markette kullanılan bir ifade
+         * değildir ve yarım kilo bedava vermek anlamsızdır.
+         */
+        if (birimTipi !== 'ADET') continue;
+        const alinan = Math.floor(esik / MIKTAR_OLCEK);
+        const odenen = Math.floor(k.deger);
+        if (alinan <= 0 || odenen < 0 || odenen >= alinan) continue;
+
+        const adet = Math.floor(miktar / MIKTAR_OLCEK);
+        const bedava = Math.floor(adet / alinan) * (alinan - odenen);
+        aday = bedava * birimFiyat;
+        break;
+      }
+      case 'KADEMELI_FIYAT': {
+        const yeniFiyat = Math.round(k.deger);
+        if (miktar < esik || yeniFiyat < 0 || yeniFiyat >= birimFiyat) continue;
+        // İndirim TÜM miktara uygulanır; eşiği geçen müşteri hepsini ucuz alır.
+        aday = yuvarla((miktar * (birimFiyat - yeniFiyat)) / MIKTAR_OLCEK);
+        break;
+      }
+      default:
+        continue;
+    }
+
+    if (aday <= 0) continue;
+    const oncelik = k.oncelik ?? 0;
+    if (aday > enIyi || (aday === enIyi && oncelik > enIyiOncelik)) {
+      enIyi = aday;
+      enIyiId = k.id;
+      enIyiOncelik = oncelik;
+    }
+  }
+
+  return { iskonto: enIyi, kampanyaId: enIyiId };
+}
+
+/** Bu kampanya miktara mı bağlı? Birim fiyat motoruyla karışmasın diye. */
+export function miktarKampanyasiMi(tip: KampanyaTipi): boolean {
+  return tip === 'N_AL_M_ODE' || tip === 'KADEMELI_FIYAT';
 }
 
 // ---------------------------------------------------------------------------

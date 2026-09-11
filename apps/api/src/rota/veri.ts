@@ -151,10 +151,13 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
     parametreler.push(sorgu.limit);
 
     const data = await uygulama.vt.tumu(
-      `SELECT f.id, f.fatura_no, f.tarih, f.genel_toplam, f.odenen_tutar, f.cihaz_id,
+      `SELECT f.id, f.fatura_no, f.tarih, f.ara_toplam, f.kdv_toplam, f.genel_toplam, f.odenen_tutar,
+              f.durum, f.vade_tarihi, f.kullanici_id, f.cihaz_id,
               f.tedarikci_id, COALESCE(c.ad_unvan, 'Bilinmeyen tedarikçi') tedarikci_adi,
-              (SELECT COUNT(*) FROM alis_kalemleri k WHERE k.isletme_id = f.isletme_id AND k.fatura_id = f.id) kalem_sayisi
+              COALESCE(k.ad, '—') kullanici_adi,
+              (SELECT COUNT(*) FROM alis_kalemleri ak WHERE ak.isletme_id = f.isletme_id AND ak.fatura_id = f.id) kalem_sayisi
          FROM alis_faturalari f
+         LEFT JOIN kullanicilar k ON k.isletme_id = f.isletme_id AND k.id = f.kullanici_id
          LEFT JOIN cariler c ON c.isletme_id = f.isletme_id AND c.id = f.tedarikci_id
         WHERE f.isletme_id = ? AND f.tarih >= ? AND f.tarih <= ? ${kosul}
         ORDER BY f.tarih DESC LIMIT ?`,
@@ -168,39 +171,85 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
     const isletmeId = istek.kullanici?.isletmeId;
     const [fatura, kalemler] = await Promise.all([
       uygulama.vt.tek<Record<string, unknown>>(
-        `SELECT f.*, COALESCE(c.ad_unvan, 'Bilinmeyen tedarikçi') tedarikci_adi
+        `SELECT f.*, COALESCE(c.ad_unvan, 'Bilinmeyen tedarikçi') tedarikci_adi,
+                COALESCE(k.ad, '—') kullanici_adi
            FROM alis_faturalari f
            LEFT JOIN cariler c ON c.isletme_id = f.isletme_id AND c.id = f.tedarikci_id
+           LEFT JOIN kullanicilar k ON k.isletme_id = f.isletme_id AND k.id = f.kullanici_id
           WHERE f.isletme_id = ? AND f.id = ?`,
         [isletmeId, istek.params.id],
       ),
       uygulama.vt.tumu(
-        `SELECT k.id, k.urun_id, COALESCE(u.ad, 'Bilinmeyen ürün') urun_adi, u.birim_tipi, k.miktar, k.birim_fiyat
+        `SELECT k.id, k.urun_id, COALESCE(u.ad, 'Bilinmeyen ürün') urun_adi, u.birim_tipi,
+                k.miktar, k.birim_fiyat, k.kdv_orani, k.satir_toplam, k.skt, k.lot_no
            FROM alis_kalemleri k
            LEFT JOIN urunler u ON u.isletme_id = k.isletme_id AND u.id = k.urun_id
           WHERE k.isletme_id = ? AND k.fatura_id = ?`,
         [isletmeId, istek.params.id],
       ),
     ]);
-    return { fatura, kalemler, uretim_zamani: simdi() };
+
+    /*
+     * Kasada uygulanmayı bekleyen talimat da döner: panelden verilen iptal ya
+     * da düzeltme anında değil, kasa bir sonraki senkronda uyguladığında
+     * görünür. Ekran bunu söylemezse kullanıcı "olmadı" sanıp ikinci kez dener.
+     */
+    const bekleyen = await uygulama.vt.tumu<Record<string, unknown>>(
+      `SELECT id, tip, created_at FROM alis_talimatlari
+        WHERE isletme_id = ? AND fatura_id = ? AND silindi_mi = 0 ORDER BY created_at`,
+      [isletmeId, istek.params.id],
+    );
+
+    return { fatura, kalemler, bekleyen_talimatlar: bekleyen, uretim_zamani: simdi() };
   });
 
   // ----------------------------------------------------------- CARİ EKSTRE
   /** Tek carinin hareket dökümü ve yürüyen bakiyesi (kasadaki cari ekstresi). */
   uygulama.get<{ Params: { id: string } }>(`${UCLAR.cariler}/:id/ekstre`, korumali, async (istek) => {
     const isletmeId = istek.kullanici?.isletmeId;
-    const [cari, hareketler] = await Promise.all([
+    const aralik = istek.query as { from?: string; to?: string };
+    const [cari, hareketler, talimatlar] = await Promise.all([
       uygulama.vt.tek<Record<string, unknown>>(
-        `SELECT c.id, c.tip, c.ad_unvan, c.telefon, c.eposta, c.adres, c.kredi_limiti, c.vade_gun,
-                c.iletisim_rizasi, c.aktif_mi, COALESCE(o.bakiye, 0) bakiye, o.son_hareket
+        `SELECT c.id, c.tip, c.ad_unvan, c.telefon, c.eposta, c.adres, c.vergi_dairesi, c.vergi_no, c.notlar,
+                c.kredi_limiti, c.vade_gun, c.iletisim_rizasi, c.aktif_mi, c.anonimlestirildi_mi,
+                COALESCE(o.bakiye, 0) bakiye, o.son_hareket
          FROM cariler c
          LEFT JOIN cari_ozet o ON o.isletme_id = c.isletme_id AND o.cari_id = c.id
          WHERE c.isletme_id = ? AND c.id = ?`,
         [isletmeId, istek.params.id],
       ),
       uygulama.vt.tumu<Record<string, unknown>>(
-        `SELECT id, hareket_tipi, tutar, aciklama, belge_id, tarih, vade_tarihi, cihaz_id
-         FROM cari_hareketler WHERE isletme_id = ? AND cari_id = ? ORDER BY tarih LIMIT 500`,
+        /*
+         * `belge_tipi` de gelir: bir tahsilatın zaten iptal edilmiş olduğu,
+         * ona bağlı TAHSILAT_IPTAL ters kaydından anlaşılır. Onsuz panel iptal
+         * edilmiş tahsilatı ikinci kez iptal etmeyi teklif ederdi.
+         *
+         * Tarih aralığı kasadaki ekstre ile aynı: gün başı / gün sonu
+         * yerel saate göre sınırlanır, yoksa günün ilk saatleri düşer.
+         */
+        `SELECT id, hareket_tipi, tutar, aciklama, belge_id, belge_tipi, tarih, vade_tarihi, cihaz_id
+         FROM cari_hareketler
+         WHERE isletme_id = ? AND cari_id = ?
+           AND (? IS NULL OR tarih >= ?) AND (? IS NULL OR tarih <= ?)
+         ORDER BY tarih LIMIT 500`,
+        [
+          isletmeId,
+          istek.params.id,
+          aralik.from ? gunBasi(aralik.from) : null,
+          aralik.from ? gunBasi(aralik.from) : null,
+          aralik.to ? gunSonu(aralik.to) : null,
+          aralik.to ? gunSonu(aralik.to) : null,
+        ],
+      ),
+      /*
+       * Kasada uygulanmayı bekleyen talimatlar. Panelden verilen düzeltme
+       * anında değil, kasa bir sonraki senkronda uyguladığında görünür;
+       * ekran bunu söylemezse kullanıcı "işlemedi" sanıp ikinci kez dener.
+       */
+      uygulama.vt.tumu<Record<string, unknown>>(
+        `SELECT id, tip, tutar, hedef_hareket_id, neden, created_at
+         FROM cari_talimatlari WHERE isletme_id = ? AND cari_id = ? AND silindi_mi = 0
+         ORDER BY created_at`,
         [isletmeId, istek.params.id],
       ),
     ]);
@@ -213,6 +262,6 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
       return { ...h, tutar: sayi(h.tutar), yuruyen_bakiye: yurüyen };
     });
 
-    return { cari, hareketler: dokum.reverse(), uretim_zamani: simdi() };
+    return { cari, hareketler: dokum.reverse(), bekleyen_talimatlar: talimatlar, uretim_zamani: simdi() };
   });
 }

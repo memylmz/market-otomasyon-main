@@ -11,7 +11,7 @@
  * KG/LT ürünlerde miktar elle sorulur (terazi entegrasyonu yoktur — §13.3).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   adet,
   miktarFormat,
@@ -26,7 +26,7 @@ import {
 } from '@market/shared';
 import { Alan, BosDurum, Diyalog, Yukleniyor } from './temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
-import { sepetDurumu } from '../durum/sepet';
+import { kampanyaliFiyat, sepetDurumu } from '../durum/sepet';
 import { cagir } from '../kopru';
 
 interface Urun {
@@ -123,16 +123,19 @@ export function HizliUrunIzgarasi({
   const ekle = (urun: Urun, miktar: Miktar) => {
     onCarpanTuketildi();
     onSepeteEklendi();
+    // Kampanya ORTAK yardımcıdan gelir; her giriş yolu aynı fiyatı üretsin.
+    const { fiyat, kampanyaId } = kampanyaliFiyat(urun);
     sepetDurumu.getState().ekle(
       {
         urunId: urun.id,
+        kategoriId: urun.kategori_id ?? null,
         ad: urun.ad,
         barkod: urun.barkodlar[0] ?? null,
         birimTipi: urun.birim_tipi,
-        birimFiyat: urun.satis_fiyati,
+        birimFiyat: fiyat,
         listeFiyati: urun.satis_fiyati,
         kdvOrani: urun.kdv_orani,
-        kampanyaId: null,
+        kampanyaId,
         stok: urun.stok,
       },
       miktar,
@@ -217,9 +220,18 @@ export function HizliUrunIzgarasi({
                   )}
                 </span>
                 <span>
+                  {/*
+                    Karede KAMPANYALI fiyat yazar. Liste fiyatı yazsaydı kasiyer
+                    müşteriye yanlış fiyat söyler, kasada başka tutar çıkardı.
+                  */}
                   <span className="block font-mono text-base font-bold text-white">
-                    {paraFormat(u.satis_fiyati, { simge: false })}
+                    {paraFormat(kampanyaliFiyat(u).fiyat, { simge: false })}
                   </span>
+                  {kampanyaliFiyat(u).kampanyaId && (
+                    <span className="block font-mono text-[11px] leading-tight text-white/60 line-through">
+                      {paraFormat(u.satis_fiyati, { simge: false })}
+                    </span>
+                  )}
                   <span className="block text-[11px] leading-tight text-white/75">
                     {u.birim_tipi === 'ADET' ? 'adet' : u.birim_tipi.toLowerCase()}
                     {u.stok <= 0 ? ' · stok yok' : ''}
@@ -269,12 +281,28 @@ function MiktarDiyalogu({
 }) {
   const [metin, setMetin] = useState('1');
   const [tutarMetni, setTutarMetni] = useState('');
+  const alan = useRef<HTMLInputElement>(null);
 
+  /*
+   * Seçim, değer SIFIRLANDIKTAN SONRA yapılır.
+   *
+   * `autoFocus` alanı odaklayıp içeriği seçiyordu, ama hemen ardından bu efekt
+   * değeri "1"e çekiyor ve React değeri değiştirince seçim kayboluyordu. İlk
+   * açılışta fark edilmiyordu (değer zaten "1"di, değişiklik olmuyordu);
+   * ikinci üründen itibaren kasiyerin yazdığı rakam 1'in yanına ekleniyordu.
+   *
+   * Gecikme Diyalog'un kendi odak zamanlayıcısından (10 ms) uzun tutulur;
+   * aksi hâlde o odaklanma seçimi tekrar bozar.
+   */
   useEffect(() => {
-    if (urun) {
-      setMetin(String(baslangicMiktar ?? 1));
-      setTutarMetni('');
-    }
+    if (!urun) return;
+    setMetin(String(baslangicMiktar ?? 1));
+    setTutarMetni('');
+    const zamanlayici = setTimeout(() => {
+      alan.current?.focus();
+      alan.current?.select();
+    }, 20);
+    return () => clearTimeout(zamanlayici);
   }, [urun, baslangicMiktar]);
 
   if (!urun) return null;
@@ -310,6 +338,7 @@ function MiktarDiyalogu({
       <div className="space-y-3">
         <Alan etiket={`Miktar (${urun.birim_tipi.toLowerCase()})`}>
           <input
+            ref={alan}
             className="alan sayi py-3 text-2xl"
             value={metin}
             onChange={(e) => setMetin(e.target.value)}

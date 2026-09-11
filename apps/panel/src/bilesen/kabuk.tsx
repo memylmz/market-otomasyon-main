@@ -30,6 +30,9 @@ const MENU: MenuOgesi[] = [
   { yol: '/urunler', etiket: 'Ürünler', ikon: '📦' },
   { yol: '/stok', etiket: 'Stok', ikon: '🏷️' },
   { yol: '/cari', etiket: 'Cari Hesap', ikon: '📒' },
+  // Alış faturası girmek mali bir işlemdir: stok artar, tedarikçiye borç doğar.
+  // Kasadaki `stok.giris` yetkisiyle aynı kitle — kasiyer giremez (§11.8).
+  { yol: '/alis', etiket: 'Alış Faturaları', ikon: '🧾', roller: ['ADMIN', 'MUDUR'] },
   { yol: '/raporlar', etiket: 'Raporlar', ikon: '📊' },
   { yol: '/kampanyalar', etiket: 'Kampanya', ikon: '🎯' },
   { yol: '/kullanicilar', etiket: 'Personel', ikon: '👤', roller: ['ADMIN'] },
@@ -63,7 +66,7 @@ export function Kabuk({ children, baslik, tazelik }: { children: ReactNode; basl
   return (
     <div className="flex min-h-screen flex-col pb-16 lg:pb-0">
       <header className="sticky top-0 z-20 border-b border-cizgi bg-zemin/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
+        <div className="flex w-full items-center gap-3 px-4 py-3 lg:px-6">
           <h1 className="text-lg font-semibold">{baslik}</h1>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <TemaDugmesi />
@@ -88,8 +91,15 @@ export function Kabuk({ children, baslik, tazelik }: { children: ReactNode; basl
         )}
       </header>
 
-      {/* Geniş ekranda yan menü */}
-      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4 py-4">
+      {/*
+        Geniş ekranda yan menü.
+
+        Gövde EKRANIN TAMAMINI kullanır. Eskiden 1152 pikselle sınırlıydı ve
+        büyük bir monitörde sayfanın iki yanı boş kalırken tablolar sıkışıyordu;
+        rapor ve ekstre tabloları asıl geniş ekranda okunaklı olmalı. Kasa
+        uygulaması da pencerenin tamamını kullanır — iki ürün aynı sistemdir.
+      */}
+      <div className="flex w-full flex-1 gap-6 px-4 py-4 lg:px-6">
         <nav className="hidden w-44 shrink-0 lg:block" aria-label="Ana menü">
           <ul className="space-y-1">
             {gorunenMenu.map((oge) => (

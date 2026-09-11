@@ -23,6 +23,7 @@ import {
   hatalar,
   HATA_KODU,
   kampanyaFiyatiBul,
+  miktarKampanyasiIskontosu,
   limitAsimi,
   odemeDogrula,
   sepetHesapla,
@@ -97,6 +98,7 @@ function urunleriCoz(baglam: Baglam, aktor: Aktor, girdi: SatisGirdi, zaman: str
     kapsam: k.kapsam,
     hedefId: k.hedef_id,
     deger: k.deger,
+    esikMiktar: k.esik_miktar ?? undefined,
     baslangic: k.baslangic,
     bitis: k.bitis,
     aktifMi: k.aktif_mi,
@@ -139,15 +141,37 @@ function urunleriCoz(baglam: Baglam, aktor: Aktor, girdi: SatisGirdi, zaman: str
       throw new UygulamaHatasi(HATA_KODU.YETKI, 'İskonto uygulama yetkiniz yok.');
     }
 
+    /*
+     * MİKTAR KAMPANYASI (§10.8) — "3 al 2 öde", "3 kg üzeri 8,00/kg".
+     *
+     * Sunucuda YENİDEN hesaplanır; istemciden gelen iskontoya güvenilmez.
+     * Satır iskontosu olarak yazılır, birim fiyata gömülmez: bölme kuruş
+     * yuvarlamasını bozar ve müşteri fişte neyin bedava geldiğini göremez.
+     *
+     * ELLE VERİLEN İSKONTO ÖNCELİKLİDİR: kasiyer bilerek indirim yazdıysa
+     * kampanya devreye girmez, iki indirim üst üste binmez.
+     */
+    const elleIskonto = Boolean(kalem.iskonto_yuzde) || Boolean(kalem.iskonto_tutar);
+    const miktarKampanyasi = elleIskonto
+      ? { iskonto: 0, kampanyaId: null }
+      : miktarKampanyasiIskontosu(
+          birimFiyat,
+          kalem.miktar,
+          urun.birim_tipi,
+          { urunId: urun.id, kategoriId: urun.kategori_id },
+          kampanyalar,
+          zaman,
+        );
+
     return {
       urun,
       ad: kalem.urun_adi?.trim() || urun.ad,
       miktar: kalem.miktar,
       birimFiyat,
       barkod: kalem.barkod ?? null,
-      kampanyaId: kampanyaId ?? kalem.kampanya_id ?? null,
+      kampanyaId: miktarKampanyasi.kampanyaId ?? kampanyaId ?? kalem.kampanya_id ?? null,
       iskontoYuzde: kalem.iskonto_yuzde,
-      iskontoTutar: kalem.iskonto_tutar,
+      iskontoTutar: elleIskonto ? kalem.iskonto_tutar : miktarKampanyasi.iskonto || undefined,
     };
   });
 }

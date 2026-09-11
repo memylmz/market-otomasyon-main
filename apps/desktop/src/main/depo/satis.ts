@@ -478,6 +478,43 @@ export function alisKalemiEkle(
   return id;
 }
 
+export interface AlisKalemiKaydi {
+  id: string;
+  urun_id: string;
+  urun_adi: string;
+  birim_tipi: string;
+  miktar: Miktar;
+  birim_fiyat: Kurus;
+  kdv_orani: number;
+  satir_toplam: Kurus;
+  skt: string | null;
+  lot_no: string | null;
+}
+
+export function alisFaturasiBul(vt: Vt, id: string): AlisFaturasiKaydi | null {
+  return (
+    vt
+      .hazirla(
+        `SELECT f.id, f.tedarikci_id, f.fatura_no, f.tarih, f.ara_toplam, f.kdv_toplam, f.genel_toplam,
+                f.durum, f.vade_tarihi, f.notlar, f.kullanici_id, c.ad_unvan AS tedarikci_adi
+         FROM alis_faturalari f JOIN cariler c ON c.id = f.tedarikci_id WHERE f.id = ?`,
+      )
+      .tek<AlisFaturasiKaydi>(id) ?? null
+  );
+}
+
+export function alisKalemleriniGetir(vt: Vt, faturaId: string): AlisKalemiKaydi[] {
+  return vt
+    .hazirla(
+      `SELECT k.id, k.urun_id, COALESCE(u.ad, 'Silinmiş ürün') AS urun_adi,
+              COALESCE(u.birim_tipi, 'ADET') AS birim_tipi,
+              k.miktar, k.birim_fiyat, k.kdv_orani, k.satir_toplam, k.skt, k.lot_no
+       FROM alis_kalemleri k LEFT JOIN urunler u ON u.id = k.urun_id
+       WHERE k.alis_faturasi_id = ? ORDER BY k.created_at`,
+    )
+    .tumu<AlisKalemiKaydi>(faturaId);
+}
+
 export function alisFaturalariniListele(vt: Vt, tedarikciId?: string, limit = 100): AlisFaturasiKaydi[] {
   const nerede = tedarikciId ? 'WHERE f.tedarikci_id = ?' : '';
   const parametreler = tedarikciId ? [tedarikciId] : [];

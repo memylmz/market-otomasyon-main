@@ -7,7 +7,8 @@
 
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { Fragment, useState } from 'react';
 import { bugun, gunEkle, miktarFormat, paraDuz, paraFormat, type Kurus } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Kabuk, Kutu, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { CiroOzetiSekmesi, DenetimSekmesi, KasaSekmesi } from '@/bilesen/rapor-sekmeleri';
@@ -42,6 +43,8 @@ interface OluStok {
 
 interface UrunRaporu extends Aralikli {
   en_cok_satan: EnCokSatan[];
+  /** Kârlılık sırası — kasadaki Ürün Performansı'nda vardı, panelde eksikti. */
+  en_karli: EnCokSatan[];
   olu_stok: OluStok[];
 }
 
@@ -93,6 +96,14 @@ const SEKMELER: { anahtar: Sekme; etiket: string }[] = [
   { anahtar: 'suistimal', etiket: 'İade / İptal' },
   { anahtar: 'denetim', etiket: 'Denetim Logu' },
 ];
+
+/*
+ * Kasada Raporlar'ın içinde bir "Satışlar" sekmesi vardır; panelde aynı liste
+ * kendi sayfasında (menüdeki Satış) durur. İkinci bir kopya yazmak yerine
+ * sekme çubuğunda AYNI ADLA ve AYNI SIRADA bir bağlantı duruyor: kasada
+ * oradan bakmaya alışmış kişi panelde de aynı yerde bulur.
+ */
+const SATISLAR_SIRASI = 3;
 
 /** Kendi tarih aralığını taşıyan sekmeler; üstteki ortak çubuk onlarda gizlenir. */
 const KENDI_ARALIGI = new Set<Sekme>(['ozet', 'kasa', 'denetim']);
@@ -266,18 +277,27 @@ export default function RaporlarSayfasi() {
         )}
 
         <nav className="grid grid-cols-3 gap-1 border-b border-cizgi sm:flex" aria-label="Rapor türü">
-          {SEKMELER.map((s) => (
-            <button
-              key={s.anahtar}
-              type="button"
-              onClick={() => setSekme(s.anahtar)}
-              aria-current={sekme === s.anahtar ? 'page' : undefined}
-              className={`px-2 py-2 text-xs leading-tight sm:px-3 sm:text-sm ${
-                sekme === s.anahtar ? 'border-b-2 border-vurgu font-medium text-vurgu' : 'text-metin-3 hover:text-metin'
-              }`}
-            >
-              {s.etiket}
-            </button>
+          {SEKMELER.map((s, i) => (
+            <Fragment key={s.anahtar}>
+              {i === SATISLAR_SIRASI && (
+                <Link
+                  href="/satislar"
+                  className="px-2 py-2 text-xs leading-tight text-metin-3 hover:text-metin sm:px-3 sm:text-sm"
+                >
+                  Satışlar →
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={() => setSekme(s.anahtar)}
+                aria-current={sekme === s.anahtar ? 'page' : undefined}
+                className={`px-2 py-2 text-xs leading-tight sm:px-3 sm:text-sm ${
+                  sekme === s.anahtar ? 'border-b-2 border-vurgu font-medium text-vurgu' : 'text-metin-3 hover:text-metin'
+                }`}
+              >
+                {s.etiket}
+              </button>
+            </Fragment>
           ))}
         </nav>
 
@@ -309,6 +329,7 @@ export default function RaporlarSayfasi() {
 
 function UrunGorunumu({ veri }: { veri: UrunRaporu }) {
   const enCok = dizi(veri.en_cok_satan);
+  const enKarli = dizi(veri.en_karli);
   const olu = dizi(veri.olu_stok);
 
   const listeCiro = enCok.reduce((t, u) => t + u.ciro, 0);
@@ -348,6 +369,41 @@ function UrunGorunumu({ veri }: { veri: UrunRaporu }) {
                       <td className="sayi">{miktarFormat(u.adet)}</td>
                       <td className="sayi">{paraFormat(u.ciro, { simge: false })}</td>
                       <td className="sayi text-vurgu">{paraFormat(u.kar, { simge: false })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/*
+          EN KÂRLI ayrı bir listedir: çok satan ürün her zaman kazandıran ürün
+          değildir. İşletme sahibinin asıl baktığı sıralama budur.
+        */}
+        <section className="kart p-4">
+          <h2 className="mb-1 font-semibold">En Kârlılar</h2>
+          <p className="mb-3 text-xs text-metin-4">Brüt kâra göre sıralı; ciroya göre değil.</p>
+          {enKarli.length === 0 ? (
+            <BosDurum baslik="Bu aralıkta satış yok" />
+          ) : (
+            <div className="tablo-sarmal">
+              <table className="tablo">
+                <thead>
+                  <tr>
+                    <th>Ürün</th>
+                    <th>Adet</th>
+                    <th>Kâr</th>
+                    <th>Marj</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {enKarli.map((u) => (
+                    <tr key={u.urun_id}>
+                      <td>{u.urun_adi ?? <span className="text-metin-4">Silinmiş ürün</span>}</td>
+                      <td className="sayi">{miktarFormat(u.adet)}</td>
+                      <td className="sayi text-vurgu">{paraFormat(u.kar, { simge: false })}</td>
+                      <td className="sayi text-metin-3">{u.ciro > 0 ? `%${Math.round((u.kar / u.ciro) * 1000) / 10}` : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

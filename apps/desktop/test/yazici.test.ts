@@ -54,3 +54,25 @@ describe('yazıcı seçimi', () => {
     expect(yaziciOlustur({ ...temel, tip: 'SACMA' as never }).tip).toBe('YOK');
   });
 });
+
+describe('ağ hatası açıklamaları (§20)', () => {
+  /**
+   * Yerel ağ adresinde EHOSTUNREACH, macOS'ta neredeyse her zaman "uygulamaya
+   * yerel ağ izni verilmemiş" demektir: yazıcıya ping atılır, terminalden
+   * bağlanılır, ama uygulama bağlanamaz. Ham hata kodu gösterilirse kullanıcı
+   * ağda sorun arar ve bulamaz.
+   */
+  it('yerel ağda EHOSTUNREACH izin sorununu anlatır', async () => {
+    const y = yaziciOlustur({ ...temel, tip: 'AG', hedef: '192.168.99.250:9100', zamanAsimiMs: 1500 });
+    const sonuc = await y.yazdir(Buffer.from('x'));
+    expect(sonuc.basarili).toBe(false);
+    // Ağ ortamına göre EHOSTUNREACH ya da zaman aşımı olabilir; ikisi de
+    // kullanıcıya ne yapacağını söyleyen bir cümle üretmeli.
+    expect(sonuc.hata).toMatch(/Yerel Ağ|yanıt vermedi|yanıt vermiyor|ulaşılamıyor|yol yok/);
+  });
+
+  it('adres tanımsızken bağlanmayı denemez', async () => {
+    const sonuc = await yaziciOlustur({ ...temel, tip: 'AG', hedef: '' }).yazdir(Buffer.from('x'));
+    expect(sonuc).toMatchObject({ basarili: false, hata: 'Yazıcı adresi tanımlı değil.' });
+  });
+});

@@ -23,7 +23,15 @@ import {
 } from '@market/shared';
 import { ayarMetin, ayarYaz, tumAyarlar } from '../depo/ayar.js';
 import { carileriListele, cariBul, ekstre } from '../depo/cari.js';
-import { kampanyalariListele, kampanyaKaydet, kategoriBul, kategorileriListele, kategoriKaydet } from '../depo/katalog.js';
+import {
+  etkinKampanyalar,
+  fiyatiDegisenler,
+  kampanyalariListele,
+  kampanyaKaydet,
+  kategoriBul,
+  kategorileriListele,
+  kategoriKaydet,
+} from '../depo/katalog.js';
 import { denetimListele, denetimYaz } from '../depo/ozet.js';
 import {
   askidakileriListele,
@@ -34,12 +42,17 @@ import {
   sepetleriUnut,
   satisDetayi,
   satislariListele,
+  alisFaturasiBul,
   alisFaturalariniListele,
+  alisKalemleriniGetir,
 } from '../depo/satis.js';
 import { cakismalariListele, kaliciHataliOlaylar, olayYaz } from '../depo/senkron.js';
 import { acikSayim, hareketleriListele, sayimFarklari } from '../depo/stok.js';
 import { pinGucunuDenetle, sifreGucunuDenetle } from '../guvenlik/parola.js';
 import { mutabakatYap, senkronCalistir, senkronDurumu } from '../senkron/motor.js';
+import { bekleyenAlisTalimatlariniIsle } from '../servis/alis-talimat-servis.js';
+import { bekleyenCariTalimatlariniIsle } from '../servis/cari-talimat-servis.js';
+import { bekleyenIadeleriIsle } from '../servis/iade-talimat-servis.js';
 import { ayarlariOku } from '../servis/baglam.js';
 import {
   acilisBakiyesi,
@@ -84,6 +97,8 @@ import {
 import { iadeYap, satisIptal, satisKesinlestir } from '../servis/satis-servis.js';
 import {
   fireCikisi,
+  alisFaturasiGuncelle,
+  alisFaturasiIptal,
   malKabulOnayla,
   sayimBaslat,
   sayimIptal,
@@ -96,6 +111,13 @@ import {
 import {
   cariEkstresiYazdir,
   cekmeceyiAc,
+  etiketKalibrasyonu,
+  etiketOnizlemesi,
+  fisOnizlemesi,
+  kalibrasyonOnizlemesi,
+  etiketKuyruguYazdir,
+  etiketOlcusunuOku,
+  etiketYaziciAyariniOku,
   etiketYazdir,
   gunSonuFisiYazdir,
   satisFisiYazdir,
@@ -261,6 +283,36 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     'urun.disaAktar': () => ({ icerik: urunleriDisaAktar(b()) }),
     'urun.etiketYazdir': (girdi: { urunId: string; adet?: number }) => etiketYazdir(b(), girdi.urunId, girdi.adet ?? 1),
 
+    // ---------------------------------------------------------- etiket (§13.3)
+    /** Etiket kuyruğunu tek gönderimde basar. */
+    'etiket.yazdir': (girdi: { satirlar: { urunId: string; adet: number }[] }) => etiketKuyruguYazdir(b(), girdi.satirlar),
+    /** Ölçü doğru mu — çerçeveli tek etiket basar. */
+    'etiket.kalibrasyon': () => etiketKalibrasyonu(b()),
+    /** Arayüzün yazıcı tanımlı mı diye bakabilmesi için. */
+    'etiket.ayar': () => ({ yazici: etiketYaziciAyariniOku(b()), olcu: etiketOlcusunuOku(b()) }),
+    /**
+     * Etiket önizlemesi — yazıcıya gidecek YERLEŞİMİN aynısı.
+     * Ekranda çizilen ile kağıda basılan tek hesaptan çıkar.
+     */
+    'etiket.onizleme': (girdi?: { urunId?: string; ayarlar?: Record<string, string> }) => etiketOnizlemesi(b(), girdi ?? {}),
+    'etiket.kalibrasyonOnizleme': (girdi?: { ayarlar?: Record<string, string> }) => kalibrasyonOnizlemesi(b(), girdi?.ayarlar),
+    /** Fiş önizlemesi — gerçek fiş baytları üretilip geri çözülür. */
+    'ayar.fisOnizleme': (girdi?: { satisId?: string; ayarlar?: Record<string, string> }) => fisOnizlemesi(b(), girdi ?? {}),
+    /**
+     * Fiyatı değişen ürünler — kuyruğu doldurmak için.
+     * Rafta yanlış fiyat kalmasın diye en çok kullanılacak yol budur.
+     */
+    'etiket.fiyatiDegisenler': (girdi?: { gun?: number }) =>
+      fiyatiDegisenler(b().vt, gunBasi(gunEkle(bugun(), -(girdi?.gun ?? 7)))),
+    /** Alış faturasındaki ürünler ve miktarları — kuyruğa hazır. */
+    'etiket.faturadanDoldur': (girdi: { faturaId: string }) =>
+      alisKalemleriniGetir(b().vt, girdi.faturaId).map((k) => ({
+        urunId: k.urun_id,
+        ad: k.urun_adi,
+        // Miktar bindebir ölçekte tutulur; etiket ADET olarak basılır.
+        adet: Math.max(1, Math.round(k.miktar / 1000)),
+      })),
+
     'kategori.listele': (girdi?: { tumu?: boolean }) => kategorileriListele(b().vt, !girdi?.tumu),
     // Kullanılmayan kategori gerçekten silinir, ürünü olan pasife alınır (§10.5).
     'kategori.sil': (girdi: { kategoriId: string }) => kategoriSil(b(), a(), girdi.kategoriId),
@@ -396,6 +448,21 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     'stok.malKabul': (girdi: Record<string, unknown>) => malKabulOnayla(b(), a(), girdi),
     'stok.tedarikciIade': (girdi: Record<string, unknown>) => tedarikciIade(b(), a(), girdi),
     'stok.alisFaturalari': (girdi?: { tedarikciId?: string }) => alisFaturalariniListele(b().vt, girdi?.tedarikciId),
+    'stok.alisFaturasi': (girdi: { faturaId: string }) => ({
+      fatura: alisFaturasiBul(b().vt, girdi.faturaId),
+      kalemler: alisKalemleriniGetir(b().vt, girdi.faturaId),
+    }),
+    'stok.alisFaturasiIptal': (girdi: { faturaId: string; neden: string }) =>
+      alisFaturasiIptal(b(), a(), girdi.faturaId, girdi.neden),
+    'stok.alisFaturasiGuncelle': (girdi: {
+      faturaId: string;
+      fatura_no?: string | null;
+      vade_tarihi?: string | null;
+      notlar?: string | null;
+    }) => {
+      alisFaturasiGuncelle(b(), a(), girdi.faturaId, girdi);
+      return { basarili: true };
+    },
     'stok.rapor': (girdi?: { sktGun?: number }) => stokRaporu(b(), a(), girdi?.sktGun ?? 30),
 
     'sayim.acik': () => acikSayim(b().vt),
@@ -457,6 +524,23 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     'kasa.ac': (girdi: { acilisBakiye: Kurus }) => {
       const sonuc = kasaAc(b(), a(), girdi.acilisBakiye);
       uygulama.olayYayinla('kasa:acildi', sonuc);
+
+      /*
+       * Kasa kapalıyken inen iade talimatları burada uygulanır. Aktörün kasa
+       * oturumu yeni oluştuğu için tazelenmiş bir aktörle çağrılır.
+       */
+      const yeniAktor = { ...a(), kasaOturumId: sonuc.oturumId };
+      const iade = bekleyenIadeleriIsle(b(), yeniAktor);
+      if (iade.uygulanan > 0) uygulama.olayYayinla('iade:uygulandi', iade);
+
+      // Nakit tahsilat iptali de açık çekmece ister; aynı anda işlenir (§10.7).
+      const cariTalimat = bekleyenCariTalimatlariniIsle(b(), yeniAktor);
+      if (cariTalimat.uygulanan > 0) uygulama.olayYayinla('cari:talimatUygulandi', cariTalimat);
+
+      // Nakit ödemeli alış faturası da açık çekmece ister (§11.8).
+      const alisTalimat = bekleyenAlisTalimatlariniIsle(b(), yeniAktor);
+      if (alisTalimat.uygulanan > 0) uygulama.olayYayinla('alis:talimatUygulandi', alisTalimat);
+
       return sonuc;
     },
     'kasa.gunSonu': async (girdi: { sayilanNakit: Kurus; notlar?: string; yazdir?: boolean }) => {
@@ -479,6 +563,13 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       }
       return { ...sonuc, yazdirma, senkron };
     },
+    /** Bekleyen panel iadeleri — kasa açılınca elle de tetiklenebilir (§10.4). */
+    'satis.bekleyenIadeler': () => bekleyenIadeleriIsle(b(), a()),
+    /** Bekleyen panel cari talimatları — açılış, düzeltme, tahsilat iptali (§10.7). */
+    'cari.bekleyenTalimatlar': () => bekleyenCariTalimatlariniIsle(b(), a()),
+    /** Bekleyen panel alış talimatları — fatura oluştur / iptal / güncelle (§11.8). */
+    'stok.bekleyenAlisTalimatlari': () => bekleyenAlisTalimatlariniIsle(b(), a()),
+
     'kasa.hareket': (girdi: { tip: 'GIDER' | 'GIRIS' | 'CIKIS'; tutar: Kurus; aciklama: string }) => ({
       hareketId: kasaHareketi(b(), a(), girdi.tip, girdi.tutar, girdi.aciklama),
     }),
@@ -521,6 +612,25 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     },
 
     // --------------------------------------------------------------- kampanya
+    /*
+     * Etkin kampanyalar — satış ekranı miktar indirimini ANLIK hesaplasın diye.
+     * Her tuş vuruşunda IPC'ye gitmek sıcak yolu yavaşlatırdı; liste bir kez
+     * çekilir, hesap arayüzde yapılır. Sunucu satışta bağımsız olarak tekrar
+     * hesaplar, arayüze güvenilmez (§15.4).
+     */
+    'kampanya.etkin': () =>
+      etkinKampanyalar(b().vt).map((k) => ({
+        id: k.id,
+        tip: k.tip,
+        kapsam: k.kapsam,
+        hedefId: k.hedef_id,
+        deger: k.deger,
+        esikMiktar: k.esik_miktar ?? undefined,
+        baslangic: k.baslangic,
+        bitis: k.bitis,
+        aktifMi: k.aktif_mi,
+        oncelik: k.oncelik,
+      })),
     'kampanya.listele': () => kampanyalariListele(b().vt),
     'kampanya.kaydet': (girdi: Parameters<typeof kampanyaKaydet>[1]) => {
       const aktor = a();
@@ -601,8 +711,29 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       if (!secenekler) throw hatalar.dogrulama('Senkron sunucusu ayarlanmamış.');
       const sonuc = await senkronCalistir(b(), secenekler);
       uygulama.kimlikBirlesmeleriniUygula(sonuc);
+
+      /*
+       * Panelden gelen iade talimatları senkrondan HEMEN SONRA işlenir.
+       * Talimat pull'da yerele yazılır ama uygulanması kasa oturumu ister;
+       * burada aktör ve açık kasa hazır olduğu için doğru yer burasıdır.
+       */
+      const iadeSonucu = bekleyenIadeleriIsle(b(), aktor);
+      if (iadeSonucu.uygulanan > 0) {
+        uygulama.olayYayinla('iade:uygulandi', iadeSonucu);
+      }
+
+      const cariSonucu = bekleyenCariTalimatlariniIsle(b(), aktor);
+      if (cariSonucu.uygulanan > 0) {
+        uygulama.olayYayinla('cari:talimatUygulandi', cariSonucu);
+      }
+
+      const alisSonucu = bekleyenAlisTalimatlariniIsle(b(), aktor);
+      if (alisSonucu.uygulanan > 0) {
+        uygulama.olayYayinla('alis:talimatUygulandi', alisSonucu);
+      }
+
       uygulama.olayYayinla('senkron:tamamlandi', sonuc);
-      return sonuc;
+      return { ...sonuc, iade: iadeSonucu, cariTalimat: cariSonucu };
     },
     'senkron.mutabakat': async () => {
       const secenekler = uygulama.senkronSecenekleri();

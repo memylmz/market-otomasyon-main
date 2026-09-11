@@ -382,7 +382,17 @@ interface GunlukRapor {
   from: string;
   to: string;
   data: GunSatiri[];
-  toplam: { ciro: Kurus; iade: Kurus; islem: number; kar: Kurus; nakit: Kurus; kart: Kurus; veresiye: Kurus };
+  toplam: {
+    ciro: Kurus;
+    iade: Kurus;
+    islem: number;
+    kar: Kurus;
+    nakit: Kurus;
+    kart: Kurus;
+    veresiye: Kurus;
+    gider: Kurus;
+    kdv: Kurus;
+  };
   uretim_zamani: string;
 }
 
@@ -423,8 +433,20 @@ export function CiroOzetiSekmesi() {
               deger={String(veri.toplam.islem)}
               alt={veri.toplam.islem > 0 ? `Ort. ${paraFormat(Math.round(veri.toplam.ciro / veri.toplam.islem))}` : '—'}
             />
-            <ParaKutusu etiket="Brüt kâr" tutar={veri.toplam.kar} alt="KDV hariç" />
+            <ParaKutusu
+              etiket="Brüt kâr"
+              tutar={veri.toplam.kar}
+              alt={netCiro > 0 ? `Marj %${Math.round((veri.toplam.kar / netCiro) * 1000) / 10}` : 'KDV hariç'}
+            />
             <ParaKutusu etiket="Veresiye" tutar={veri.toplam.veresiye} alt="Dönem içinde" />
+          </section>
+
+          {/* Kasadaki Ciro Özeti'nde olan ama panelde eksik olan üç rakam. */}
+          <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <ParaKutusu etiket="Nakit" tutar={veri.toplam.nakit} alt="Kasaya giren" />
+            <ParaKutusu etiket="Kart" tutar={veri.toplam.kart} alt="POS" />
+            <ParaKutusu etiket="Gider" tutar={veri.toplam.gider} alt="Kasadan çıkan" />
+            <ParaKutusu etiket="KDV toplamı" tutar={veri.toplam.kdv} alt="Hesaplanan" />
           </section>
 
           <section className="kart p-4">

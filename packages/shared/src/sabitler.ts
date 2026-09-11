@@ -97,7 +97,23 @@ export const KASA_NAKIT_ETKISI: Record<KasaHareketTipi, boolean> = {
 export const KASA_OTURUM_DURUMU = ['ACIK', 'KAPALI'] as const;
 export type KasaOturumDurumu = (typeof KASA_OTURUM_DURUMU)[number];
 
-export const KAMPANYA_TIPI = ['YUZDE', 'TUTAR', 'SABIT_FIYAT'] as const;
+/**
+ * Kampanya tipleri (§10.8).
+ *
+ * İlk üçü BİRİM FİYATI değiştirir; son ikisi MİKTARA bağlıdır ve satır
+ * iskontosu olarak uygulanır. Ayrım önemli: miktar kampanyasını birim fiyata
+ * gömmek kuruş yuvarlamasını bozar (3 al 2 öde → 6,666… birim fiyat) ve fişte
+ * müşterinin neyin bedava geldiğini görmesini engeller.
+ */
+export const KAMPANYA_TIPI = [
+  'YUZDE',
+  'TUTAR',
+  'SABIT_FIYAT',
+  /** "3 al 2 öde" — esik_miktar = alınan, deger = ödenen. Yalnız ADET. */
+  'N_AL_M_ODE',
+  /** "3 kg üzeri 8,00/kg" — esik_miktar = eşik, deger = yeni birim fiyat. */
+  'KADEMELI_FIYAT',
+] as const;
 export type KampanyaTipi = (typeof KAMPANYA_TIPI)[number];
 
 export const KAMPANYA_KAPSAMI = ['URUN', 'KATEGORI', 'TUM'] as const;
@@ -146,6 +162,10 @@ export const OLAY_TIPI = [
   'BARKOD_KAYDEDILDI',
   'KATEGORI_KAYDEDILDI',
   'ALIS_FATURASI_ONAYLANDI',
+  /** Onaylı fatura iptal edildi — stok ve tedarikçi borcu ters kayıtla geri alınır (§11.8). */
+  'ALIS_FATURASI_IPTAL',
+  /** Faturanın belge bilgileri (fatura no, vade, not) düzeltildi; mali etkisi yoktur. */
+  'ALIS_FATURASI_GUNCELLENDI',
   'AYAR_DEGISTI',
   'DENETIM_KAYDI',
   'GUNLUK_OZET',
@@ -214,6 +234,24 @@ export const PULL_VARLIKLARI = [
    * "hareketlerin tek üreticisi kasadır" kuralı korunur.
    */
   'stok_duzeltmeleri',
+  /** Panelden yazılan iade talimatları; hareketi kasa üretir (§10.4). */
+  'iade_talimatlari',
+  /**
+   * Panelden yazılan cari talimatları — açılış bakiyesi, bakiye düzeltmesi ve
+   * tahsilat iptali (§10.7). Aynı gerekçe: `cari_hareketler` bir defterdir ve
+   * tek yazıcısı kasadır; panel yalnız niyeti bildirir.
+   *
+   * `cariler`den SONRA gelmek zorundadır — talimat bir cariye bağlıdır ve
+   * pull'da yabancı anahtar açıkken sıra bozulursa parti tümden geri alınır.
+   */
+  'cari_talimatlari',
+  /**
+   * Panelden yazılan alış faturası talimatları (§11.8). `urunler` ve
+   * `cariler`den SONRA gelmek zorundadır: talimat hem ürüne hem tedarikçiye
+   * bağlıdır ve pull'da yabancı anahtar açıkken sıra bozulursa parti tümden
+   * geri alınır.
+   */
+  'alis_talimatlari',
 ] as const;
 export type PullVarligi = (typeof PULL_VARLIKLARI)[number];
 
@@ -307,6 +345,41 @@ export const AYAR = {
   YAZICI_GENISLIK: 'yazici.genislik',
   CEKMECE_ACIK: 'yazici.cekmece_ac',
   OTOMATIK_FIS: 'yazici.otomatik_fis',
+
+  /*
+   * ETİKET (BARKOD) YAZICISI — fiş yazıcısından AYRI bir cihazdır (§13.3).
+   *
+   * Fiş yazıcısı ESC/POS konuşur ve "satır satır ak, sonunda kes" mantığıyla
+   * çalışır. Etiket yazıcısı ise TSPL ya da ZPL konuşur ve fiziksel ölçü bilir:
+   * kaç mm eninde etiket, aralarında kaç mm boşluk, hangi koordinata ne yazılacak.
+   * Bu yüzden ayrı bir yazıcı tanımı ve ayrı ölçü ayarları gerekir.
+   *
+   * Fiş yazıcısında olduğu gibi bu anahtarlar CİHAZA ÖZELDİR ve senkrona
+   * girmez (MERKEZI_AYARLAR listesinde yoktur): her kasanın kendi yazıcısı olur.
+   */
+  ETIKET_YAZICI_TIPI: 'etiket.yazici_tip',
+  ETIKET_YAZICI_HEDEF: 'etiket.yazici_hedef',
+  ETIKET_YAZICI_USB_ADI: 'etiket.yazici_usb_adi',
+  /** TSPL (TSC/Argox/Xprinter/Godex) ya da ZPL (Zebra). */
+  ETIKET_DILI: 'etiket.dil',
+  /** Etiket eni (mm). */
+  ETIKET_EN_MM: 'etiket.en_mm',
+  /** Etiket boyu (mm). */
+  ETIKET_BOY_MM: 'etiket.boy_mm',
+  /** İki etiket arasındaki boşluk (mm) — rulodaki kesim aralığı. */
+  ETIKET_BOSLUK_MM: 'etiket.bosluk_mm',
+  /** Yazıcı çözünürlüğü: 203 dpi = 8 nokta/mm, 300 dpi = 12 nokta/mm. */
+  ETIKET_DPI: 'etiket.dpi',
+  /** Rulodaki yan yana etiket sayısı (1, 2, 3…). */
+  ETIKET_SUTUN: 'etiket.sutun',
+  /** Isı / koyuluk (0-15). Ucuz etiketlerde düşük değer soluk basar. */
+  ETIKET_ISI: 'etiket.isi',
+  /** Baskı hızı (inç/sn). */
+  ETIKET_HIZ: 'etiket.hiz',
+  /** Etikette raf kodu gösterilsin mi. */
+  ETIKET_RAF_GOSTER: 'etiket.raf_goster',
+  /** Kilo/litre ürünlerde birim fiyat satırı gösterilsin mi. */
+  ETIKET_BIRIM_FIYAT_GOSTER: 'etiket.birim_fiyat_goster',
   SENKRON_URL: 'senkron.url',
   SENKRON_MOD: 'senkron.mod',
   SENKRON_ARALIK_DK: 'senkron.aralik_dk',
@@ -352,6 +425,27 @@ export type LimitDavranisi = (typeof LIMIT_DAVRANISI)[number];
  */
 export const YAZICI_TIPI = ['YOK', 'USB', 'AG', 'OTOMATIK', 'DOSYA', 'WINDOWS_PAYLASIM'] as const;
 export type YaziciTipi = (typeof YAZICI_TIPI)[number];
+
+/**
+ * Etiket yazıcısı komut dili (§13.3).
+ *
+ * TSPL: TSC, Argox, Godex, Xprinter (XP-365B/370B) — uygun fiyatlı segmentin
+ * neredeyse tamamı. ZPL: Zebra. İkisi de desteklenir çünkü yazıcı satın
+ * alınmadan hangisinin geleceği bilinmiyordu; ayardan seçilir.
+ */
+export const ETIKET_DILI = ['TSPL', 'ZPL'] as const;
+export type EtiketDili = (typeof ETIKET_DILI)[number];
+
+/** Etiket ölçüsü varsayılanları — kullanıcı rulosuna göre ayarlardan değiştirir. */
+export const ETIKET_VARSAYILAN = {
+  EN_MM: 40,
+  BOY_MM: 30,
+  BOSLUK_MM: 2,
+  DPI: 203,
+  SUTUN: 1,
+  ISI: 8,
+  HIZ: 4,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Operasyonel sınırlar

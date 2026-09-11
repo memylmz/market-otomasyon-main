@@ -24,7 +24,7 @@ import { cariBul, cariHareketEkle } from '../depo/cari.js';
 import { kasaHareketEkle } from '../depo/kasa.js';
 import { urunBul, urunKaydet } from '../depo/katalog.js';
 import { denetimYaz, gunlukOzetEkle } from '../depo/ozet.js';
-import { alisFaturasiEkle, alisKalemiEkle } from '../depo/satis.js';
+import { alisFaturasiBul, alisFaturasiEkle, alisKalemiEkle, alisKalemleriniGetir } from '../depo/satis.js';
 import { olayYaz } from '../depo/senkron.js';
 import {
   acikSayim,
@@ -193,6 +193,27 @@ export function stokOlayiYaz(
   aktor: Aktor,
   zaman: string,
 ): void {
+  /*
+   * SKT, lot ve açıklama olay yüküne DB'DEN okunarak katılır (§11.5).
+   *
+   * Bu alanlar yalnız kasada duruyordu; merkez onları hiç görmediği için panel
+   * SKT takibi yapamıyordu. Çağıranlardan parametre olarak istemek yerine az
+   * önce yazılan satırdan okunur: yedi çağrı yerinin hepsini değiştirmek
+   * gerekmez ve ileride yeni bir çağrı eklendiğinde alanları taşımayı
+   * unutmak imkânsız hale gelir.
+   */
+  const ek = baglam.vt
+    .hazirla('SELECT skt, lot_no, belge_tipi, belge_id, neden_kodu, aciklama, birim_maliyet FROM stok_hareketleri WHERE id = ?')
+    .tek<{
+      skt: string | null;
+      lot_no: string | null;
+      belge_tipi: string | null;
+      belge_id: string | null;
+      neden_kodu: string | null;
+      aciklama: string | null;
+      birim_maliyet: number | null;
+    }>(hareketId);
+
   olayYaz(
     baglam.vt,
     {
@@ -200,7 +221,21 @@ export function stokOlayiYaz(
       olay_tipi: 'STOK_HAREKETI',
       entity: 'stok_hareketi',
       entity_id: hareketId,
-      veri: { id: hareketId, urun_id: urunId, hareket_tipi: tip, miktar, kullanici_id: aktor.kullaniciId, created_at: zaman },
+      veri: {
+        id: hareketId,
+        urun_id: urunId,
+        hareket_tipi: tip,
+        miktar,
+        kullanici_id: aktor.kullaniciId,
+        created_at: zaman,
+        skt: ek?.skt ?? null,
+        lot_no: ek?.lot_no ?? null,
+        belge_tipi: ek?.belge_tipi ?? null,
+        belge_id: ek?.belge_id ?? null,
+        neden_kodu: ek?.neden_kodu ?? null,
+        aciklama: ek?.aciklama ?? null,
+        birim_maliyet: ek?.birim_maliyet ?? null,
+      },
       olusturma_zamani: zaman,
     },
     baglam.cihazId,
@@ -427,7 +462,27 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
            * Tedarikçi borcu paneldeki en kritik rakamlardan biri (§11.8).
            */
           odenen_tutar: girdi.odenen_tutar ?? 0,
-          kalemler: hesaplananlar.map((k) => ({ urun_id: k.urun_id, miktar: k.miktar, birim_fiyat: k.birim_fiyat })),
+          /*
+           * Belgenin TAMAMI taşınır: KDV kırılımı, vade, not, durum ve faturayı
+           * kimin girdiği. Eskiden yalnız tedarikçi, tarih ve genel toplam
+           * gidiyordu; panelden bakan kişi faturanın KDV'sini göremiyor,
+           * "bunu kim girdi" sorusunu cevaplayamıyordu (§11.8).
+           */
+          ara_toplam: araToplam,
+          kdv_toplam: kdvToplam,
+          durum: 'ONAYLANDI',
+          vade_tarihi: girdi.vade_tarihi ?? null,
+          notlar: girdi.notlar ?? null,
+          kullanici_id: aktor.kullaniciId,
+          kalemler: hesaplananlar.map((k) => ({
+            urun_id: k.urun_id,
+            miktar: k.miktar,
+            birim_fiyat: k.birim_fiyat,
+            kdv_orani: k.kdv_orani,
+            satir_toplam: k.net + k.kdv,
+            skt: k.skt ?? null,
+            lot_no: k.lot_no ?? null,
+          })),
         },
         olusturma_zamani: kayitZamani,
       },
@@ -685,4 +740,242 @@ export function sayimTamamla(baglam: Baglam, aktor: Aktor, sayimId: string): Say
 export function sayimIptal(baglam: Baglam, aktor: Aktor, sayimId: string): void {
   yetkiIste(aktor, 'stok.sayim');
   sayimDurumuGuncelle(baglam.vt, sayimId, 'IPTAL');
+}
+
+// ---------------------------------------------------------------------------
+// Alış faturası iptali ve düzenlenmesi (§11.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Onaylı bir alış faturasını iptal eder.
+ *
+ * SİLMEZ, TERS KAYIT YAZAR. Fatura onaylandığında üç yerde iz bırakmıştır:
+ * stok arttı, tedarikçiye borç doğdu, peşin ödendiyse kasadan para çıktı.
+ * İptal bunların hepsini TERSİNE ÇEVİRİR ama hiçbirini geri silmez —
+ * `stok_hareketleri` ve `cari_hareketler` değiştirilemez defterlerdir. Faturanın
+ * kendisi de listede kalır, yalnız durumu IPTAL olur: "bu mal hiç gelmedi" ile
+ * "bu fatura yanlıştı, düzeltildi" farklı şeylerdir ve ikisi de görünmelidir.
+ *
+ * Stok girişi satılmış olabilir; iptal stoğu eksiye düşürebilir. Bu bilinçli
+ * olarak ENGELLENMEZ: fatura gerçekten yanlışsa kayıt düzeltilmelidir, eksi
+ * stok ise Stok → Negatifler ekranında zaten raporlanır.
+ */
+export function alisFaturasiIptal(
+  baglam: Baglam,
+  aktor: Aktor,
+  faturaId: string,
+  neden: string,
+): { faturaId: string; geriAlinanTutar: Kurus } {
+  yetkiIste(aktor, 'stok.giris');
+  if (!neden.trim()) throw hatalar.dogrulama('İptal nedeni zorunludur.');
+
+  const { vt, cihazId } = baglam;
+  const zaman = simdi();
+
+  const fatura = alisFaturasiBul(vt, faturaId);
+  if (!fatura) throw hatalar.bulunamadi('Alış faturası');
+  if (fatura.durum === 'IPTAL') throw hatalar.isKurali('CAKISMA', 'Bu fatura zaten iptal edilmiş.');
+
+  const kalemler = alisKalemleriniGetir(vt, faturaId);
+
+  // Peşin ödeme yapılmışsa cari ekstresinde ayrı bir ODEME satırı vardır;
+  // iptalde o da geri alınmalıdır, yoksa tedarikçi alacaklı görünür.
+  const odeme = vt
+    .hazirla("SELECT id, tutar FROM cari_hareketler WHERE belge_id = ? AND belge_tipi = 'ALIS_ODEME'")
+    .tek<{ id: string; tutar: number }>(faturaId);
+  const kasaHareketi = vt
+    .hazirla('SELECT tip, tutar FROM kasa_hareketleri WHERE belge_id = ?')
+    .tek<{ tip: string; tutar: number }>(faturaId);
+
+  vt.islem(() => {
+    for (const kalem of kalemler) {
+      const hareketId = hareketEkle(
+        vt,
+        {
+          urun_id: kalem.urun_id,
+          /*
+           * Tip DUZELTME'dir, TEDARIKCI_IADE değil: mal geri gönderilmiyor,
+           * hiç girmemiş sayılıyor. İkisi ayrı iş olaylarıdır ve raporlarda
+           * karışmamalıdır — biri gerçek bir iade, diğeri bir kayıt düzeltmesi.
+           */
+          hareket_tipi: 'DUZELTME',
+          miktar: -kalem.miktar,
+          birim_maliyet: kalem.birim_fiyat,
+          belge_id: faturaId,
+          belge_tipi: 'ALIS_IPTAL',
+          neden_kodu: 'ALIS_IPTAL',
+          aciklama: neden.trim(),
+          kullanici_id: aktor.kullaniciId,
+        },
+        cihazId,
+        zaman,
+      );
+      stokOlayiYaz(baglam, hareketId, kalem.urun_id, 'DUZELTME', -kalem.miktar, aktor, zaman);
+    }
+
+    // Borcun tersi
+    cariHareketEkle(
+      vt,
+      {
+        cari_id: fatura.tedarikci_id,
+        hareket_tipi: 'DUZELTME',
+        tutar: -fatura.genel_toplam,
+        aciklama: `Alış faturası iptali${fatura.fatura_no ? ` (Fatura ${fatura.fatura_no})` : ''}: ${neden.trim()}`,
+        belge_id: faturaId,
+        belge_tipi: 'ALIS_IPTAL',
+        kullanici_id: aktor.kullaniciId,
+      },
+      cihazId,
+      zaman,
+    );
+
+    // Ödemenin tersi — para geri gelir, borç kapatması geri alınır.
+    if (odeme) {
+      cariHareketEkle(
+        vt,
+        {
+          cari_id: fatura.tedarikci_id,
+          hareket_tipi: 'DUZELTME',
+          tutar: -odeme.tutar,
+          aciklama: `Alış ödemesi iptali${fatura.fatura_no ? ` (Fatura ${fatura.fatura_no})` : ''}`,
+          belge_id: faturaId,
+          belge_tipi: 'ALIS_ODEME_IPTAL',
+          kullanici_id: aktor.kullaniciId,
+        },
+        cihazId,
+        zaman,
+      );
+
+      // Nakit ödenmişse para fiziksel olarak kasaya geri girer.
+      if (kasaHareketi) {
+        const kasaOturumId = kasaOturumuIste(aktor);
+        kasaHareketEkle(
+          vt,
+          {
+            kasa_oturum_id: kasaOturumId,
+            tip: 'GIRIS',
+            tutar: -kasaHareketi.tutar,
+            aciklama: `Alış faturası iptali${fatura.fatura_no ? ` (Fatura ${fatura.fatura_no})` : ''}`,
+            belge_id: faturaId,
+            kullanici_id: aktor.kullaniciId,
+          },
+          cihazId,
+          zaman,
+        );
+        gunlukOzetEkle(vt, gunAnahtari(zaman), cihazId, { nakit: -kasaHareketi.tutar }, zaman);
+      }
+    }
+
+    vt.hazirla(
+      `UPDATE alis_faturalari SET durum = 'IPTAL', notlar = COALESCE(notlar || char(10), '') || ?,
+                                  updated_at = ? WHERE id = ?`,
+    ).calistir(`İPTAL (${zaman}): ${neden.trim()}`, zaman, faturaId);
+
+    olayYaz(
+      vt,
+      {
+        id: uuid(),
+        olay_tipi: 'ALIS_FATURASI_IPTAL',
+        entity: 'alis_faturasi',
+        entity_id: faturaId,
+        veri: {
+          id: faturaId,
+          tedarikci_id: fatura.tedarikci_id,
+          genel_toplam: fatura.genel_toplam,
+          odenen_tutar: odeme ? -odeme.tutar : 0,
+          neden: neden.trim(),
+          kullanici_id: aktor.kullaniciId,
+          tarih: zaman,
+        },
+        olusturma_zamani: zaman,
+      },
+      cihazId,
+      zaman,
+    );
+
+    denetimYaz(
+      vt,
+      {
+        kullanici_id: aktor.kullaniciId,
+        islem: 'ALIS_FATURASI_IPTAL',
+        entity: 'alis_faturasi',
+        entity_id: faturaId,
+        eski_deger: { genel_toplam: fatura.genel_toplam, durum: fatura.durum, kalem: kalemler.length },
+        yeni_deger: { durum: 'IPTAL', neden: neden.trim() },
+      },
+      cihazId,
+      zaman,
+    );
+  });
+
+  baglam.kayit.bilgi('Alış faturası iptal edildi', { fatura_id: faturaId, tutar: fatura.genel_toplam });
+  return { faturaId, geriAlinanTutar: fatura.genel_toplam };
+}
+
+/**
+ * Faturanın BELGE BİLGİLERİNİ düzeltir: fatura numarası, vade, not.
+ *
+ * Kalemler ve tutarlar buradan DEĞİŞTİRİLEMEZ, bilinçli olarak. Onaylı bir
+ * faturanın miktarını değiştirmek, çoktan yazılmış stok ve cari hareketlerini
+ * geçmişe dönük düzenlemek demektir; o defterler değiştirilemez. Yanlış girilen
+ * bir faturanın doğru düzeltmesi "iptal et, yeniden gir"dir — arayüz de bu iki
+ * adımı birlikte sunar. Burada düzeltilen alanların hiçbirinin mali etkisi yok.
+ */
+export function alisFaturasiGuncelle(
+  baglam: Baglam,
+  aktor: Aktor,
+  faturaId: string,
+  alanlar: { fatura_no?: string | null; vade_tarihi?: string | null; notlar?: string | null },
+): void {
+  yetkiIste(aktor, 'stok.giris');
+  const { vt, cihazId } = baglam;
+  const zaman = simdi();
+
+  const fatura = alisFaturasiBul(vt, faturaId);
+  if (!fatura) throw hatalar.bulunamadi('Alış faturası');
+  if (fatura.durum === 'IPTAL') throw hatalar.dogrulama('İptal edilmiş fatura düzenlenemez.');
+
+  const yeni = {
+    fatura_no: alanlar.fatura_no === undefined ? fatura.fatura_no : alanlar.fatura_no?.trim() || null,
+    vade_tarihi: alanlar.vade_tarihi === undefined ? fatura.vade_tarihi : alanlar.vade_tarihi || null,
+    notlar: alanlar.notlar === undefined ? fatura.notlar : alanlar.notlar?.trim() || null,
+  };
+
+  vt.islem(() => {
+    vt.hazirla('UPDATE alis_faturalari SET fatura_no = ?, vade_tarihi = ?, notlar = ?, updated_at = ? WHERE id = ?').calistir(
+      yeni.fatura_no,
+      yeni.vade_tarihi,
+      yeni.notlar,
+      zaman,
+      faturaId,
+    );
+
+    olayYaz(
+      vt,
+      {
+        id: uuid(),
+        olay_tipi: 'ALIS_FATURASI_GUNCELLENDI',
+        entity: 'alis_faturasi',
+        entity_id: faturaId,
+        veri: { id: faturaId, ...yeni, kullanici_id: aktor.kullaniciId, updated_at: zaman },
+        olusturma_zamani: zaman,
+      },
+      cihazId,
+      zaman,
+    );
+
+    denetimYaz(
+      vt,
+      {
+        kullanici_id: aktor.kullaniciId,
+        islem: 'ALIS_FATURASI_GUNCELLE',
+        entity: 'alis_faturasi',
+        entity_id: faturaId,
+        eski_deger: { fatura_no: fatura.fatura_no, vade_tarihi: fatura.vade_tarihi, notlar: fatura.notlar },
+        yeni_deger: yeni,
+      },
+      cihazId,
+      zaman,
+    );
+  });
 }

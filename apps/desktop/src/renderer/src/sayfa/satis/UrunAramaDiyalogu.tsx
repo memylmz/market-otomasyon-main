@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { adet, miktarFormat, miktarParse, paraFormat, type BirimTipi, type Kurus, type Miktar } from '@market/shared';
 import { Diyalog, Kisayol, Yukleniyor } from '../../bilesen/temel';
 import { hatayiBildir } from '../../durum/bildirim';
-import type { EklenecekUrun } from '../../durum/sepet';
+import { kampanyaliFiyat, type EklenecekUrun } from '../../durum/sepet';
 import { cagir } from '../../kopru';
 
 interface UrunSatiri {
@@ -12,6 +12,7 @@ interface UrunSatiri {
   ad: string;
   marka: string | null;
   birim_tipi: BirimTipi;
+  kategori_id?: string | null;
   satis_fiyati: Kurus;
   kdv_orani: number;
   stok: Miktar;
@@ -95,11 +96,13 @@ export function UrunAramaDiyalogu({
         urunId: seciliUrun.id,
         ad: seciliUrun.ad,
         barkod: seciliUrun.barkodlar[0] ?? null,
+        kategoriId: seciliUrun.kategori_id ?? null,
         birimTipi: seciliUrun.birim_tipi,
-        birimFiyat: seciliUrun.satis_fiyati,
+        // Kampanya ORTAK yardımcıdan; arama yolu da barkodla aynı fiyatı versin.
+        birimFiyat: kampanyaliFiyat(seciliUrun).fiyat,
         listeFiyati: seciliUrun.satis_fiyati,
         kdvOrani: seciliUrun.kdv_orani,
-        kampanyaId: null,
+        kampanyaId: kampanyaliFiyat(seciliUrun).kampanyaId,
         stok: seciliUrun.stok,
       },
       seciliUrun.birim_tipi !== 'ADET' && miktarDokunulmadi ? undefined : miktar > 0 ? miktar : adet(1),

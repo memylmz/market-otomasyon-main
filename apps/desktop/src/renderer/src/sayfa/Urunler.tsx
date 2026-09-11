@@ -1,6 +1,6 @@
 /** Ürün / stok kartları (§10.5) — liste, kart düzenleme, toplu fiyat, içe/dışa aktarma. */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   KDV_ORANLARI,
   kisaKodBul,
@@ -13,6 +13,7 @@ import {
   type Miktar,
 } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
+import { EtiketOnizleme, type EtiketOnizlemeVerisi } from '../bilesen/Onizleme';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
@@ -59,6 +60,9 @@ export function UrunlerSayfasi() {
   const [siralama, setSiralama] = useState<'ad' | 'stok' | 'fiyat' | 'guncelleme'>('ad');
   const [sayfa, setSayfa] = useState(0);
   const [secililer, setSecililer] = useState<Set<string>>(new Set());
+  /** Etiket kuyruğu — basılana kadar durur (§13.3). */
+  const [kuyruk, setKuyruk] = useState<EtiketSatiri[]>([]);
+  const [kuyrukAcik, setKuyrukAcik] = useState(false);
 
   const SAYFA_BOYU = 50;
 
@@ -207,6 +211,20 @@ export function UrunlerSayfasi() {
           <span className="font-medium">{secililer.size} ürün seçildi</span>
           <button type="button" className="tus-birincil px-3 py-1 text-sm" onClick={() => setTopluAcik(true)}>
             Seçili Ürünlere Zam / İndirim
+          </button>
+          <button
+            type="button"
+            className="tus-ikincil px-3 py-1 text-sm"
+            onClick={() => {
+              const eklenecek = kayitlar
+                .filter((u) => secililer.has(u.id))
+                .map((u) => ({ urunId: u.id, ad: u.ad, adet: 1, barkodsuz: u.barkodlar.length === 0 }));
+              setKuyruk((o) => kuyrugaEkle(o, eklenecek));
+              setKuyrukAcik(true);
+              setSecililer(new Set());
+            }}
+          >
+            Etiket Kuyruğuna Ekle
           </button>
           <button type="button" className="text-metin-3 hover:underline" onClick={() => setSecililer(new Set())}>
             Seçimi temizle
@@ -379,12 +397,31 @@ export function UrunlerSayfasi() {
         kategoriler={kategoriler}
         seciliIdler={[...secililer]}
         onKapat={() => setTopluAcik(false)}
-        onUygulandi={() => {
+        onUygulandi={(degisenler) => {
           setTopluAcik(false);
           setSecililer(new Set());
           void yukle();
+          /*
+           * Zam sonrası etiket teklifi.
+           *
+           * Rafta eski fiyat kalması müşteriyle tartışma sebebidir ve fiyat
+           * değiştiren kişi o anda kasadadır — etiketi basmanın doğru anı
+           * burasıdır. Sonradan "hangi ürünlere zam yapmıştım" diye aramak
+           * pratikte yapılmıyor.
+           */
+          if (degisenler.length > 0) {
+            setKuyruk((o) =>
+              kuyrugaEkle(
+                o,
+                degisenler.map((u) => ({ urunId: u.id, ad: u.ad, adet: 1 })),
+              ),
+            );
+            setKuyrukAcik(true);
+          }
         }}
       />
+
+      <EtiketKuyruguDiyalogu acik={kuyrukAcik} kuyruk={kuyruk} onDegisim={setKuyruk} onKapat={() => setKuyrukAcik(false)} />
 
       <IceAktarDiyalogu
         acik={iceAktarAcik}
@@ -1022,7 +1059,7 @@ function TopluFiyatDiyalogu({
 }: {
   acik: boolean;
   onKapat: () => void;
-  onUygulandi: () => void;
+  onUygulandi: (etiketAdaylari: { id: string; ad: string }[]) => void;
   kategoriler: Kategori[];
   /** Listeden işaretlenmiş ürünler; doluysa kapsam otomatik "seçililer" olur. */
   seciliIdler: string[];
@@ -1062,13 +1099,14 @@ function TopluFiyatDiyalogu({
         },
         ...(kapsam === 'secili' ? { urunIdler: seciliIdler } : {}),
       };
-      const sonuc = await cagir<{ etkilenen: number; ornekler: { ad: string; eski: Kurus; yeni: Kurus }[] }>('urun.topluFiyat', {
-        islem,
-        uygula,
-      });
+      const sonuc = await cagir<{
+        etkilenen: number;
+        ornekler: { ad: string; eski: Kurus; yeni: Kurus }[];
+        etiketAdaylari: { id: string; ad: string }[];
+      }>('urun.topluFiyat', { islem, uygula });
       if (uygula) {
         bildir.basari(`${sonuc.etkilenen} ürünün fiyatı güncellendi`);
-        onUygulandi();
+        onUygulandi(sonuc.etiketAdaylari ?? []);
       } else {
         setOnizleme(sonuc);
       }
@@ -1356,12 +1394,26 @@ function StokDuzeltDiyalogu({
   const [metin, setMetin] = useState('');
   const [neden, setNeden] = useState('');
   const [calisiyor, setCalisiyor] = useState(false);
+  const alan = useRef<HTMLInputElement>(null);
 
+  /*
+   * Seçim, değer YERLEŞTİKTEN SONRA yapılır (§10.5).
+   *
+   * `autoFocus` alan boşken tetikleniyor, hemen ardından bu efekt mevcut stoğu
+   * yazıyor ve React değeri değiştirdiği için seçim kayboluyordu. Sonuç:
+   * kullanıcı yeni miktarı yazmak için önce eskisini silmek zorunda kalıyordu.
+   *
+   * Gecikme Diyalog'un kendi odak zamanlayıcısından (10 ms) uzundur.
+   */
   useEffect(() => {
-    if (urun) {
-      setMetin(String(urun.stok / 1000));
-      setNeden('');
-    }
+    if (!urun) return;
+    setMetin(String(urun.stok / 1000));
+    setNeden('');
+    const zamanlayici = setTimeout(() => {
+      alan.current?.focus();
+      alan.current?.select();
+    }, 20);
+    return () => clearTimeout(zamanlayici);
   }, [urun]);
 
   if (!urun) return null;
@@ -1410,6 +1462,7 @@ function StokDuzeltDiyalogu({
         <Alan etiket={`Yeni miktar (${birim})`} ipucu={`Şu anki: ${miktarFormat(urun.stok, urun.birim_tipi)} ${birim}`}>
           <div className="flex items-center gap-2">
             <input
+              ref={alan}
               className="alan sayi py-3 text-2xl"
               inputMode="decimal"
               value={metin}
@@ -1445,6 +1498,221 @@ function StokDuzeltDiyalogu({
           />
         </Alan>
       </div>
+    </Diyalog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Etiket kuyruğu (§13.3)
+// ---------------------------------------------------------------------------
+
+export interface EtiketSatiri {
+  urunId: string;
+  ad: string;
+  adet: number;
+  /** Barkodu yoksa etikette barkod alanı boş kalır; kullanıcı uyarılır. */
+  barkodsuz?: boolean;
+}
+
+/**
+ * Kuyruğa ekler; aynı ürün ikinci kez eklenirse adedi ARTAR, satır çoğalmaz.
+ *
+ * Kullanıcı hem listeden seçip ekliyor hem zam sonrası teklifi kabul ediyor;
+ * aynı ürün iki farklı yoldan gelebiliyor. İki ayrı satır görmek "hangisi
+ * doğru?" sorusunu doğurur, tek satırda toplam adet görmek doğal olanıdır.
+ */
+export function kuyrugaEkle(mevcut: EtiketSatiri[], yeniler: EtiketSatiri[]): EtiketSatiri[] {
+  const harita = new Map(mevcut.map((s) => [s.urunId, { ...s }]));
+  for (const yeni of yeniler) {
+    const varOlan = harita.get(yeni.urunId);
+    if (varOlan) varOlan.adet = Math.min(500, varOlan.adet + yeni.adet);
+    else harita.set(yeni.urunId, { ...yeni });
+  }
+  return [...harita.values()];
+}
+
+/**
+ * Etiket kuyruğu — ürünleri biriktir, adetlerini ayarla, tek seferde bas.
+ *
+ * Basit tutulmuştur: bir liste, satır başına bir adet kutusu, bir düğme.
+ */
+function EtiketKuyruguDiyalogu({
+  acik,
+  kuyruk,
+  onDegisim,
+  onKapat,
+}: {
+  acik: boolean;
+  kuyruk: EtiketSatiri[];
+  onDegisim: (yeni: EtiketSatiri[]) => void;
+  onKapat: () => void;
+}) {
+  const [basiliyor, setBasiliyor] = useState(false);
+  const [yaziciVar, setYaziciVar] = useState<boolean | null>(null);
+  /** Önizlenen ürün — kuyruktaki satıra tıklanınca değişir. */
+  const [onizleme, setOnizleme] = useState<EtiketOnizlemeVerisi | null>(null);
+  const [onizlenenId, setOnizlenenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!acik) return;
+    void cagir<{ yazici: { tip: string } }>('etiket.ayar')
+      .then((a) => setYaziciVar(a.yazici.tip !== 'YOK'))
+      .catch(() => setYaziciVar(null));
+  }, [acik]);
+
+  const toplam = kuyruk.reduce((t, s) => t + s.adet, 0);
+
+  /*
+   * Kuyruktaki İLK ürün açılışta önizlenir.
+   *
+   * Kullanıcı basmadan önce "bu nasıl duracak" sorusunun cevabını görmeli;
+   * ayrıca ürün adının etikete sığmadığı ya da barkodun taştığı burada
+   * anlaşılır — yüz etiket bastıktan sonra değil.
+   */
+  useEffect(() => {
+    if (!acik || kuyruk.length === 0) {
+      setOnizleme(null);
+      setOnizlenenId(null);
+      return;
+    }
+    const hedef = kuyruk.some((s) => s.urunId === onizlenenId) ? onizlenenId : (kuyruk[0]?.urunId ?? null);
+    if (!hedef) return;
+    setOnizlenenId(hedef);
+    void cagir<EtiketOnizlemeVerisi>('etiket.onizleme', { urunId: hedef })
+      .then(setOnizleme)
+      .catch(() => setOnizleme(null));
+  }, [acik, kuyruk, onizlenenId]);
+
+  const bas = async () => {
+    if (kuyruk.length === 0 || basiliyor) return;
+    setBasiliyor(true);
+    try {
+      const sonuc = await cagir<{ basarili: boolean; hata?: string; basilanEtiket: number; atlanan: { urunId: string }[] }>(
+        'etiket.yazdir',
+        { satirlar: kuyruk.map((s) => ({ urunId: s.urunId, adet: s.adet })) },
+      );
+      if (sonuc.basarili) {
+        bildir.basari(`${sonuc.basilanEtiket} etiket yazıcıya gönderildi`);
+        // Basılan kuyruk temizlenir; aynı etiketlerin ikinci kez basılması
+        // kağıt israfıdır ve kullanıcı bunu ancak yazıcıdan fark eder.
+        onDegisim([]);
+        onKapat();
+      } else {
+        bildir.uyari('Etiket basılamadı', sonuc.hata);
+      }
+      if (sonuc.atlanan?.length) bildir.uyari(`${sonuc.atlanan.length} ürün atlandı`);
+    } catch (hata) {
+      hatayiBildir(hata, 'Etiket yazdırma');
+    } finally {
+      setBasiliyor(false);
+    }
+  };
+
+  return (
+    <Diyalog
+      acik={acik}
+      baslik="Etiket Kuyruğu"
+      aciklama={kuyruk.length > 0 ? `${kuyruk.length} ürün · toplam ${toplam} etiket` : undefined}
+      onKapat={onKapat}
+      altBilgi={
+        <>
+          <button type="button" className="tus-ikincil" onClick={() => onDegisim([])} disabled={kuyruk.length === 0}>
+            Kuyruğu Boşalt
+          </button>
+          <button type="button" className="tus-birincil" onClick={() => void bas()} disabled={kuyruk.length === 0 || basiliyor}>
+            {basiliyor ? 'Gönderiliyor…' : `Hepsini Bas (${toplam})`}
+          </button>
+        </>
+      }
+    >
+      {yaziciVar === false && (
+        <p className="mb-3 rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
+          Etiket yazıcısı tanımlı değil. <strong>Ayarlar → Donanım → Etiket Yazıcısı</strong> bölümünden tanımlayın.
+        </p>
+      )}
+
+      {kuyruk.length === 0 ? (
+        <BosDurum
+          baslik="Kuyruk boş"
+          aciklama="Listeden ürün seçip 'Etiket Kuyruğuna Ekle' deyin ya da ürün kartındaki etiket düğmesini kullanın."
+        />
+      ) : (
+        <table className="tablo">
+          <thead>
+            <tr>
+              <th>Ürün</th>
+              <th className="text-right">Adet</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {kuyruk.map((satir) => (
+              <tr
+                key={satir.urunId}
+                className={`cursor-pointer ${onizlenenId === satir.urunId ? 'bg-vurgu-yumusak' : ''}`}
+                onClick={() => setOnizlenenId(satir.urunId)}
+              >
+                <td>
+                  {satir.ad}
+                  {/*
+                    Barkodsuz ürünün etiketi ad ve fiyattan ibaret kalır; kasada
+                    okutulamaz. İç barkod üretmek tam burada, etiketi basmadan
+                    hemen önce anlamlı — sonradan "hangileri barkodsuzdu" diye
+                    aramak pratikte yapılmıyor.
+                  */}
+                  {satir.barkodsuz && (
+                    <span className="ml-2 inline-flex items-center gap-1">
+                      <Rozet tur="uyari">barkodsuz</Rozet>
+                      <button
+                        type="button"
+                        className="text-xs text-vurgu hover:underline"
+                        onClick={async () => {
+                          try {
+                            await cagir('urun.icBarkod', { urunId: satir.urunId });
+                            onDegisim(kuyruk.map((s) => (s.urunId === satir.urunId ? { ...s, barkodsuz: false } : s)));
+                            bildir.basari('İç barkod üretildi');
+                          } catch (hata) {
+                            hatayiBildir(hata, 'İç barkod');
+                          }
+                        }}
+                      >
+                        iç barkod üret
+                      </button>
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <input
+                    className="alan sayi w-24"
+                    inputMode="numeric"
+                    value={satir.adet}
+                    onChange={(e) => {
+                      const adet = Math.max(1, Math.min(500, Number(e.target.value) || 1));
+                      onDegisim(kuyruk.map((s) => (s.urunId === satir.urunId ? { ...s, adet } : s)));
+                    }}
+                  />
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="text-xs text-tehlike hover:underline"
+                    onClick={() => onDegisim(kuyruk.filter((s) => s.urunId !== satir.urunId))}
+                  >
+                    çıkar
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {onizleme && (
+        <div className="mt-3 border-t border-cizgi pt-3">
+          <p className="mb-1 text-xs text-metin-3">Etikette böyle duracak — başka bir ürünü görmek için satırına dokunun</p>
+          <EtiketOnizleme veri={onizleme} />
+        </div>
+      )}
     </Diyalog>
   );
 }

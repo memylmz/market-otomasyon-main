@@ -9,6 +9,19 @@
 const ESC = 0x1b;
 const GS = 0x1d;
 
+export type Hizalama = 'sol' | 'orta' | 'sag';
+
+/** Fiş önizlemesinin tek bir öğesi — kağıttaki bir satırın karşılığı. */
+export type FisOgesi =
+  | { tip: 'metin'; metin: string; hiza: Hizalama; kalin: boolean; altCizgi: boolean; boyut: 1 | 2 | 3 }
+  | { tip: 'barkod'; veri: string; hiza: Hizalama }
+  | { tip: 'bosluk'; satir: number }
+  | { tip: 'kesme' };
+
+export interface FisOnizlemesi {
+  ogeler: FisOgesi[];
+}
+
 /** CP857 (Türkçe) karakter eşlemesi — yalnız ASCII dışı harfler. */
 // Anahtarlar tırnak içindedir: '£' gibi para birimi simgeleri geçerli bir JS
 // tanımlayıcısı değildir ve tırnaksız yazılamaz.
@@ -55,6 +68,14 @@ const CP857: Readonly<Record<string, number>> = {
   ğ: 0xa7,
 };
 
+/**
+ * CP857 ters haritası — önizlemede baytı harfe çevirmek için.
+ *
+ * Eskiden her bayt için tablo baştan taranıyordu; uzun bir fişte bu
+ * gereksiz binlerce karşılaştırma demek.
+ */
+const TERS_CP857 = new Map<number, string>();
+
 /** ASCII karşılığı olmayan karakterler için sadeleştirme. */
 const SADELESTIRME: Readonly<Record<string, string>> = {
   '₺': 'TL',
@@ -66,6 +87,8 @@ const SADELESTIRME: Readonly<Record<string, string>> = {
   '”': '"',
   '…': '...',
 };
+
+for (const [harf, kod] of Object.entries(CP857)) TERS_CP857.set(kod, harf);
 
 export function cp857Kodla(metin: string): Buffer {
   const baytlar: number[] = [];
@@ -85,8 +108,6 @@ export function cp857Kodla(metin: string): Buffer {
   }
   return Buffer.from(baytlar);
 }
-
-export type Hizalama = 'sol' | 'orta' | 'sag';
 
 /**
  * ESC/POS bayt akışı oluşturucu. Akıcı (fluent) API ile fiş dizilir,
@@ -179,37 +200,110 @@ export class EscPosYazici {
     return Buffer.concat(this.parcalar);
   }
 
+  /**
+   * Önizleme YAPISI — kağıda basılanın birebir karşılığı (§13.2).
+   *
+   * Eskiden düz metin dönüyordu: kalın yazı, çift punto ve hizalama komutları
+   * atılıyor, her satır sola yaslı normal metin olarak görünüyordu. Ekranda
+   * düzgün duran fiş kağıtta bambaşka oturuyordu ve fark ancak baskıdan sonra
+   * anlaşılıyordu.
+   *
+   * Kaynak, yazıcıya giden BAYT AKIŞININ KENDİSİDİR — ayrı bir "önizleme
+   * üreteci" yazılsaydı ikisi zamanla ayrışırdı. Üretecin bir hatası varsa
+   * önizleme de aynı hatayı gösterir; istenen budur.
+   */
+  static onizlemeYapisi(baytlar: Buffer): FisOnizlemesi {
+    const ogeler: FisOgesi[] = [];
+    let hiza: Hizalama = 'sol';
+    let kalin = false;
+    let altCizgi = false;
+    let boyut: 1 | 2 | 3 = 1;
+    let mevcut = '';
+
+    const satiriKapat = () => {
+      ogeler.push({ tip: 'metin', metin: mevcut, hiza, kalin, altCizgi, boyut });
+      mevcut = '';
+    };
+
+    for (let i = 0; i < baytlar.length; i++) {
+      const bayt = baytlar[i] as number;
+
+      if (bayt === ESC || bayt === GS) {
+        const sonraki = baytlar[i + 1];
+        const deger = baytlar[i + 2] ?? 0;
+
+        if (bayt === ESC && sonraki === 0x61) {
+          hiza = deger === 1 ? 'orta' : deger === 2 ? 'sag' : 'sol';
+          i += 2;
+        } else if (bayt === ESC && sonraki === 0x45) {
+          kalin = deger === 1;
+          i += 2;
+        } else if (bayt === ESC && sonraki === 0x2d) {
+          altCizgi = deger === 1;
+          i += 2;
+        } else if (bayt === GS && sonraki === 0x21) {
+          // GS ! n : üst yarı genişlik, alt yarı yükseklik çarpanı.
+          boyut = Math.min(3, Math.max(1, (deger & 0x0f) + 1)) as 1 | 2 | 3;
+          i += 2;
+        } else if (bayt === ESC && sonraki === 0x64) {
+          if (mevcut) satiriKapat();
+          ogeler.push({ tip: 'bosluk', satir: deger });
+          i += 2;
+        } else if (bayt === GS && sonraki === 0x56) {
+          if (mevcut) satiriKapat();
+          ogeler.push({ tip: 'kesme' });
+          i += 2;
+        } else if (bayt === GS && sonraki === 0x6b) {
+          // Barkod: GS k 73 <uzunluk> <veri>  ya da  GS k 4 <veri> NUL
+          if (mevcut) satiriKapat();
+          let veri = '';
+          if (deger === 73) {
+            const uzunluk = baytlar[i + 3] ?? 0;
+            veri = baytlar.subarray(i + 4, i + 4 + uzunluk).toString('latin1');
+            i += 3 + uzunluk;
+          } else {
+            let j = i + 3;
+            while (j < baytlar.length && baytlar[j] !== 0x00) j++;
+            veri = baytlar.subarray(i + 3, j).toString('latin1');
+            i = j;
+          }
+          // `{B` öneki kod kümesi seçimidir, basılan veriye dahil değildir.
+          ogeler.push({ tip: 'barkod', veri: veri.replace(/^\{B/, ''), hiza });
+        } else if (bayt === GS && (sonraki === 0x68 || sonraki === 0x77 || sonraki === 0x48)) {
+          i += 2; // barkod yükseklik/genişlik/HRI ayarı — çizimi etkilemez
+        } else if (bayt === ESC && sonraki === 0x74) {
+          i += 2; // kod sayfası
+        } else if (bayt === ESC && sonraki === 0x40) {
+          i += 1; // sıfırla
+        } else if (bayt === ESC && sonraki === 0x70) {
+          i += 4; // çekmece — kağıda bir şey basmaz
+        } else {
+          i += 1;
+        }
+        continue;
+      }
+
+      if (bayt === 0x0a) {
+        satiriKapat();
+        continue;
+      }
+
+      const ters = TERS_CP857.get(bayt);
+      mevcut += ters ?? String.fromCharCode(bayt);
+    }
+
+    if (mevcut) satiriKapat();
+    return { ogeler };
+  }
+
   /** Yazıcı yokken önizleme için düz metin üretir (kontrol baytları atılır). */
   static onizleme(baytlar: Buffer): string {
     const satirlar: string[] = [];
-    let mevcut = '';
-    for (let i = 0; i < baytlar.length; i++) {
-      const bayt = baytlar[i] as number;
-      if (bayt === ESC || bayt === GS) {
-        // Komut dizilerini atla (basit yaklaşım: bilinen uzunluklar).
-        const sonraki = baytlar[i + 1];
-        if (bayt === ESC && (sonraki === 0x61 || sonraki === 0x45 || sonraki === 0x2d || sonraki === 0x64 || sonraki === 0x74))
-          i += 2;
-        else if (bayt === ESC && sonraki === 0x40) i += 1;
-        else if (bayt === ESC && sonraki === 0x70) i += 4;
-        else if (
-          bayt === GS &&
-          (sonraki === 0x21 || sonraki === 0x56 || sonraki === 0x68 || sonraki === 0x77 || sonraki === 0x48)
-        )
-          i += 2;
-        else i += 1;
-        continue;
-      }
-      if (bayt === 0x0a) {
-        satirlar.push(mevcut);
-        mevcut = '';
-        continue;
-      }
-      // CP857'den geri çevir
-      const ters = Object.entries(CP857).find(([, kod]) => kod === bayt);
-      mevcut += ters ? ters[0] : String.fromCharCode(bayt);
+    for (const oge of EscPosYazici.onizlemeYapisi(baytlar).ogeler) {
+      if (oge.tip === 'metin') satirlar.push(oge.metin);
+      else if (oge.tip === 'barkod') satirlar.push(`[${oge.veri}]`);
+      else if (oge.tip === 'bosluk') satirlar.push(...Array<string>(oge.satir).fill(''));
     }
-    if (mevcut) satirlar.push(mevcut);
     return satirlar.join('\n');
   }
 }

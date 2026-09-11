@@ -167,20 +167,15 @@ export function gunSonuFisi(
 }
 
 /** Ürün etiketi (raf/barkod) — §10.5. */
-export function urunEtiketi(
-  urun: { ad: string; satis_fiyati: Kurus; birim_tipi: string; raf_konumu?: string | null },
-  barkod: string,
-  satirGenisligi = 32,
-): Buffer {
-  const y = new EscPosYazici(satirGenisligi).baslat();
-  y.hizala('orta').kalin(true).satir(urun.ad.slice(0, satirGenisligi)).kalin(false);
-  if (urun.raf_konumu) y.satir('Raf: ' + urun.raf_konumu);
-  y.boyut(2).satir(paraFormat(urun.satis_fiyati)).boyut(1);
-  y.satir(urun.birim_tipi === 'ADET' ? 'adet fiyatı' : `${urun.birim_tipi.toLowerCase()} fiyatı`);
-  if (barkod) y.barkod(barkod, 'CODE128', 50);
-  y.kes();
-  return y.bitir();
-}
+/*
+ * `urunEtiketi` KALDIRILDI (§13.3).
+ *
+ * Raf etiketini ESC/POS ile FİŞ yazıcısına basıyordu: 80 mm termal kağıda,
+ * sonunda kağıt kesme komutuyla. Ortaya rafa yapıştırılamayan bir fiş
+ * çıkıyordu. Etiket artık `donanim/etiket.ts` içinde TSPL/ZPL ile üretilir ve
+ * ayrı tanımlanan etiket yazıcısına gider. Burada bırakılsaydı yanlışlıkla
+ * yeniden kullanılabilirdi.
+ */
 
 /** Cari hesap ekstresi (§10.7 "ekstre yazdır"). */
 export function cariEkstreFisi(

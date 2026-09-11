@@ -11,7 +11,7 @@ import { BosDurum, HataKutusu, Kabuk, Modal, Rozet, Yukleniyor } from '@/bilesen
 import { api, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
 
-type KampanyaTipi = 'YUZDE' | 'TUTAR' | 'SABIT_FIYAT';
+type KampanyaTipi = 'YUZDE' | 'TUTAR' | 'SABIT_FIYAT' | 'N_AL_M_ODE' | 'KADEMELI_FIYAT';
 type KampanyaKapsami = 'URUN' | 'KATEGORI' | 'TUM';
 
 interface Kampanya {
@@ -20,8 +20,10 @@ interface Kampanya {
   tip: KampanyaTipi;
   kapsam: KampanyaKapsami;
   hedef_id: string | null;
-  /** YUZDE → yüzde (0-100), diğer tiplerde kuruş. */
+  /** YUZDE → yüzde (0-100) · N_AL_M_ODE → ödenen adet · diğerlerinde kuruş. */
   deger: number;
+  /** Miktar kampanyalarının eşiği, bindebir (3 adet → 3000). */
+  esik_miktar?: number | null;
   baslangic: string;
   bitis: string;
   oncelik: number;
@@ -44,6 +46,8 @@ const TIP_SECENEKLERI: { deger: KampanyaTipi; etiket: string }[] = [
   { deger: 'YUZDE', etiket: 'Yüzde indirim' },
   { deger: 'TUTAR', etiket: 'Tutar indirimi' },
   { deger: 'SABIT_FIYAT', etiket: 'Sabit fiyat' },
+  { deger: 'N_AL_M_ODE', etiket: 'N al M öde (3 al 2 öde)' },
+  { deger: 'KADEMELI_FIYAT', etiket: 'Kademeli fiyat (3 üzeri ucuz)' },
 ];
 
 const KAPSAM_SECENEKLERI: { deger: KampanyaKapsami; etiket: string }[] = [
@@ -52,12 +56,23 @@ const KAPSAM_SECENEKLERI: { deger: KampanyaKapsami; etiket: string }[] = [
   { deger: 'URUN', etiket: 'Tek ürün' },
 ];
 
-/** YUZDE dışındaki tipler kuruş taşır; girdi ve gösterim buna göre ayrışır. */
+/**
+ * Değer alanının anlamı tipe göre değişir:
+ *  YUZDE          → yüzde (0-100)
+ *  TUTAR/SABIT/KADEMELI → kuruş
+ *  N_AL_M_ODE     → ödenen ADET (para değil)
+ */
 function paraliTipMi(tip: KampanyaTipi): boolean {
-  return tip !== 'YUZDE';
+  return tip !== 'YUZDE' && tip !== 'N_AL_M_ODE';
 }
 
-function degerMetni(tip: KampanyaTipi, deger: number): string {
+/** Bu tip miktar eşiği ister mi? ("3 al 2 öde"deki 3, "3 kg üzeri"ndeki 3) */
+function esikIsteyenTip(tip: KampanyaTipi): boolean {
+  return tip === 'N_AL_M_ODE' || tip === 'KADEMELI_FIYAT';
+}
+
+function degerMetni(tip: KampanyaTipi, deger: number, esikMiktar?: number | null): string {
+  const esik = (esikMiktar ?? 0) / 1000;
   switch (tip) {
     case 'YUZDE':
       return `%${deger} indirim`;
@@ -65,6 +80,10 @@ function degerMetni(tip: KampanyaTipi, deger: number): string {
       return `${paraFormat(deger)} indirim`;
     case 'SABIT_FIYAT':
       return `Sabit ${paraFormat(deger)}`;
+    case 'N_AL_M_ODE':
+      return `${esik} al ${deger} öde`;
+    case 'KADEMELI_FIYAT':
+      return `${esik} ve üzeri ${paraFormat(deger)}`;
   }
 }
 
@@ -181,7 +200,7 @@ export default function KampanyalarSayfasi() {
                       <td>
                         <span className="block max-w-[200px] truncate font-medium">{kampanya.ad}</span>
                       </td>
-                      <td className="whitespace-nowrap">{degerMetni(kampanya.tip, kampanya.deger)}</td>
+                      <td className="whitespace-nowrap">{degerMetni(kampanya.tip, kampanya.deger, kampanya.esik_miktar)}</td>
                       <td className="text-left">
                         <span className="block max-w-[180px] truncate text-metin-2">{kapsamMetni(kampanya)}</span>
                       </td>
@@ -249,6 +268,8 @@ function KampanyaFormu({
   const [bitis, setBitis] = useState(() =>
     mevcut ? isoyuGune(mevcut.bitis) : gunAnahtari(new Date(Date.now() + 7 * 86_400_000)),
   );
+  /** Miktar eşiği ADET/KG olarak girilir; sunucuya bindebir gider. */
+  const [esikAdet, setEsikAdet] = useState(() => (mevcut?.esik_miktar ? String(mevcut.esik_miktar / 1000) : ''));
   const [oncelik, setOncelik] = useState(String(mevcut?.oncelik ?? 0));
   const [aktif, setAktif] = useState(mevcut ? Boolean(mevcut.aktif_mi) : true);
   const [urunArama, setUrunArama] = useState('');
@@ -264,11 +285,20 @@ function KampanyaFormu({
   }, [urunler, urunArama]);
 
   const degerEtiketi =
-    tip === 'YUZDE' ? 'İndirim yüzdesi (%)' : tip === 'TUTAR' ? 'İndirim tutarı (₺)' : 'Sabit satış fiyatı (₺)';
+    tip === 'YUZDE'
+      ? 'İndirim yüzdesi (%)'
+      : tip === 'TUTAR'
+        ? 'İndirim tutarı (₺)'
+        : tip === 'N_AL_M_ODE'
+          ? 'Ödenen adet'
+          : tip === 'KADEMELI_FIYAT'
+            ? 'Eşik sonrası birim fiyat (₺)'
+            : 'Sabit satış fiyatı (₺)';
 
   /** Yüzde ile kuruş farklı birimlerdir; "10" sınırı geçerken sessizce anlam değiştirmesin. */
   const tipDegistir = (yeni: KampanyaTipi) => {
     if (paraliTipMi(yeni) !== paraliTipMi(tip)) setDeger('');
+    if (!esikIsteyenTip(yeni)) setEsikAdet('');
     setTip(yeni);
   };
 
@@ -286,7 +316,20 @@ function KampanyaFormu({
     }
 
     let degerSayisi: number;
-    if (tip === 'YUZDE') {
+    if (tip === 'N_AL_M_ODE') {
+      // Burada "değer" ödenen ADET sayısıdır; kuruş değil.
+      const ham = Number.parseInt(deger.trim(), 10);
+      const alinan = Number.parseInt(esikAdet.trim(), 10);
+      if (!Number.isFinite(alinan) || alinan < 2) {
+        setHata('Alınan adet en az 2 olmalıdır.');
+        return;
+      }
+      if (!Number.isFinite(ham) || ham < 1 || ham >= alinan) {
+        setHata('Ödenen adet, alınan adetten küçük olmalıdır.');
+        return;
+      }
+      degerSayisi = ham;
+    } else if (tip === 'YUZDE') {
       const ham = Number(deger.trim().replace(',', '.'));
       if (deger.trim() === '' || !Number.isFinite(ham) || ham <= 0 || ham > 100) {
         setHata('İndirim yüzdesi 0 ile 100 arasında olmalıdır.');
@@ -300,6 +343,14 @@ function KampanyaFormu({
         return;
       }
       degerSayisi = kurus;
+    }
+
+    if (esikIsteyenTip(tip)) {
+      const esik = Number(esikAdet.trim().replace(',', '.'));
+      if (!Number.isFinite(esik) || esik <= 0) {
+        setHata(tip === 'N_AL_M_ODE' ? 'Alınan adet girin.' : 'Eşik miktarı girin.');
+        return;
+      }
     }
 
     if (kapsam !== 'TUM' && !hedefId) {
@@ -337,6 +388,7 @@ function KampanyaFormu({
           kapsam,
           hedef_id: kapsam === 'TUM' ? null : hedefId,
           deger: degerSayisi,
+          esik_miktar: esikIsteyenTip(tip) ? Math.round(Number(esikAdet.replace(',', '.')) * 1000) : null,
           baslangic: baslangicIso,
           bitis: bitisIso,
           oncelik: oncelikSayisi,
@@ -391,10 +443,29 @@ function KampanyaFormu({
               inputMode="decimal"
               value={deger}
               onChange={(e) => setDeger(e.target.value)}
-              placeholder={tip === 'YUZDE' ? '10' : '19,90'}
+              placeholder={tip === 'YUZDE' ? '10' : tip === 'N_AL_M_ODE' ? '2' : '19,90'}
             />
           </label>
         </div>
+
+        {/* Miktar kampanyalarının eşiği: "3 al 2 öde"deki 3, "3 kg üzeri"ndeki 3. */}
+        {esikIsteyenTip(tip) && (
+          <label className="block">
+            <span className="etiket">{tip === 'N_AL_M_ODE' ? 'Alınan adet *' : 'Eşik miktar *'}</span>
+            <input
+              className="alan sayi"
+              inputMode="decimal"
+              value={esikAdet}
+              onChange={(e) => setEsikAdet(e.target.value)}
+              placeholder="3"
+            />
+            <span className="mt-1 block text-xs text-metin-4">
+              {tip === 'N_AL_M_ODE'
+                ? 'Örn. "3 al 2 öde" için 3 yazın. Yalnız adetli ürünlerde çalışır; 6 alan 2 bedava alır.'
+                : 'Bu miktardan itibaren birim fiyat düşer. Örn. 3 kg üzeri için 3 yazın; indirim tüm miktara uygulanır.'}
+            </span>
+          </label>
+        )}
 
         <label className="block">
           <span className="etiket">Kapsam</span>

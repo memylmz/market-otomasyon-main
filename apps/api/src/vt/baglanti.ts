@@ -196,6 +196,58 @@ CREATE TABLE IF NOT EXISTS alis_kalemleri (
 );
 CREATE INDEX IF NOT EXISTS ix_alis_kalem_fatura ON alis_kalemleri(isletme_id, fatura_id);
 
+-- Panelden verilen KISMI IADE talimati (§10.4).
+--
+-- Panel iadeyi kendisi ISLEMEZ: stok ve cari hareketlerinin tek ureticisi
+-- kasadir. Bulut yalniz "su satistan su kalemleri su miktarda iade et" diye
+-- yazar; kasa pull'da okur, kendi iade servisini calistirir ve hareketleri
+-- uretir. Stok duzeltmelerinde kurulan desenin aynisidir.
+CREATE TABLE IF NOT EXISTS iade_talimatlari (
+  id TEXT NOT NULL, isletme_id TEXT NOT NULL, satis_id TEXT NOT NULL,
+  kalemler TEXT NOT NULL, iade_yontemi TEXT NOT NULL, neden TEXT NOT NULL,
+  hedef_cihaz_id TEXT NOT NULL, kullanici_id TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cihaz_id TEXT,
+  versiyon INTEGER NOT NULL, silindi_mi INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (isletme_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_iade_talimat_versiyon ON iade_talimatlari(isletme_id, versiyon);
+
+-- Panelden verilen CARI talimati (§10.7): acilis bakiyesi, bakiye duzeltmesi,
+-- tahsilat iptali.
+--
+-- Ucu de cari_hareketler'e yeni satir yazar; o defterin tek yazicisi kasadir.
+-- Bulut hareketi kendi uretirse kasa ondan habersiz kalir ve ayni borc iki
+-- yerde farkli gorunur. Iade talimatlarindaki desenin aynisi.
+--
+-- DUZELTME satirinda tutar FARK degil, olmasi istenen HEDEF BAKIYEDIR: farki kasa
+-- kendi guncel bakiyesine gore hesaplar. Panelin gordugu bakiye senkron
+-- beklerken bayatlayabilir; fark burada hesaplanirsa yanlis tabana oturur.
+CREATE TABLE IF NOT EXISTS cari_talimatlari (
+  id TEXT NOT NULL, isletme_id TEXT NOT NULL, cari_id TEXT NOT NULL,
+  tip TEXT NOT NULL, tutar INTEGER NOT NULL DEFAULT 0, hedef_hareket_id TEXT,
+  neden TEXT NOT NULL, hedef_cihaz_id TEXT NOT NULL, kullanici_id TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cihaz_id TEXT,
+  versiyon INTEGER NOT NULL, silindi_mi INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (isletme_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_cari_talimat_versiyon ON cari_talimatlari(isletme_id, versiyon);
+
+-- Panelden verilen ALIS FATURASI talimati (§11.8): olustur, iptal, guncelle.
+--
+-- Fatura kaydedildiginde stok ARTAR ve tedarikciye cari BORC dogar; iki
+-- defterin de tek yazicisi kasadir. Panel yalniz niyeti yazar, belgeyi ve
+-- hareketleri kasa kendi mal kabul servisiyle uretir -- yani panelden girilen
+-- fatura, kasadan girilenle birebir ayni yoldan gecer.
+CREATE TABLE IF NOT EXISTS alis_talimatlari (
+  id TEXT NOT NULL, isletme_id TEXT NOT NULL, tip TEXT NOT NULL,
+  fatura_id TEXT, veri TEXT NOT NULL, hedef_cihaz_id TEXT NOT NULL, kullanici_id TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cihaz_id TEXT,
+  versiyon INTEGER NOT NULL, silindi_mi INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (isletme_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_alis_talimat_versiyon ON alis_talimatlari(isletme_id, versiyon);
+CREATE INDEX IF NOT EXISTS ix_cari_talimat_cari ON cari_talimatlari(isletme_id, cari_id, silindi_mi);
+
 CREATE TABLE IF NOT EXISTS barkodlar (
   id TEXT NOT NULL, isletme_id TEXT NOT NULL, urun_id TEXT NOT NULL, barkod TEXT NOT NULL,
   ambalaj_aciklamasi TEXT, aktif_mi INTEGER NOT NULL DEFAULT 1,
@@ -403,6 +455,45 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'kullanicilar', 'kilit_bitis TEXT');
   // Fis serisi cihaz kimliginden TURETILMEZ, merkezden DAGITILIR (§10.2).
   await sutunEkle(vt, 'cihazlar', 'seri TEXT');
+  // Miktar bazlı kampanyaların eşiği, bindebir (§10.8).
+  await sutunEkle(vt, 'kampanyalar', 'esik_miktar INTEGER');
+  /*
+   * SKT ve lot bilgisi yalnız kasada duruyordu; panel son kullanma takibi
+   * yapamıyordu (§11.5). Alanlar merkeze de taşınır.
+   */
+  await sutunEkle(vt, 'stok_hareketleri', 'skt TEXT');
+  await sutunEkle(vt, 'stok_hareketleri', 'lot_no TEXT');
+  await sutunEkle(vt, 'stok_hareketleri', 'belge_tipi TEXT');
+  await sutunEkle(vt, 'stok_hareketleri', 'neden_kodu TEXT');
+  await sutunEkle(vt, 'stok_hareketleri', 'aciklama TEXT');
+
+  /*
+   * `belge_tipi` cari defterinde de gerekiyor: bir tahsilatın ZATEN İPTAL
+   * EDİLMİŞ olduğu, ona bağlı `TAHSILAT_IPTAL` ters kaydından anlaşılır.
+   * Sütun bulutta yokken panel bunu göremiyor, iptal edilmiş bir tahsilatı
+   * ikinci kez iptal etmeyi teklif ediyordu.
+   */
+  await sutunEkle(vt, 'cari_hareketler', 'belge_tipi TEXT');
+
+  /*
+   * ALIŞ FATURASI — belgenin tamamı merkeze taşınır (§11.8).
+   *
+   * Eskiden yalnız tedarikçi, tarih ve genel toplam geliyordu. Panelden
+   * bakan kişi faturanın KDV'sini, durumunu ve kimin girdiğini göremiyordu;
+   * fatura iptal edilse bile merkezde geçerli görünüyordu.
+   */
+  await sutunEkle(vt, 'alis_faturalari', 'ara_toplam INTEGER NOT NULL DEFAULT 0');
+  await sutunEkle(vt, 'alis_faturalari', 'kdv_toplam INTEGER NOT NULL DEFAULT 0');
+  await sutunEkle(vt, 'alis_faturalari', "durum TEXT NOT NULL DEFAULT 'ONAYLANDI'");
+  await sutunEkle(vt, 'alis_faturalari', 'vade_tarihi TEXT');
+  await sutunEkle(vt, 'alis_faturalari', 'notlar TEXT');
+  await sutunEkle(vt, 'alis_faturalari', 'kullanici_id TEXT');
+  await sutunEkle(vt, 'alis_faturalari', 'iptal_neden TEXT');
+  await sutunEkle(vt, 'alis_faturalari', 'iptal_zamani TEXT');
+  await sutunEkle(vt, 'alis_kalemleri', 'kdv_orani REAL NOT NULL DEFAULT 0');
+  await sutunEkle(vt, 'alis_kalemleri', 'satir_toplam INTEGER NOT NULL DEFAULT 0');
+  await sutunEkle(vt, 'alis_kalemleri', 'skt TEXT');
+  await sutunEkle(vt, 'alis_kalemleri', 'lot_no TEXT');
 
   await panelYoneticileriniAynala(vt);
 }

@@ -370,15 +370,26 @@ export function urunKaydet(vt: Vt, girdi: UrunYazma, cihazId: string, zaman = si
   vt.hazirla(
     `INSERT INTO urunler (id, ad, arama_metni, kategori_id, marka, birim_tipi, alis_fiyati, satis_fiyati,
                           kdv_orani, kritik_stok, ideal_stok, raf_konumu, aktif_mi, varsayilan_tedarikci_id,
-                          skt_takibi, notlar, created_at, updated_at, cihaz_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          skt_takibi, notlar, created_at, updated_at, fiyat_guncelleme, cihaz_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        ad = excluded.ad, arama_metni = excluded.arama_metni, kategori_id = excluded.kategori_id,
        marka = excluded.marka, birim_tipi = excluded.birim_tipi, alis_fiyati = excluded.alis_fiyati,
        satis_fiyati = excluded.satis_fiyati, kdv_orani = excluded.kdv_orani, kritik_stok = excluded.kritik_stok,
        ideal_stok = excluded.ideal_stok, raf_konumu = excluded.raf_konumu, aktif_mi = excluded.aktif_mi,
        varsayilan_tedarikci_id = excluded.varsayilan_tedarikci_id, skt_takibi = excluded.skt_takibi,
-       notlar = excluded.notlar, updated_at = excluded.updated_at, cihaz_id = excluded.cihaz_id`,
+       notlar = excluded.notlar, updated_at = excluded.updated_at, cihaz_id = excluded.cihaz_id,
+       /*
+        * Fiyat damgası yalnız fiyat GERÇEKTEN değiştiyse ilerler.
+        *
+        * Kural burada, SQL'de duruyor; çağıranın hatırlaması gereken bir şey
+        * yok. Ada ya da raf koduna dokunmak fiyat damgasını ilerletirse
+        * "fiyatı değişenler" listesi işe yaramaz hale gelir.
+        */
+       fiyat_guncelleme = CASE
+         WHEN excluded.satis_fiyati <> urunler.satis_fiyati THEN excluded.updated_at
+         ELSE urunler.fiyat_guncelleme
+       END`,
   ).calistir(
     id,
     girdi.ad.trim(),
@@ -398,9 +409,25 @@ export function urunKaydet(vt: Vt, girdi: UrunYazma, cihazId: string, zaman = si
     girdi.notlar ?? null,
     zaman,
     zaman,
+    zaman,
     cihazId,
   );
   return id;
+}
+
+/**
+ * Belirtilen zamandan sonra SATIŞ FİYATI değişmiş ürünler (§13.3).
+ *
+ * Rafta yanlış fiyat kalmaması için etiket kuyruğunu doldurmakta kullanılır.
+ */
+export function fiyatiDegisenler(vt: Vt, sinirZaman: ZamanDamgasi, limit = 500): UrunGorunumu[] {
+  return vt
+    .hazirla(
+      `SELECT ${URUN_ALANLARI} FROM urunler
+       WHERE aktif_mi = 1 AND fiyat_guncelleme IS NOT NULL AND fiyat_guncelleme >= ?
+       ORDER BY fiyat_guncelleme DESC LIMIT ?`,
+    )
+    .tumu<UrunGorunumu>(sinirZaman, limit);
 }
 
 /** Fiziksel silme yoktur; pasifleştirme yapılır (§8.5). */
@@ -503,6 +530,8 @@ export interface KampanyaKaydi {
   kapsam: 'URUN' | 'KATEGORI' | 'TUM';
   hedef_id: string | null;
   deger: number;
+  /** Miktar kampanyalarının eşiği, bindebir cinsinden. Diğer tiplerde null. */
+  esik_miktar: number | null;
   baslangic: ZamanDamgasi;
   bitis: ZamanDamgasi;
   oncelik: number;
@@ -512,7 +541,7 @@ export interface KampanyaKaydi {
 export function etkinKampanyalar(vt: Vt, zaman: ZamanDamgasi = simdi()): KampanyaKaydi[] {
   return vt
     .hazirla(
-      `SELECT id, ad, tip, kapsam, hedef_id, deger, baslangic, bitis, oncelik, aktif_mi
+      `SELECT id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi
        FROM kampanyalar
        WHERE aktif_mi = 1 AND baslangic <= ? AND bitis >= ?
        ORDER BY oncelik DESC`,
@@ -524,7 +553,7 @@ export function etkinKampanyalar(vt: Vt, zaman: ZamanDamgasi = simdi()): Kampany
 export function kampanyalariListele(vt: Vt): KampanyaKaydi[] {
   return vt
     .hazirla(
-      `SELECT id, ad, tip, kapsam, hedef_id, deger, baslangic, bitis, oncelik, aktif_mi
+      `SELECT id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi
        FROM kampanyalar ORDER BY baslangic DESC`,
     )
     .tumu<HamSatir<KampanyaKaydi, 'aktif_mi'>>()
@@ -539,12 +568,13 @@ export function kampanyaKaydet(
 ): string {
   const id = kampanya.id ?? uuid();
   vt.hazirla(
-    `INSERT INTO kampanyalar (id, ad, tip, kapsam, hedef_id, deger, baslangic, bitis, oncelik, aktif_mi,
+    `INSERT INTO kampanyalar (id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi,
                               created_at, updated_at, cihaz_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        ad = excluded.ad, tip = excluded.tip, kapsam = excluded.kapsam, hedef_id = excluded.hedef_id,
-       deger = excluded.deger, baslangic = excluded.baslangic, bitis = excluded.bitis,
+       deger = excluded.deger, esik_miktar = excluded.esik_miktar,
+       baslangic = excluded.baslangic, bitis = excluded.bitis,
        oncelik = excluded.oncelik, aktif_mi = excluded.aktif_mi, updated_at = excluded.updated_at`,
   ).calistir(
     id,
@@ -553,6 +583,7 @@ export function kampanyaKaydet(
     kampanya.kapsam,
     kampanya.hedef_id,
     kampanya.deger,
+    kampanya.esik_miktar ?? null,
     kampanya.baslangic,
     kampanya.bitis,
     kampanya.oncelik,
@@ -622,12 +653,13 @@ export function kampanyaSunucudanUygula(vt: Vt, veri: Record<string, unknown>, v
   const id = String(veri.id ?? '');
   if (!id) return;
   vt.hazirla(
-    `INSERT INTO kampanyalar (id, ad, tip, kapsam, hedef_id, deger, baslangic, bitis, oncelik, aktif_mi,
+    `INSERT INTO kampanyalar (id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi,
                               created_at, updated_at, cihaz_id, sunucu_versiyonu)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        ad = excluded.ad, tip = excluded.tip, kapsam = excluded.kapsam, hedef_id = excluded.hedef_id,
-       deger = excluded.deger, baslangic = excluded.baslangic, bitis = excluded.bitis,
+       deger = excluded.deger, esik_miktar = excluded.esik_miktar,
+       baslangic = excluded.baslangic, bitis = excluded.bitis,
        oncelik = excluded.oncelik, aktif_mi = excluded.aktif_mi, updated_at = excluded.updated_at,
        sunucu_versiyonu = excluded.sunucu_versiyonu`,
   ).calistir(
@@ -637,6 +669,7 @@ export function kampanyaSunucudanUygula(vt: Vt, veri: Record<string, unknown>, v
     String(veri.kapsam ?? 'URUN'),
     (veri.hedef_id as string | null) ?? null,
     Number(veri.deger ?? 0),
+    veri.esik_miktar === null || veri.esik_miktar === undefined ? null : Number(veri.esik_miktar),
     String(veri.baslangic ?? simdi()),
     String(veri.bitis ?? simdi()),
     Number(veri.oncelik ?? 0),
