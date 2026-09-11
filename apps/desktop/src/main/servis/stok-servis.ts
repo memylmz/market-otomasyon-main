@@ -6,10 +6,13 @@
  */
 
 import {
+  barkodNormalize,
   gunAnahtari,
   hatalar,
+  HATA_KODU,
   kdvAyir,
   simdi,
+  UygulamaHatasi,
   uuid,
   zAlisGirdi,
   zFireGirdi,
@@ -22,7 +25,7 @@ import {
 } from '@market/shared';
 import { cariBul, cariHareketEkle } from '../depo/cari.js';
 import { kasaHareketEkle } from '../depo/kasa.js';
-import { urunBul, urunKaydet } from '../depo/katalog.js';
+import { barkodEkle, barkodSahibi, urunBul, urunKaydet } from '../depo/katalog.js';
 import { denetimYaz, gunlukOzetEkle } from '../depo/ozet.js';
 import { alisFaturasiBul, alisFaturasiEkle, alisKalemiEkle, alisKalemleriniGetir } from '../depo/satis.js';
 import { olayYaz } from '../depo/senkron.js';
@@ -269,6 +272,13 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
   }
   const girdi: AlisGirdi = ayrisim.data;
 
+  /*
+   * Faturada yeni ürün açmak katalog yazmaktır: stok yetkisi tek başına
+   * yetmez. Kapı burada, HİÇBİR yazma yapılmadan önce kapanır.
+   */
+  const yeniUrunVar = girdi.kalemler.some((k) => k.yeni_urun);
+  if (yeniUrunVar) yetkiIste(aktor, 'urun.duzenle', 'faturada yeni ürün açma');
+
   const { vt, cihazId } = baglam;
   const zaman = girdi.tarih ?? simdi();
   const kayitZamani = simdi();
@@ -316,7 +326,92 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
       kayitZamani,
     );
 
-    for (const kalem of hesaplananlar) {
+    /*
+     * Yeni ürünler kalemlerden ÖNCE yaratılır: kartı olmayan bir ürüne ne
+     * fatura kalemi ne stok hareketi bağlanabilir. Aynı transaction içinde
+     * oldukları için barkodu çakışan tek bir satır bile belgenin tamamını
+     * geri alır — toptancının karşısında yarım yazılmış fatura, kullanıcının
+     * en pahalıya mal olan hâlidir.
+     */
+    const cozulmusKalemler = hesaplananlar.map((kalem, sira) => {
+      if (kalem.urun_id) return { ...kalem, urun_id: kalem.urun_id };
+
+      const yeni = kalem.yeni_urun!;
+      const barkod = yeni.barkod ? barkodNormalize(yeni.barkod) : null;
+      if (barkod) {
+        const sahip = barkodSahibi(vt, barkod);
+        if (sahip) {
+          const sahipUrun = urunBul(vt, sahip);
+          throw new UygulamaHatasi(
+            HATA_KODU.BARKOD_KULLANIMDA,
+            `${sira + 1}. satır: "${barkod}" barkodu "${sahipUrun?.ad ?? sahip}" ürününde kayıtlı.`,
+            { detay: { barkod, mevcut_urun_id: sahip, satir: sira + 1 } },
+          );
+        }
+      }
+
+      const yeniUrunId = urunKaydet(
+        vt,
+        {
+          ad: yeni.ad,
+          kategori_id: yeni.kategori_id ?? null,
+          marka: yeni.marka ?? null,
+          birim_tipi: yeni.birim_tipi,
+          // Maliyet faturanın kendisinden gelir; ikinci bir yerde tutulmaz.
+          alis_fiyati: kalem.birim_fiyat,
+          satis_fiyati: yeni.satis_fiyati,
+          kdv_orani: kalem.kdv_orani,
+          kritik_stok: yeni.kritik_stok ?? 0,
+          varsayilan_tedarikci_id: girdi.tedarikci_id,
+        },
+        cihazId,
+        kayitZamani,
+      );
+
+      if (barkod) {
+        const barkodId = barkodEkle(vt, yeniUrunId, barkod, null, cihazId, kayitZamani);
+        olayYaz(
+          vt,
+          {
+            id: uuid(),
+            olay_tipi: 'BARKOD_KAYDEDILDI',
+            entity: 'barkod',
+            entity_id: barkodId,
+            veri: {
+              id: barkodId,
+              urun_id: yeniUrunId,
+              barkod,
+              ambalaj_aciklamasi: null,
+              aktif_mi: true,
+              created_at: kayitZamani,
+              updated_at: kayitZamani,
+            },
+            olusturma_zamani: kayitZamani,
+          },
+          cihazId,
+          kayitZamani,
+        );
+      }
+
+      const kayit = urunBul(vt, yeniUrunId);
+      olayYaz(
+        vt,
+        {
+          id: uuid(),
+          olay_tipi: 'URUN_KAYDEDILDI',
+          entity: 'urun',
+          entity_id: yeniUrunId,
+          veri: kayit ?? { id: yeniUrunId },
+          olusturma_zamani: kayitZamani,
+        },
+        cihazId,
+        kayitZamani,
+      );
+
+      return { ...kalem, urun_id: yeniUrunId };
+    });
+
+    for (const kalem of cozulmusKalemler) {
       const urun = urunBul(vt, kalem.urun_id);
       if (!urun) throw hatalar.bulunamadi('Ürün');
 
@@ -474,7 +569,7 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
           vade_tarihi: girdi.vade_tarihi ?? null,
           notlar: girdi.notlar ?? null,
           kullanici_id: aktor.kullaniciId,
-          kalemler: hesaplananlar.map((k) => ({
+          kalemler: cozulmusKalemler.map((k) => ({
             urun_id: k.urun_id,
             miktar: k.miktar,
             birim_fiyat: k.birim_fiyat,
