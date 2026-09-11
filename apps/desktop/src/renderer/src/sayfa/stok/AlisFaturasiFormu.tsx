@@ -99,6 +99,13 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   const [faturaTarihi, setFaturaTarihi] = useState(() => gunAnahtari());
   const [vadeTarihi, setVadeTarihi] = useState('');
   const [odemeDurumu, setOdemeDurumu] = useState<OdemeDurumu>('BORC');
+  /**
+   * `null` = kullanıcı tutara hiç dokunmadı → "ödedim" iken genel toplamı
+   * TAKİP EDER (satır eklenip silinince otomatik güncellenir). Kullanıcı
+   * ParaAlani'ye yazdığı an burada somut bir Kurus değeri olarak sabitlenir
+   * ve artık genel toplam değişse de ÜZERİNE YAZILMAZ — kısmi ödeme budur.
+   */
+  const [odenenTutarElle, setOdenenTutarElle] = useState<Kurus | null>(null);
   const [notlar, setNotlar] = useState('');
   const [kategoriler, setKategoriler] = useState<Kategori[]>([]);
   const [kategoriId, setKategoriId] = useState('');
@@ -116,6 +123,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
     setFaturaTarihi(gunAnahtari());
     setVadeTarihi('');
     setOdemeDurumu('BORC');
+    setOdenenTutarElle(null);
     setNotlar('');
     setKategoriId('');
     setMarjYuzde('');
@@ -219,11 +227,22 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
 
   const { araToplam, kdvToplam, genelToplam } = useMemo(() => faturaToplamlari(kalemler), [kalemler]);
 
+  // Borç kalsın → 0 ve alan kapalı. Ödedim (nakit/havale) → kullanıcı elle yazmadıysa genel toplamı TAKİP eder;
+  // yazdıysa o değer kalır — tam ödeme de kısmi ödeme de aynı alanla, ayrı bir "kısmi" seçeneği icat edilmeden.
+  const odenenTutar = odemeDurumu === 'BORC' ? 0 : (odenenTutarElle ?? genelToplam);
+  // Servis zaten reddeder ("Ödenen tutar fatura toplamından fazla olamaz"); burada kaydetmeden ÖNCE gösterilir.
+  const odenenTutarAsimi = odemeDurumu !== 'BORC' && odenenTutar > genelToplam;
+
   // SKT takibi açık ürünlerde tarih girilmeden onay verilmez (ürün kartındaki söz; mevcut Mal Kabul davranışı korunur).
   const sktEksikler = satirlar.filter((s) => s.sktZorunlu && !s.skt.trim());
 
   const kaydedilebilir =
-    Boolean(tedarikciId) && kalemler.length > 0 && hatalar.length === 0 && sktEksikler.length === 0 && !gonderiliyor;
+    Boolean(tedarikciId) &&
+    kalemler.length > 0 &&
+    hatalar.length === 0 &&
+    sktEksikler.length === 0 &&
+    !odenenTutarAsimi &&
+    !gonderiliyor;
 
   const gonder = async () => {
     if (!kaydedilebilir) return;
@@ -237,16 +256,18 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
           tarih: `${faturaTarihi}T00:00:00.000Z`,
           vade_tarihi: vadeTarihi || undefined,
           notlar: notlar.trim() || undefined,
-          odenen_tutar: odemeDurumu === 'BORC' ? 0 : genelToplam,
+          odenen_tutar: odenenTutar,
           odeme_tipi: odemeDurumu === 'BORC' ? undefined : odemeDurumu,
           kalemler,
         },
       );
       const yeniUrunSayisi = kalemler.filter((k) => k.yeni_urun).length;
+      const yeniUrunEki = yeniUrunSayisi > 0 ? ` · ${yeniUrunSayisi} yeni ürün açıldı` : '';
       bildir.basari(
         'Mal kabul kaydedildi',
-        `${sonuc.kalemSayisi} kalem · ${paraFormat(sonuc.genelToplam)}` +
-          (yeniUrunSayisi > 0 ? ` · ${yeniUrunSayisi} yeni ürün açıldı` : ''),
+        sonuc.odenen > 0
+          ? `${sonuc.kalemSayisi} kalem · Toplam ${paraFormat(sonuc.genelToplam)} · Ödenen ${paraFormat(sonuc.odenen)} · Kalan borç ${paraFormat(sonuc.kalanBorc)}${yeniUrunEki}`
+          : `${sonuc.kalemSayisi} kalem · ${paraFormat(sonuc.genelToplam)} tedarikçi borcu kaydedildi${yeniUrunEki}`,
       );
       onTamam();
     } catch (hata) {
@@ -295,12 +316,37 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         <Alan etiket="Vade tarihi" ipucu="Borç kalacaksa anlamlıdır.">
           <input type="date" className="alan" value={vadeTarihi} onChange={(e) => setVadeTarihi(e.target.value)} />
         </Alan>
-        <Alan etiket="Ödeme durumu">
-          <select className="alan" value={odemeDurumu} onChange={(e) => setOdemeDurumu(e.target.value as OdemeDurumu)}>
+        <Alan etiket="Ödeme durumu" ipucu="Nakit seçilirse kasadan da düşülür; kasa açık olmalıdır.">
+          <select
+            className="alan"
+            value={odemeDurumu}
+            onChange={(e) => {
+              // Yöntem değişince tutar yeniden genel toplamdan başlar — önceki elle yazılmış kısmi tutar
+              // farklı bir ödeme yöntemine sessizce taşınmasın.
+              setOdemeDurumu(e.target.value as OdemeDurumu);
+              setOdenenTutarElle(null);
+            }}
+          >
             <option value="BORC">Ödemedim — borç kalsın</option>
             <option value="NAKIT">Ödedim — nakit</option>
             <option value="HAVALE">Ödedim — havale/kart</option>
           </select>
+        </Alan>
+        <Alan
+          etiket="Ödenen tutar"
+          ipucu={
+            odemeDurumu === 'BORC'
+              ? 'Borç kalsın seçiliyken tutar sıfırdır.'
+              : 'Azaltıp toptancıya elden verilen kısmi tutarı girebilirsiniz; kalanı tedarikçi borcu olarak kaydedilir.'
+          }
+        >
+          <ParaAlani
+            deger={odenenTutar}
+            onDegisim={(v) => setOdenenTutarElle(v)}
+            devreDisi={odemeDurumu === 'BORC'}
+            sinif={odenenTutarAsimi ? 'border-tehlike' : ''}
+          />
+          {odenenTutarAsimi && <span className="mt-1 block text-xs text-tehlike">Ödenen tutar genel toplamı aşamaz.</span>}
         </Alan>
         <Alan etiket="Kategori" ipucu="Yalnız bu faturada açılacak yeni ürünlere uygulanır.">
           <select className="alan" value={kategoriId} onChange={(e) => setKategoriId(e.target.value)}>
@@ -467,6 +513,14 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
           <div className="flex justify-between border-t border-cizgi-ince pt-1">
             <span className="font-medium">Genel toplam</span>
             <span className="font-mono text-base font-bold">{paraFormat(genelToplam)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-metin-3">Ödenen</span>
+            <span className="font-mono text-vurgu">{paraFormat(odenenTutar)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="font-medium">Kalan borç</span>
+            <span className="font-mono font-bold text-uyari">{paraFormat(Math.max(0, genelToplam - odenenTutar))}</span>
           </div>
         </div>
       )}
