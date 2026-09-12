@@ -22,8 +22,17 @@ import {
   type EtiketSecenekleri,
   type EtiketYerlesimi,
 } from '../donanim/etiket.js';
+import { fisiGorselleStir } from '../donanim/fis-gorsel.js';
+import { electronCizici } from '../donanim/gorsel-cizici.js';
 import { EscPosYazici, type FisOnizlemesi } from '../donanim/escpos.js';
-import { testFisi, yaziciOlustur, type YazdirmaSonucu, type YaziciAyari, type YaziciTipiDb } from '../donanim/yazici.js';
+import {
+  testFisi,
+  yaziciOlustur,
+  type Yazici,
+  type YazdirmaSonucu,
+  type YaziciAyari,
+  type YaziciTipiDb,
+} from '../donanim/yazici.js';
 import { hatalar } from '@market/shared';
 import type { Aktor, Baglam } from './baglam.js';
 
@@ -82,6 +91,26 @@ export function isletmeBilgisiniOku(baglam: Baglam, ustveri?: AyarUstverisi): Is
  * Satış fişini yazdırır. Başarısız olsa bile **hata fırlatmaz**; sonucu döner ve
  * çağıran (satış ekranı) kullanıcıya "fiş yazdırılamadı, tekrar dene" gösterir.
  */
+/**
+ * Fişi yazıcıya gönderir; ayar açıksa önce GÖRÜNTÜYE çevirir (§13.2).
+ *
+ * Üç fiş yolu (satış, gün sonu, cari ekstresi) da buradan geçer: biri
+ * unutulursa Türkçe o fişte bozuk çıkar ve fark ancak müşteri elindeki
+ * kağıtta görülür.
+ *
+ * Görüntüye çevirme başarısız olursa METİN fişi basılır. Bir render hatası
+ * satışı durdurmamalı; fiş hiç çıkmamaktansa Türkçesiz çıksın (§3).
+ */
+async function fisiBas(baglam: Baglam, yazici: Yazici, baytlar: Buffer, satirGenisligi: number): Promise<YazdirmaSonucu> {
+  if (!ustBool(baglam, undefined, AYAR.YAZICI_GORSEL_FIS, true)) return yazici.yazdir(baytlar);
+
+  const cevrim = await fisiGorselleStir(baytlar, satirGenisligi, electronCizici);
+  if (!cevrim.gorsel) {
+    baglam.kayit.uyari('Fiş görüntüye çevrilemedi, metin olarak basılıyor', { hata: cevrim.hata });
+  }
+  return yazici.yazdir(cevrim.baytlar);
+}
+
 export async function satisFisiYazdir(
   baglam: Baglam,
   satisId: string,
@@ -102,7 +131,7 @@ export async function satisFisiYazdir(
 
   let sonuc: YazdirmaSonucu;
   try {
-    sonuc = await yazici.yazdir(baytlar);
+    sonuc = await fisiBas(baglam, yazici, baytlar, ayar.satirGenisligi);
   } catch (hata) {
     sonuc = { basarili: false, hata: hata instanceof Error ? hata.message : String(hata) };
   }
@@ -141,9 +170,10 @@ export async function gunSonuFisiYazdir(baglam: Baglam, aktor: Aktor, oturumId: 
     },
     ayar.satirGenisligi,
   );
-  return yaziciOlustur(ayar)
-    .yazdir(baytlar)
-    .catch((hata) => ({ basarili: false, hata: String(hata) }));
+  return fisiBas(baglam, yaziciOlustur(ayar), baytlar, ayar.satirGenisligi).catch((hata) => ({
+    basarili: false,
+    hata: String(hata),
+  }));
 }
 
 export async function cariEkstresiYazdir(
@@ -161,9 +191,10 @@ export async function cariEkstresiYazdir(
     isletmeBilgisiniOku(baglam),
     ayar.satirGenisligi,
   );
-  return yaziciOlustur(ayar)
-    .yazdir(baytlar)
-    .catch((hata) => ({ basarili: false, hata: String(hata) }));
+  return fisiBas(baglam, yaziciOlustur(ayar), baytlar, ayar.satirGenisligi).catch((hata) => ({
+    basarili: false,
+    hata: String(hata),
+  }));
 }
 
 /**

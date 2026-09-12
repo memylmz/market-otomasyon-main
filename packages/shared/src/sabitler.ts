@@ -345,6 +345,14 @@ export const AYAR = {
   YAZICI_GENISLIK: 'yazici.genislik',
   CEKMECE_ACIK: 'yazici.cekmece_ac',
   OTOMATIK_FIS: 'yazici.otomatik_fis',
+  /**
+   * Fiş, metin yerine GÖRÜNTÜ olarak basılsın mı (§13.2).
+   *
+   * Açıkken harfleri uygulama çizer ve yazıcının kod sayfası hiç devreye
+   * girmez; Türkçe her yazıcıda doğru çıkar. Kapalıyken eski metin yolu
+   * kullanılır — yazıcının kendi fontu, dolayısıyla kendi kod sayfası sorunu.
+   */
+  YAZICI_GORSEL_FIS: 'yazici.gorsel_fis',
 
   /*
    * ETİKET (BARKOD) YAZICISI — fiş yazıcısından AYRI bir cihazdır (§13.3).

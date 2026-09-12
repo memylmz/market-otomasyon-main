@@ -340,6 +340,21 @@ function DonanimSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; 
           />
           Nakit ödemede para çekmecesini aç
         </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={(ayarlar[AYAR.YAZICI_GORSEL_FIS] ?? '1') === '1'}
+            onChange={(e) => ayarla(AYAR.YAZICI_GORSEL_FIS, e.target.checked ? '1' : '0')}
+          />
+          <span>
+            Fişi görüntü olarak bas (Türkçe karakterler için)
+            <span className="mt-0.5 block text-xs text-metin-4">
+              Harfleri uygulama çizer; yazıcının kendi fontu ve kod sayfası devreye girmez. Kapatırsanız fiş metin olarak
+              basılır ve Türkçe harfler yazıcının ayarına kalır.
+            </span>
+          </span>
+        </label>
 
         <div>
           <button
