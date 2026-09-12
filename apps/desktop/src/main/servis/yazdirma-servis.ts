@@ -274,7 +274,18 @@ export async function etiketKuyruguYazdir(baglam: Baglam, satirlar: EtiketKuyruk
     .yazdir(Buffer.concat(parcalar))
     .catch((hata) => ({ basarili: false, hata: hata instanceof Error ? hata.message : String(hata) }));
 
-  baglam.kayit.bilgi('Etiket basıldı', { satir: parcalar.length, etiket: basilan, basarili: sonuc.basarili });
+  /*
+   * BAŞARISIZLIĞIN SEBEBİ DE YAZILIR.
+   *
+   * Eskiden bu satır her koşulda "Etiket basıldı" diyor ve yalnız `basarili`
+   * bayrağını taşıyordu: etiket çıkmadığında logda "basıldı" yazıyor, sebebi
+   * (yazıcıya ulaşılamadı mı, zaman aşımı mı, hedef yanlış mı) hiçbir yere
+   * kaydedilmiyordu. Hedef ve tip de taşınır — "hangi yazıcıya gitti" sorusu
+   * ayarlara bakmadan cevaplanabilsin.
+   */
+  const ayrinti = { satir: parcalar.length, etiket: basilan, yazici_tip: ayar.tip, hedef: ayar.hedef, atlanan: atlanan.length };
+  if (sonuc.basarili) baglam.kayit.bilgi('Etiket basıldı', ayrinti);
+  else baglam.kayit.uyari('Etiket basılamadı', { ...ayrinti, hata: sonuc.hata ?? 'sebep bildirilmedi' });
   return { ...sonuc, basilanEtiket: sonuc.basarili ? basilan : 0, atlanan };
 }
 
@@ -372,9 +383,15 @@ export function fisOnizlemesi(
 export async function etiketKalibrasyonu(baglam: Baglam): Promise<YazdirmaSonucu> {
   const ayar = etiketYaziciAyariniOku(baglam);
   if (ayar.tip === 'YOK') throw hatalar.dogrulama('Etiket yazıcısı tanımlı değil.');
-  return yaziciOlustur(ayar)
+  const sonuc = await yaziciOlustur(ayar)
     .yazdir(kalibrasyonEtiketi(etiketDiliniOku(baglam), etiketOlcusunuOku(baglam)))
     .catch((hata) => ({ basarili: false, hata: hata instanceof Error ? hata.message : String(hata) }));
+  // Kalibrasyon, etiket yolunun "çalışıyor mu" ölçütüdür; ürün etiketiyle
+  // karşılaştırılabilmesi için o da aynı ayrıntıyla loglanır.
+  const ayrinti = { yazici_tip: ayar.tip, hedef: ayar.hedef };
+  if (sonuc.basarili) baglam.kayit.bilgi('Kalibrasyon etiketi basıldı', ayrinti);
+  else baglam.kayit.uyari('Kalibrasyon etiketi basılamadı', { ...ayrinti, hata: sonuc.hata ?? 'sebep bildirilmedi' });
+  return sonuc;
 }
 
 export async function yaziciTesti(baglam: Baglam): Promise<YazdirmaSonucu> {
