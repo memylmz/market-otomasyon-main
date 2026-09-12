@@ -116,6 +116,23 @@ export function belgeHtml(belge: FisBelgesi, enNokta: number): string {
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 ${ortakStil(o, enNokta)}
+/*
+ * KALEM SATIRI: solda ad + gri ayrıntı, sağda tutar.
+ *
+ * Ayrıca kalemler arasına AYIRICI konur. Kalem sayısı artınca hangi tutarın
+ * hangi ürüne ait olduğu karışıyordu: bir ürünün adı ile bir alttaki kalemin
+ * gri ayrıntı satırı göz için aynı bloğa benziyor.
+ *
+ * ÇİZGİ SİYAH, AÇIK GRİ DEĞİL: görüntü kağıda 1-bit olarak iner; eşiğin
+ * üstünde kalan açık tonlar beyaza düşer ve KAĞITTA HİÇ GÖRÜNMEZ. Noktalı
+ * desen ince bir ayırıcı hissi verir ama her noktası tam siyahtır.
+ */
+.kalem{display:flex;justify-content:space-between;gap:${o.kenar}px;margin:${Math.round(o.kenar * 0.3)}px 0}
+.kalem .sol{flex:1;min-width:0}
+.kalem .ad{font-weight:700}
+.kalem .detay{font-size:${o.mini}px;margin-top:1px}
+.kalem .tutar{font-weight:700;white-space:nowrap}
+.liste .kalem + .kalem{border-top:1px dotted #000;padding-top:${Math.round(o.kenar * 0.3)}px}
 .barkod{margin-top:${Math.round(o.kenar * 0.6)}px}
 .barkod .cubuklar{display:flex;justify-content:center;align-items:flex-end;height:${Math.round(o.govde * 2.2)}px}
 .barkod i{display:block;height:100%}
@@ -129,7 +146,7 @@ ${ortakStil(o, enNokta)}
 <div class="cizgi"></div>
 ${bilgi}
 <div class="ince"></div>
-${kalemler}
+<div class="liste">${kalemler}</div>
 <div class="ince"></div>
 ${ara}
 <div class="toplam"><span>${kacir(belge.toplam.etiket)}</span><span>${kacir(belge.toplam.deger)}</span></div>
@@ -175,6 +192,8 @@ export function ekstreHtml(belge: EkstreBelgesi, enNokta: number): string {
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 ${ortakStil(o, enNokta)}
+/* Hareketler arasına da ayırıcı — aynı gerekçe, aynı siyah noktalı desen. */
+.liste .hareket + .hareket{border-top:1px dotted #000;padding-top:${Math.round(o.kenar * 0.3)}px}
 .hareket{display:flex;justify-content:space-between;gap:${o.kenar}px;margin:${Math.round(o.kenar * 0.3)}px 0}
 .hareket .sol{flex:1;min-width:0}
 .hareket .ad{font-weight:600}
@@ -194,7 +213,7 @@ ${ortakStil(o, enNokta)}
 ${meta}
 <div class="ince"></div>
 <div class="sutunbasi"><span>İŞLEM</span><span>TUTAR / BAKİYE</span></div>
-${hareketler}
+<div class="liste">${hareketler}</div>
 <div class="ince"></div>
 ${ozet}
 <div class="toplam"><span>${kacir(belge.bakiye.etiket)}</span><span>${kacir(belge.bakiye.deger)}</span></div>

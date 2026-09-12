@@ -116,6 +116,23 @@ describe('premium çizici', () => {
   it('barkodu çubuk olarak çizer', () => {
     expect(html()).toMatch(/<i style="width:\d+px/);
   });
+
+  /**
+   * GERÇEK REGRESYONU KİLİTLER: ortak stil ayrı bir fonksiyona çıkarılırken
+   * `.kalem` kuralları silinmişti. Yerleşim çöktü — tutar alt satıra düştü,
+   * ürün adı kalınlığını yitirdi — ama içerik testleri geçmeye devam etti,
+   * çünkü METİN hâlâ oradaydı. Kağıda basılana kadar görünmezdi.
+   */
+  it('kalem yerleşim kuralları çizimde bulunur', () => {
+    const h = html();
+    expect(h, 'ad solda, tutar sağda').toContain('.kalem{display:flex');
+    expect(h, 'tutar kendi satırına düşmemeli').toContain('.kalem .tutar');
+    expect(h, 'kalemler arası ayırıcı').toContain('.liste .kalem + .kalem');
+  });
+
+  it('ayırıcı çizgi SİYAH — açık ton 1-bit dönüşümde kağıtta kaybolur', () => {
+    expect(html()).toMatch(/\.liste \.kalem \+ \.kalem\{border-top:1px dotted #000/);
+  });
 });
 
 
@@ -172,6 +189,12 @@ describe('cari ekstresi', () => {
     expect(h, 'tahsilat eksi işaretiyle').toContain('-500,00');
     expect(h).toContain('Dönem başı bakiye');
     expect(h).toContain('işletmeye 450,00 TL borçludur');
+  });
+
+  it('hareket yerleşim kuralları ve ayırıcı çizimde bulunur', () => {
+    const h = ekstreHtml(ekstre(45_000), 576);
+    expect(h).toContain('.hareket{display:flex');
+    expect(h, 'hareketler arası ayırıcı').toMatch(/\.liste \.hareket \+ \.hareket\{border-top:1px dotted #000/);
   });
 
   it('uzun ekstrede son 60 hareket basılır — kağıt metrelerce akmasın', () => {
