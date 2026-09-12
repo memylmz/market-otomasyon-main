@@ -114,11 +114,23 @@ export function AyarlarSayfasi() {
                 onChange={(e) => ayarla(AYAR.ISLETME_VERGI_NO, e.target.value)}
               />
             </Alan>
-            <Alan etiket="Fiş alt metni">
+            <Alan etiket="Fiş alt metni" ipucu="Fişin altında görünür. Boş bırakırsanız hiç basılmaz.">
               <input
                 className="alan"
+                placeholder="Bizi tercih ettiğiniz için teşekkürler"
                 value={ayarlar[AYAR.FIS_ALT_METIN] ?? ''}
                 onChange={(e) => ayarla(AYAR.FIS_ALT_METIN, e.target.value)}
+              />
+            </Alan>
+            <Alan
+              etiket="Yasal uyarı"
+              ipucu="Mali değeri olmayan belgeye zorunludur; boş bırakırsanız varsayılan ifade basılır."
+            >
+              <input
+                className="alan"
+                placeholder="BİLGİ FİŞİDİR · MALİ DEĞERİ YOKTUR"
+                value={ayarlar[AYAR.FIS_YASAL_UYARI] ?? ''}
+                onChange={(e) => ayarla(AYAR.FIS_YASAL_UYARI, e.target.value)}
               />
             </Alan>
             <Alan

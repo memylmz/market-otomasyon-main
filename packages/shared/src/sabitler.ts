@@ -328,6 +328,13 @@ export const AYAR = {
   ISLETME_TELEFON: 'isletme.telefon',
   ISLETME_VERGI_NO: 'isletme.vergi_no',
   FIS_ALT_METIN: 'fis.alt_metin',
+  /**
+   * Fişin altındaki yasal uyarı (§17.1).
+   *
+   * Metni işletme belirler ama KALDIRILAMAZ: boş bırakılırsa varsayılan ifade
+   * basılır. Mali değeri olmayan bir belgenin bunu söylememesi hem müşteriyi
+   * yanıltır hem işletmeyi zor durumda bırakır.
+   */
   FIS_YASAL_UYARI: 'fis.yasal_uyari',
   VARSAYILAN_KDV: 'kdv.varsayilan',
   NEGATIF_STOK_IZNI: 'stok.negatif_izin',

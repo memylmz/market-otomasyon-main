@@ -11,7 +11,7 @@ import { cariBul, ekstre } from '../depo/cari.js';
 import { oturumBul, oturumOzeti } from '../depo/kasa.js';
 import { urunBul, urununBarkodlari } from '../depo/katalog.js';
 import { fisYazdirildiIsaretle, satisDetayi } from '../depo/satis.js';
-import { cariEkstreFisi, gunSonuFisi, satisFisi, type IsletmeBilgisi } from '../donanim/fis.js';
+import { cariEkstreFisi, gunSonuFisi, satisFisi, YASAL_UYARI, type IsletmeBilgisi } from '../donanim/fis.js';
 import {
   etiketBaytlari,
   etiketYerlesimi,
@@ -22,7 +22,9 @@ import {
   type EtiketSecenekleri,
   type EtiketYerlesimi,
 } from '../donanim/etiket.js';
-import { fisiGorselleStir } from '../donanim/fis-gorsel.js';
+import { satisBelgesi, type FisBelgesi } from '../donanim/fis-belge.js';
+import { belgeHtml } from '../donanim/fis-html.js';
+import { fisiGorselleStir, kagitNoktaGenisligi, rasterKomutu, siyahBeyazaIndir, kuyrukKomutlari } from '../donanim/fis-gorsel.js';
 import { electronCizici } from '../donanim/gorsel-cizici.js';
 import { EscPosYazici, type FisOnizlemesi } from '../donanim/escpos.js';
 import {
@@ -101,14 +103,54 @@ export function isletmeBilgisiniOku(baglam: Baglam, ustveri?: AyarUstverisi): Is
  * Görüntüye çevirme başarısız olursa METİN fişi basılır. Bir render hatası
  * satışı durdurmamalı; fiş hiç çıkmamaktansa Türkçesiz çıksın (§3).
  */
-async function fisiBas(baglam: Baglam, yazici: Yazici, baytlar: Buffer, satirGenisligi: number): Promise<YazdirmaSonucu> {
+async function fisiBas(
+  baglam: Baglam,
+  yazici: Yazici,
+  baytlar: Buffer,
+  satirGenisligi: number,
+  belge?: FisBelgesi,
+): Promise<YazdirmaSonucu> {
   if (!ustBool(baglam, undefined, AYAR.YAZICI_GORSEL_FIS, true)) return yazici.yazdir(baytlar);
+
+  /*
+   * YAPILANDIRILMIŞ BELGE VARSA ONDAN ÇİZİLİR.
+   *
+   * Belge; ürün adını, miktarı, birim fiyatı ve tutarı ayrı alanlar olarak
+   * taşır; sütunlu ve tipografik bir yerleşim ancak böyle çizilebilir. Belgesi
+   * henüz çıkarılmamış fiş türleri (gün sonu, cari ekstresi) eski yolu
+   * kullanır: bayt akışı geri çözülüp satır satır çizilir.
+   */
+  if (belge) {
+    try {
+      const enNokta = kagitNoktaGenisligi(satirGenisligi);
+      const { bgra, en, boy } = await electronCizici(belgeHtml(belge, enNokta), enNokta);
+      if (boy > 0 && en > 0) {
+        const gorsel = Buffer.concat([
+          Buffer.from([0x1b, 0x40]),
+          rasterKomutu(siyahBeyazaIndir(bgra, en, boy), en, boy),
+          kuyrukKomutlari(baytlar),
+        ]);
+        return yazici.yazdir(gorsel);
+      }
+    } catch (hata) {
+      // Çizim hatası satışı durdurmaz; metin fişine düşülür (§3).
+      baglam.kayit.uyari('Fiş belgesi çizilemedi, metin olarak basılıyor', {
+        hata: hata instanceof Error ? hata.message : String(hata),
+      });
+      return yazici.yazdir(baytlar);
+    }
+  }
 
   const cevrim = await fisiGorselleStir(baytlar, satirGenisligi, electronCizici);
   if (!cevrim.gorsel) {
     baglam.kayit.uyari('Fiş görüntüye çevrilemedi, metin olarak basılıyor', { hata: cevrim.hata });
   }
   return yazici.yazdir(cevrim.baytlar);
+}
+
+/** Yasal uyarı: ayardan gelir ama boş bırakılamaz (§17.1). */
+function yasalUyariyiOku(baglam: Baglam): string {
+  return ustMetin(baglam, undefined, AYAR.FIS_YASAL_UYARI, YASAL_UYARI).trim() || YASAL_UYARI;
 }
 
 export async function satisFisiYazdir(
@@ -131,7 +173,17 @@ export async function satisFisiYazdir(
 
   let sonuc: YazdirmaSonucu;
   try {
-    sonuc = await fisiBas(baglam, yazici, baytlar, ayar.satirGenisligi);
+    sonuc = await fisiBas(
+      baglam,
+      yazici,
+      baytlar,
+      ayar.satirGenisligi,
+      satisBelgesi(detay, isletme, {
+        kopyaMi: secenekler.kopyaMi ?? false,
+        kasiyerAdi: detay.satis.kullanici_adi ?? null,
+        yasalUyari: yasalUyariyiOku(baglam),
+      }),
+    );
   } catch (hata) {
     sonuc = { basarili: false, hata: hata instanceof Error ? hata.message : String(hata) };
   }

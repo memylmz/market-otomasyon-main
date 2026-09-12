@@ -102,7 +102,8 @@ describe('satış fişi içeriği', () => {
   });
 
   it('iade fişinde İADE başlığı görünür', () => {
-    const iade = { ...detay, satis: { ...(detay as never as { satis: object }).satis, iade_mi: true } } as never;
+    const ham = detay as unknown as { satis: Record<string, unknown> };
+    const iade = { ...ham, satis: { ...ham.satis, iade_mi: true } } as never;
     const s = EscPosYazici.onizlemeYapisi(satisFisi(iade, isletme, { satirGenisligi: 48 }))
       .ogeler.filter((o) => o.tip === 'metin')
       .map((o) => o.metin.trim());

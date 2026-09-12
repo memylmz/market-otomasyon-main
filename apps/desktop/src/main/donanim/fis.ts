@@ -11,7 +11,15 @@ import type { KasaOzeti } from '../depo/kasa.js';
 import type { OdemeKaydi, SatisDetayi } from '../depo/satis.js';
 import { EscPosYazici } from './escpos.js';
 
-export const YASAL_UYARI = 'Bu belge mali değeri olmayan satış özetidir.';
+/**
+ * Varsayılan yasal uyarı. Ayarlardan değiştirilebilir ama boşaltılamaz
+ * (§17.1) — `yasalUyariyiOku` boş ayarı bu metne düşürür.
+ *
+ * AYIRICI TİRE, ORTA NOKTA DEĞİL: metin fişi CP857 kod sayfasıyla basılır ve
+ * `·` orada yoktur; yazıcıdan "BİLGİ FİŞİDİR ? MALİ..." çıkardı. Görüntü
+ * fişinde böyle bir sınır yok ama varsayılan her iki yolda da doğru görünmeli.
+ */
+export const YASAL_UYARI = 'BİLGİ FİŞİDİR - MALİ DEĞERİ YOKTUR';
 
 export interface IsletmeBilgisi {
   ad: string;
