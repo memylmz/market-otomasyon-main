@@ -22,8 +22,8 @@ import {
   type EtiketSecenekleri,
   type EtiketYerlesimi,
 } from '../donanim/etiket.js';
-import { ekstreBelgesi, satisBelgesi } from '../donanim/fis-belge.js';
-import { belgeHtml, ekstreHtml } from '../donanim/fis-html.js';
+import { ekstreBelgesi, gunSonuBelgesi, satisBelgesi } from '../donanim/fis-belge.js';
+import { belgeHtml, ekstreHtml, gunSonuHtml } from '../donanim/fis-html.js';
 import { fisiGorselleStir, kagitNoktaGenisligi, rasterKomutu, siyahBeyazaIndir, kuyrukKomutlari } from '../donanim/fis-gorsel.js';
 import { electronCizici } from '../donanim/gorsel-cizici.js';
 import { EscPosYazici, type FisOnizlemesi } from '../donanim/escpos.js';
@@ -212,20 +212,29 @@ export async function gunSonuFisiYazdir(baglam: Baglam, aktor: Aktor, oturumId: 
   const oturum = oturumBul(baglam.vt, oturumId);
   if (!oturum) throw hatalar.bulunamadi('Kasa oturumu');
   const ayar = yaziciAyariniOku(baglam);
-  const baytlar = gunSonuFisi(
-    oturumOzeti(baglam.vt, oturumId),
-    {
-      isletme: isletmeBilgisiniOku(baglam),
-      kasiyerAdi: oturum.kullanici_adi ?? aktor.ad,
-      acilis: oturum.acilis_zamani,
-      kapanis: oturum.kapanis_zamani ?? new Date().toISOString(),
-      sayilanNakit: oturum.sayilan_nakit ?? 0,
-      beklenenNakit: oturum.beklenen_nakit ?? 0,
-      kasaFarki: oturum.kasa_farki ?? 0,
-    },
+  /*
+   * Özet ve oturum bilgisi BİR KEZ hazırlanır: metin fişi ile görüntü fişi
+   * aynı rakamları göstermeli. İki ayrı okuma arasında kasaya para girse
+   * ikisi ayrışır ve hangisinin doğru olduğu belirsizleşir.
+   */
+  const ozetVerisi = oturumOzeti(baglam.vt, oturumId);
+  const bilgiVerisi = {
+    isletme: isletmeBilgisiniOku(baglam),
+    kasiyerAdi: oturum.kullanici_adi ?? aktor.ad,
+    acilis: oturum.acilis_zamani,
+    kapanis: oturum.kapanis_zamani ?? new Date().toISOString(),
+    sayilanNakit: oturum.sayilan_nakit ?? 0,
+    beklenenNakit: oturum.beklenen_nakit ?? 0,
+    kasaFarki: oturum.kasa_farki ?? 0,
+  };
+  const baytlar = gunSonuFisi(ozetVerisi, bilgiVerisi, ayar.satirGenisligi);
+  return fisiBas(
+    baglam,
+    yaziciOlustur(ayar),
+    baytlar,
     ayar.satirGenisligi,
-  );
-  return fisiBas(baglam, yaziciOlustur(ayar), baytlar, ayar.satirGenisligi).catch((hata) => ({
+    gunSonuHtml(gunSonuBelgesi(ozetVerisi, bilgiVerisi, yasalUyariyiOku(baglam)), kagitNoktaGenisligi(ayar.satirGenisligi)),
+  ).catch((hata) => ({
     basarili: false,
     hata: String(hata),
   }));

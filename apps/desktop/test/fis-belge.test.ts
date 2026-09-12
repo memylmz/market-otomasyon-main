@@ -8,8 +8,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ekstreBelgesi, kdvKirilimi, satisBelgesi } from '../src/main/donanim/fis-belge.js';
-import { belgeHtml, ekstreHtml } from '../src/main/donanim/fis-html.js';
+import { ekstreBelgesi, gunSonuBelgesi, kdvKirilimi, satisBelgesi } from '../src/main/donanim/fis-belge.js';
+import { belgeHtml, ekstreHtml, gunSonuHtml } from '../src/main/donanim/fis-html.js';
 
 const isletme = {
   ad: 'ŞAHİN GIDA',
@@ -207,5 +207,80 @@ describe('cari ekstresi', () => {
     const b = ekstreBelgesi({ ad_unvan: 'X', bakiye: 80_000 } as never, cok, isletme, { yasalUyari: 'u' });
     expect(b.hareketler).toHaveLength(60);
     expect(b.hareketler[59]!.aciklama).toBe('Hareket 79');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Gün sonu raporu
+// ---------------------------------------------------------------------------
+
+const ozet = {
+  acilis_bakiye: 50_000,
+  satis_nakit: 384_250,
+  satis_kart: 512_000,
+  veresiye: 87_500,
+  tahsilat: 45_000,
+  odeme: 120_000,
+  gider: 18_750,
+  giris: 0,
+  cikis: 50_000,
+  iade_nakit: 12_500,
+  islem_sayisi: 87,
+} as never;
+
+const gunSonu = (fark: number) =>
+  gunSonuBelgesi(
+    ozet,
+    {
+      isletme,
+      kasiyerAdi: 'Mehmet Yılmaz',
+      acilis: '2026-09-13T05:30:00Z',
+      kapanis: '2026-09-13T18:45:00Z',
+      sayilanNakit: 296_750,
+      beklenenNakit: 298_000,
+      kasaFarki: fark,
+    } as never,
+    'BİLGİ FİŞİDİR',
+  );
+
+describe('gün sonu raporu', () => {
+  it('satış ve kasa hareketlerini AYRI gruplara ayırır', () => {
+    const g = gunSonu(-1_250).gruplar;
+    expect(g.map((x) => x.baslik)).toEqual(['SATIŞLAR', 'KASA HAREKETLERİ']);
+  });
+
+  /** Eski raporda satış toplamı YOKTU; kasiyer üç kalemi kafadan topluyordu. */
+  it('satış grubunun toplamını hesaplar', () => {
+    // 3.842,50 + 5.120,00 + 875,00 = 9.837,50
+    expect(gunSonu(0).gruplar[0]!.toplam).toEqual({ etiket: 'Toplam satış', deger: '9.837,50' });
+  });
+
+  it('kasa hareketleri grubunda toplam yoktur — anlamlı değil', () => {
+    expect(gunSonu(0).gruplar[1]!.toplam, 'giriş ve çıkış aynı kefeye konamaz').toBeNull();
+  });
+
+  it('kasa farkını düz cümleyle açıklar', () => {
+    expect(gunSonu(-1_250).farkAciklamasi).toBe('Kasada 12,50 TL EKSİK var.');
+    expect(gunSonu(1_250).farkAciklamasi).toBe('Kasada 12,50 TL FAZLA var.');
+    expect(gunSonu(0).farkAciklamasi).toContain('tam tutuyor');
+  });
+
+  it('fark tutarı işaretsiz taşınır — yönü cümle söyler', () => {
+    expect(gunSonu(-1_250).fark.deger).toBe('12,50');
+  });
+
+  it('çizim grupları, işlem sayısını ve mutabakatı taşır', () => {
+    const h = gunSonuHtml(gunSonu(-1_250), 576);
+    expect(h).toContain('SATIŞLAR');
+    expect(h).toContain('KASA HAREKETLERİ');
+    expect(h).toContain('Toplam satış');
+    expect(h).toContain('İşlem sayısı');
+    expect(h).toContain('Beklenen nakit');
+    expect(h).toContain('EKSİK var');
+  });
+
+  it('gruplar arasında ayırıcı çizgi bulunur', () => {
+    expect(gunSonuHtml(gunSonu(0), 576)).toMatch(/\.grup \+ \.grup\{border-top:1px dotted #000/);
   });
 });

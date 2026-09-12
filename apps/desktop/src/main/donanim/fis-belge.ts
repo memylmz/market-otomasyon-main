@@ -230,3 +230,117 @@ export function ekstreBelgesi(
     yasalUyari: secenekler.yasalUyari,
   };
 }
+
+
+// ---------------------------------------------------------------------------
+// Gün sonu raporu
+// ---------------------------------------------------------------------------
+
+export interface GunSonuGrubu {
+  baslik: string;
+  satirlar: FisSatiri[];
+  /** Grubun kendi toplamı; anlamlı olmayan grupta null. */
+  toplam: FisSatiri | null;
+}
+
+export interface GunSonuBelgesi {
+  isletmeAdi: string;
+  baslik: string;
+  meta: FisSatiri[];
+  gruplar: GunSonuGrubu[];
+  islemSayisi: FisSatiri;
+  /** Nakit mutabakatı: beklenen ve sayılan. */
+  sayim: FisSatiri[];
+  fark: FisSatiri;
+  /** Farkın NE ANLAMA GELDİĞİ — düz Türkçe cümle. */
+  farkAciklamasi: string;
+  yasalUyari: string;
+}
+
+/**
+ * Gün sonu raporu belgesi (§10.8).
+ *
+ * GRUPLANDIRILDI: eski rapor on kalemi düz bir liste hâlinde sıralıyordu —
+ * satış kalemleriyle kasa hareketleri aynı blokta, aralarında ayrım yok.
+ * Kasiyerin "bugün ne sattım" ile "kasaya ne girdi çıktı" sorularını ayırması
+ * için satır satır okuması gerekiyordu. Artık iki grup var ve satış grubunun
+ * kendi toplamı yazılıyor; bu toplam eski raporda hiç yoktu, kafadan
+ * toplanıyordu.
+ */
+export function gunSonuBelgesi(
+  ozet: {
+    acilis_bakiye: Kurus;
+    satis_nakit: Kurus;
+    satis_kart: Kurus;
+    veresiye: Kurus;
+    tahsilat: Kurus;
+    odeme: Kurus;
+    gider: Kurus;
+    giris: Kurus;
+    cikis: Kurus;
+    iade_nakit: Kurus;
+    islem_sayisi: number;
+  },
+  bilgi: {
+    isletme: IsletmeBilgisi;
+    kasiyerAdi: string;
+    acilis: string;
+    kapanis: string;
+    sayilanNakit: Kurus;
+    beklenenNakit: Kurus;
+    kasaFarki: Kurus;
+  },
+  yasalUyari: string,
+): GunSonuBelgesi {
+  const p = (deger: Kurus) => paraFormat(deger, { simge: false });
+  const satisToplami = ozet.satis_nakit + ozet.satis_kart + ozet.veresiye;
+
+  const farkAciklamasi =
+    bilgi.kasaFarki > 0
+      ? `Kasada ${p(bilgi.kasaFarki)} TL FAZLA var.`
+      : bilgi.kasaFarki < 0
+        ? `Kasada ${p(Math.abs(bilgi.kasaFarki))} TL EKSİK var.`
+        : 'Kasa tam tutuyor; fark yok.';
+
+  return {
+    isletmeAdi: bilgi.isletme.ad,
+    baslik: 'GÜN SONU RAPORU',
+    meta: [
+      { etiket: 'KASİYER', deger: bilgi.kasiyerAdi },
+      { etiket: 'AÇILIŞ', deger: tarihSaatFormat(bilgi.acilis) },
+      { etiket: 'KAPANIŞ', deger: tarihSaatFormat(bilgi.kapanis) },
+    ],
+    gruplar: [
+      {
+        baslik: 'SATIŞLAR',
+        satirlar: [
+          { etiket: 'Nakit satış', deger: p(ozet.satis_nakit) },
+          { etiket: 'Kart satış', deger: p(ozet.satis_kart) },
+          { etiket: 'Veresiye satış', deger: p(ozet.veresiye) },
+        ],
+        toplam: { etiket: 'Toplam satış', deger: p(satisToplami) },
+      },
+      {
+        baslik: 'KASA HAREKETLERİ',
+        satirlar: [
+          { etiket: 'Açılış bakiyesi', deger: p(ozet.acilis_bakiye) },
+          { etiket: 'Tahsilat', deger: p(ozet.tahsilat) },
+          { etiket: 'Tedarikçi ödemesi', deger: p(ozet.odeme) },
+          { etiket: 'Gider', deger: p(ozet.gider) },
+          { etiket: 'Kasaya giriş', deger: p(ozet.giris) },
+          { etiket: 'Kasadan çıkış', deger: p(ozet.cikis) },
+          { etiket: 'Nakit iade', deger: p(ozet.iade_nakit) },
+        ],
+        toplam: null,
+      },
+    ],
+    islemSayisi: { etiket: 'İşlem sayısı', deger: String(ozet.islem_sayisi) },
+    sayim: [
+      { etiket: 'Beklenen nakit', deger: p(bilgi.beklenenNakit) },
+      { etiket: 'Sayılan nakit', deger: p(bilgi.sayilanNakit) },
+    ],
+    fark: { etiket: 'KASA FARKI', deger: p(Math.abs(bilgi.kasaFarki)) },
+    farkAciklamasi,
+    yasalUyari,
+  };
+}

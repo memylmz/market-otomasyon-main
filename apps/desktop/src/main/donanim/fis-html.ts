@@ -17,7 +17,7 @@
  */
 
 import { code128Cizimi } from '@market/shared';
-import type { EkstreBelgesi, FisBelgesi } from './fis-belge.js';
+import type { EkstreBelgesi, FisBelgesi, GunSonuBelgesi } from './fis-belge.js';
 
 /** HTML'e gömülecek metni kaçırır — ürün adında `<` geçebilir. */
 function kacir(metin: string): string {
@@ -218,6 +218,68 @@ ${meta}
 ${ozet}
 <div class="toplam"><span>${kacir(belge.bakiye.etiket)}</span><span>${kacir(belge.bakiye.deger)}</span></div>
 <div class="aciklama">${kacir(belge.bakiyeAciklamasi)}</div>
+<div class="nokta"></div>
+<div class="orta uyari">${kacir(belge.yasalUyari)}</div>
+</div></body></html>`;
+}
+
+
+/**
+ * Gün sonu raporu çizimi (§10.8).
+ *
+ * Rapor iki soruyu ayrı ayrı cevaplamalı: "bugün ne sattım" ve "kasada ne
+ * olması gerekiyordu, ne var". Gruplar başlıklarıyla ayrılır; nakit mutabakatı
+ * en altta kendi bloğunda durur ve fark ters bantta vurgulanır — kasiyerin
+ * gün sonunda baktığı tek rakam odur.
+ */
+export function gunSonuHtml(belge: GunSonuBelgesi, enNokta: number): string {
+  const o = olcekler(enNokta);
+
+  const meta = belge.meta
+    .map((s) => `<div class="cift mini"><span class="gri">${kacir(s.etiket)}</span><span>${kacir(s.deger)}</span></div>`)
+    .join('');
+
+  const gruplar = belge.gruplar
+    .map((grup) => {
+      const satirlar = grup.satirlar
+        .map((s) => `<div class="cift"><span class="gri">${kacir(s.etiket)}</span><span>${kacir(s.deger)}</span></div>`)
+        .join('');
+      const toplam = grup.toplam
+        ? `<div class="cift gruptoplam"><span>${kacir(grup.toplam.etiket)}</span><span>${kacir(grup.toplam.deger)}</span></div>`
+        : '';
+      return `<div class="grup"><div class="grupbasi">${kacir(grup.baslik)}</div>${satirlar}${toplam}</div>`;
+    })
+    .join('');
+
+  const sayim = belge.sayim
+    .map((s) => `<div class="cift"><span class="gri">${kacir(s.etiket)}</span><span>${kacir(s.deger)}</span></div>`)
+    .join('');
+
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+${ortakStil(o, enNokta)}
+.grup{margin-top:${Math.round(o.kenar * 0.5)}px}
+.grup + .grup{border-top:1px dotted #000;padding-top:${Math.round(o.kenar * 0.4)}px}
+.grupbasi{font-size:${o.mini}px;letter-spacing:2px;opacity:.7;margin-bottom:${Math.round(o.kenar * 0.2)}px}
+.gruptoplam{border-top:1px solid #000;margin-top:${Math.round(o.kenar * 0.2)}px;
+  padding-top:${Math.round(o.kenar * 0.2)}px;font-weight:700}
+.gruptoplam span:first-child{font-weight:700;opacity:1}
+.aciklama{font-size:${o.kucuk}px;line-height:1.45;margin-top:${Math.round(o.kenar * 0.4)}px;
+  border-left:3px solid #000;padding-left:${Math.round(o.kenar * 0.5)}px}
+</style></head><body><div class="pad">
+<div class="orta">
+  <div class="marka">${kacir(belge.isletmeAdi)}</div>
+  <div class="baslik">${kacir(belge.baslik)}</div>
+</div>
+<div class="cizgi"></div>
+${meta}
+<div class="ince"></div>
+${gruplar}
+<div class="ince"></div>
+<div class="cift"><span class="gri">${kacir(belge.islemSayisi.etiket)}</span><span>${kacir(belge.islemSayisi.deger)}</span></div>
+<div class="ince"></div>
+${sayim}
+<div class="toplam"><span>${kacir(belge.fark.etiket)}</span><span>${kacir(belge.fark.deger)}</span></div>
+<div class="aciklama">${kacir(belge.farkAciklamasi)}</div>
 <div class="nokta"></div>
 <div class="orta uyari">${kacir(belge.yasalUyari)}</div>
 </div></body></html>`;
