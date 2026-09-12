@@ -8,8 +8,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { kdvKirilimi, satisBelgesi } from '../src/main/donanim/fis-belge.js';
-import { belgeHtml } from '../src/main/donanim/fis-html.js';
+import { ekstreBelgesi, kdvKirilimi, satisBelgesi } from '../src/main/donanim/fis-belge.js';
+import { belgeHtml, ekstreHtml } from '../src/main/donanim/fis-html.js';
 
 const isletme = {
   ad: 'ŞAHİN GIDA',
@@ -115,5 +115,74 @@ describe('premium çizici', () => {
 
   it('barkodu çubuk olarak çizer', () => {
     expect(html()).toMatch(/<i style="width:\d+px/);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Cari hesap ekstresi
+// ---------------------------------------------------------------------------
+
+const hareketler = [
+  { tarih: '2026-08-03T09:12:00Z', aciklama: 'Satış (A-000188)', tutar: 45_000, yuruyen_bakiye: 45_000 },
+  { tarih: '2026-08-20T11:05:00Z', aciklama: 'Nakit tahsilat', tutar: -50_000, yuruyen_bakiye: -5_000 },
+  { tarih: '2026-09-02T15:22:00Z', aciklama: 'Satış (A-000377)', tutar: 50_000, yuruyen_bakiye: 45_000 },
+] as never[];
+
+const ekstre = (bakiye: number) =>
+  ekstreBelgesi({ ad_unvan: 'Ayşe Yılmaz', telefon: '0532 000 00 00', bakiye } as never, hareketler, isletme, {
+    yasalUyari: 'BİLGİ FİŞİDİR',
+    baslangic: '2026-08-01',
+    bitis: '2026-09-12',
+  });
+
+describe('cari ekstresi', () => {
+  it('dönem başı bakiyeyi ilk hareketten geri hesaplar', () => {
+    // İlk hareket +450,00 ve sonrası 450,00 → dönem başı 0,00 olmalı.
+    expect(ekstre(45_000).ozet[0]).toEqual({ etiket: 'Dönem başı bakiye', deger: '0,00' });
+  });
+
+  it('borç ve tahsilat toplamlarını ayırır', () => {
+    const o = ekstre(45_000).ozet;
+    expect(o[1], 'iki satış toplamı').toEqual({ etiket: 'Toplam borç', deger: '950,00' });
+    expect(o[2], 'tek tahsilat').toEqual({ etiket: 'Toplam tahsilat', deger: '500,00' });
+  });
+
+  it('hareketin borç mu alacak mı olduğunu işaretler', () => {
+    const h = ekstre(45_000).hareketler;
+    expect(h[0]!.borcMu).toBe(true);
+    expect(h[1]!.borcMu, 'tahsilat alacaktır').toBe(false);
+    expect(h[1]!.tutarMetni, 'tutar işaretsiz taşınır, işareti çizici koyar').toBe('500,00');
+  });
+
+  /**
+   * "DAHA AÇIKLAYICI OLSUN" istendi: bakiyenin işareti kime borçlu olunduğunu
+   * söylemez. Cümle bunu düz Türkçe yazar.
+   */
+  it('bakiyenin ne anlama geldiğini cümleyle yazar', () => {
+    expect(ekstre(45_000).bakiyeAciklamasi).toBe('Ayşe Yılmaz işletmeye 450,00 TL borçludur.');
+    expect(ekstre(-45_000).bakiyeAciklamasi).toBe('İşletme Ayşe Yılmaz kişisine 450,00 TL borçludur.');
+    expect(ekstre(0).bakiyeAciklamasi).toContain('kapalı');
+  });
+
+  it('çizim her hareketi, özeti ve açıklamayı taşır', () => {
+    const h = ekstreHtml(ekstre(45_000), 576);
+    expect(h).toContain('Satış (A-000188)');
+    expect(h, 'borç artı işaretiyle').toContain('+450,00');
+    expect(h, 'tahsilat eksi işaretiyle').toContain('-500,00');
+    expect(h).toContain('Dönem başı bakiye');
+    expect(h).toContain('işletmeye 450,00 TL borçludur');
+  });
+
+  it('uzun ekstrede son 60 hareket basılır — kağıt metrelerce akmasın', () => {
+    const cok = Array.from({ length: 80 }, (_, i) => ({
+      tarih: '2026-08-03T09:12:00Z',
+      aciklama: 'Hareket ' + i,
+      tutar: 1_000,
+      yuruyen_bakiye: 1_000 * (i + 1),
+    })) as never[];
+    const b = ekstreBelgesi({ ad_unvan: 'X', bakiye: 80_000 } as never, cok, isletme, { yasalUyari: 'u' });
+    expect(b.hareketler).toHaveLength(60);
+    expect(b.hareketler[59]!.aciklama).toBe('Hareket 79');
   });
 });

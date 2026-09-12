@@ -14,7 +14,7 @@
  * bırakılır.
  */
 
-import { miktarFormat, paraFormat, tarihSaatFormat, type BirimTipi } from '@market/shared';
+import { miktarFormat, paraFormat, tarihFormat, tarihSaatFormat, type BirimTipi, type Kurus } from '@market/shared';
 import type { SatisDetayi } from '../depo/satis.js';
 import type { IsletmeBilgisi } from './fis.js';
 
@@ -134,5 +134,99 @@ export function satisBelgesi(
     // Barkoda TİRE BASILMAZ: HID okuyucular tuş kodu gönderir, Türkçe Q
     // klavyede `-` yerine `*` okunur.
     barkod: satis.fis_no.replace(/[^0-9A-Za-z]/g, ''),
+  };
+}
+
+
+// ---------------------------------------------------------------------------
+// Cari hesap ekstresi
+// ---------------------------------------------------------------------------
+
+export interface EkstreHareketi {
+  tarihMetni: string;
+  aciklama: string;
+  tutarMetni: string;
+  /** Borç mu (artı) alacak mı (eksi) — çizici renk/işaret kararını buna göre verir. */
+  borcMu: boolean;
+  bakiyeMetni: string;
+}
+
+export interface EkstreBelgesi {
+  isletmeAdi: string;
+  baslik: string;
+  meta: FisSatiri[];
+  hareketler: EkstreHareketi[];
+  /** Dönem özeti: açılış, toplam borç, toplam tahsilat. */
+  ozet: FisSatiri[];
+  bakiye: FisSatiri;
+  /** Bakiyenin NE ANLAMA GELDİĞİ — düz Türkçe cümle. */
+  bakiyeAciklamasi: string;
+  yasalUyari: string;
+}
+
+/**
+ * Ekstre belgesi (§10.7).
+ *
+ * "DAHA AÇIKLAYICI" OLMASI İSTENDİ: eski ekstre bakiyenin altına yalnız
+ * "(Borç)" yazıyordu. Bir cari bakiyenin işareti kime borçlu olunduğunu
+ * söylemez — müşteri de işletme sahibi de her seferinde düşünmek zorunda
+ * kalıyordu. Artık düz cümleyle yazılır ve dönem özeti (açılış bakiyesi,
+ * toplam borç, toplam tahsilat) eklenir; rakamın nereden geldiği görünür.
+ */
+export function ekstreBelgesi(
+  cari: { ad_unvan: string; telefon?: string | null; bakiye: Kurus },
+  hareketler: { tarih: string; aciklama: string | null; tutar: Kurus; yuruyen_bakiye: Kurus }[],
+  isletme: IsletmeBilgisi,
+  secenekler: { yasalUyari: string; baslangic?: string | null; bitis?: string | null },
+): EkstreBelgesi {
+  // Ekstre uzunsa son 60 hareket basılır; kağıt metrelerce akmasın.
+  const gosterilen = hareketler.slice(-60);
+
+  const meta: FisSatiri[] = [{ etiket: 'CARİ', deger: cari.ad_unvan }];
+  if (cari.telefon) meta.push({ etiket: 'TELEFON', deger: cari.telefon });
+  if (secenekler.baslangic || secenekler.bitis) {
+    const bas = secenekler.baslangic ? tarihFormat(secenekler.baslangic) : '…';
+    const bit = secenekler.bitis ? tarihFormat(secenekler.bitis) : '…';
+    meta.push({ etiket: 'DÖNEM', deger: `${bas} - ${bit}` });
+  }
+  meta.push({ etiket: 'DÜZENLEME', deger: tarihSaatFormat(new Date().toISOString()) });
+
+  /*
+   * Açılış bakiyesi hareketlerden GERİ HESAPLANIR: ilk hareketin yürüyen
+   * bakiyesinden kendi tutarı düşülür. Ayrı bir sorgu açmak yerine elimizdeki
+   * veriden çıkarmak, ekstrenin her zaman kendi içinde tutarlı olmasını
+   * sağlar — gösterilen satırların toplamı gösterilen bakiyeyi verir.
+   */
+  const ilk = gosterilen[0];
+  const acilis = ilk ? ilk.yuruyen_bakiye - ilk.tutar : cari.bakiye;
+  const toplamBorc = gosterilen.filter((h) => h.tutar > 0).reduce((t, h) => t + h.tutar, 0);
+  const toplamAlacak = gosterilen.filter((h) => h.tutar < 0).reduce((t, h) => t + Math.abs(h.tutar), 0);
+
+  const bakiyeAciklamasi =
+    cari.bakiye > 0
+      ? `${cari.ad_unvan} işletmeye ${paraFormat(cari.bakiye, { simge: false })} TL borçludur.`
+      : cari.bakiye < 0
+        ? `İşletme ${cari.ad_unvan} kişisine ${paraFormat(Math.abs(cari.bakiye), { simge: false })} TL borçludur.`
+        : 'Hesap kapalıdır; karşılıklı borç bulunmamaktadır.';
+
+  return {
+    isletmeAdi: isletme.ad,
+    baslik: 'HESAP EKSTRESİ',
+    meta,
+    hareketler: gosterilen.map((h) => ({
+      tarihMetni: tarihFormat(h.tarih),
+      aciklama: h.aciklama ?? '-',
+      tutarMetni: paraFormat(Math.abs(h.tutar), { simge: false }),
+      borcMu: h.tutar >= 0,
+      bakiyeMetni: paraFormat(h.yuruyen_bakiye, { simge: false }),
+    })),
+    ozet: [
+      { etiket: 'Dönem başı bakiye', deger: paraFormat(acilis, { simge: false }) },
+      { etiket: 'Toplam borç', deger: paraFormat(toplamBorc, { simge: false }) },
+      { etiket: 'Toplam tahsilat', deger: paraFormat(toplamAlacak, { simge: false }) },
+    ],
+    bakiye: { etiket: 'BAKİYE', deger: paraFormat(Math.abs(cari.bakiye), { simge: false }) },
+    bakiyeAciklamasi,
+    yasalUyari: secenekler.yasalUyari,
   };
 }

@@ -22,8 +22,8 @@ import {
   type EtiketSecenekleri,
   type EtiketYerlesimi,
 } from '../donanim/etiket.js';
-import { satisBelgesi, type FisBelgesi } from '../donanim/fis-belge.js';
-import { belgeHtml } from '../donanim/fis-html.js';
+import { ekstreBelgesi, satisBelgesi } from '../donanim/fis-belge.js';
+import { belgeHtml, ekstreHtml } from '../donanim/fis-html.js';
 import { fisiGorselleStir, kagitNoktaGenisligi, rasterKomutu, siyahBeyazaIndir, kuyrukKomutlari } from '../donanim/fis-gorsel.js';
 import { electronCizici } from '../donanim/gorsel-cizici.js';
 import { EscPosYazici, type FisOnizlemesi } from '../donanim/escpos.js';
@@ -108,7 +108,7 @@ async function fisiBas(
   yazici: Yazici,
   baytlar: Buffer,
   satirGenisligi: number,
-  belge?: FisBelgesi,
+  html?: string,
 ): Promise<YazdirmaSonucu> {
   if (!ustBool(baglam, undefined, AYAR.YAZICI_GORSEL_FIS, true)) return yazici.yazdir(baytlar);
 
@@ -120,10 +120,10 @@ async function fisiBas(
    * henüz çıkarılmamış fiş türleri (gün sonu, cari ekstresi) eski yolu
    * kullanır: bayt akışı geri çözülüp satır satır çizilir.
    */
-  if (belge) {
+  if (html) {
     try {
       const enNokta = kagitNoktaGenisligi(satirGenisligi);
-      const { bgra, en, boy } = await electronCizici(belgeHtml(belge, enNokta), enNokta);
+      const { bgra, en, boy } = await electronCizici(html, enNokta);
       if (boy > 0 && en > 0) {
         const gorsel = Buffer.concat([
           Buffer.from([0x1b, 0x40]),
@@ -134,7 +134,7 @@ async function fisiBas(
       }
     } catch (hata) {
       // Çizim hatası satışı durdurmaz; metin fişine düşülür (§3).
-      baglam.kayit.uyari('Fiş belgesi çizilemedi, metin olarak basılıyor', {
+      baglam.kayit.uyari('Belge çizilemedi, metin olarak basılıyor', {
         hata: hata instanceof Error ? hata.message : String(hata),
       });
       return yazici.yazdir(baytlar);
@@ -178,11 +178,14 @@ export async function satisFisiYazdir(
       yazici,
       baytlar,
       ayar.satirGenisligi,
-      satisBelgesi(detay, isletme, {
-        kopyaMi: secenekler.kopyaMi ?? false,
-        kasiyerAdi: detay.satis.kullanici_adi ?? null,
-        yasalUyari: yasalUyariyiOku(baglam),
-      }),
+      belgeHtml(
+        satisBelgesi(detay, isletme, {
+          kopyaMi: secenekler.kopyaMi ?? false,
+          kasiyerAdi: detay.satis.kullanici_adi ?? null,
+          yasalUyari: yasalUyariyiOku(baglam),
+        }),
+        kagitNoktaGenisligi(ayar.satirGenisligi),
+      ),
     );
   } catch (hata) {
     sonuc = { basarili: false, hata: hata instanceof Error ? hata.message : String(hata) };
@@ -237,13 +240,32 @@ export async function cariEkstresiYazdir(
   const cari = cariBul(baglam.vt, cariId);
   if (!cari) throw hatalar.bulunamadi('Cari hesap');
   const ayar = yaziciAyariniOku(baglam);
+  const isletme = isletmeBilgisiniOku(baglam);
+  // Hareketler BİR KEZ okunur: metin fişi ile görüntü fişi aynı veriyi
+  // göstermeli, iki ayrı sorgu arasında yeni bir tahsilat girilse ikisi
+  // ayrışırdı.
+  const hareketler = ekstre(baglam.vt, cariId, baslangic, bitis);
   const baytlar = cariEkstreFisi(
     { ad_unvan: cari.ad_unvan, telefon: cari.telefon, bakiye: cari.bakiye },
-    ekstre(baglam.vt, cariId, baslangic, bitis),
-    isletmeBilgisiniOku(baglam),
+    hareketler,
+    isletme,
     ayar.satirGenisligi,
   );
-  return fisiBas(baglam, yaziciOlustur(ayar), baytlar, ayar.satirGenisligi).catch((hata) => ({
+  return fisiBas(
+    baglam,
+    yaziciOlustur(ayar),
+    baytlar,
+    ayar.satirGenisligi,
+    ekstreHtml(
+      ekstreBelgesi(
+        { ad_unvan: cari.ad_unvan, telefon: cari.telefon, bakiye: cari.bakiye },
+        hareketler,
+        isletme,
+        { yasalUyari: yasalUyariyiOku(baglam), baslangic, bitis },
+      ),
+      kagitNoktaGenisligi(ayar.satirGenisligi),
+    ),
+  ).catch((hata) => ({
     basarili: false,
     hata: String(hata),
   }));
