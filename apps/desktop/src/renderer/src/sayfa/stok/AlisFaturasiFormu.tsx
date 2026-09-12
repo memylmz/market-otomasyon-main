@@ -19,6 +19,10 @@ import {
   topluGirisKalemleri,
   KDV_ORANLARI,
   VARSAYILAN_KDV_ORANI,
+  carpanCoz,
+  satiriKat,
+  sktSutunuGerekli,
+  type AlisSatiri,
   type AlisKalemGirdisi,
   type Kurus,
   type TopluGirisSatiri,
@@ -40,22 +44,13 @@ interface Kategori {
 
 type OdemeDurumu = 'NAKIT' | 'HAVALE' | 'BORC';
 
-interface Satir {
-  barkod: string;
-  ad: string;
-  miktar: string;
-  /** KDV hariç birim alış fiyatı. */
-  alis: Kurus;
-  /** KDV dahil raf fiyatı; 0 = boş bırakılmış (marjdan hesaplanır). */
-  satis: Kurus;
-  kdv: string;
-  skt: string;
-  lot: string;
-  /** Doluysa satır mevcut bir ürüne bağlıdır; ad/barkod kilitli gösterilir. */
-  urun_id?: string;
-  /** Ürün kartında SKT takibi açıksa bu satırda SKT zorunludur. */
-  sktZorunlu: boolean;
-}
+/**
+ * Satır tipi ve satır kararları `alis-satir.ts` içinde, saf ve TEST EDİLMİŞ
+ * hâlde durur; bu dosya yalnız çizim yapar. Arayüz katmanında otomatik test
+ * olmadığı için mantığın burada kalması, mal kabuldeki bir hatanın ancak
+ * stok sayımında fark edilmesi demekti.
+ */
+type Satir = AlisSatiri;
 
 function bosSatir(barkod = ''): Satir {
   return {
@@ -114,6 +109,9 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   const [barkodGirdi, setBarkodGirdi] = useState('');
   const [aramaAcik, setAramaAcik] = useState(false);
   const [gonderiliyor, setGonderiliyor] = useState(false);
+  /** Son okutulan/birleşen satır — kısa süre vurgulanır ki kullanıcı ne olduğunu görsün. */
+  const [vurgulu, setVurgulu] = useState<number | null>(null);
+  const vurguZamanlayici = useRef<ReturnType<typeof setTimeout> | null>(null);
   const barkodAlani = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -139,9 +137,29 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
       .catch(() => setKategoriler([]));
   }, [acik]);
 
-  const satirEkleMevcut = (urun: SecilenUrun) => {
-    setSatirlar((s) => [
-      ...s,
+  const vurgula = (sira: number) => {
+    setVurgulu(sira);
+    if (vurguZamanlayici.current) clearTimeout(vurguZamanlayici.current);
+    vurguZamanlayici.current = setTimeout(() => setVurgulu(null), 1200);
+  };
+
+  useEffect(() => () => void (vurguZamanlayici.current && clearTimeout(vurguZamanlayici.current)), []);
+
+  /*
+   * Yeni ürün satırında odak AD ALANINA gider, barkod alanına değil.
+   *
+   * Satır "adını ve satış fiyatını girin" diyordu ama imleç orada değildi;
+   * her yeni üründe fareye uzanmak gerekiyordu. Toptancıda yirmi yeni ürün
+   * varsa yirmi fare hareketi demekti. Yeni satır listenin BAŞINA eklendiği
+   * için ilk `[data-ad-alani]` odaklanacak olandır.
+   */
+  const adaOdaklan = () => {
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-ad-alani]')?.focus());
+  };
+
+  const satirEkleMevcut = (urun: SecilenUrun, adet = 1) => {
+    const sonuc = satiriKat(
+      satirlar,
       {
         barkod: urun.barkodlar[0] ?? '',
         ad: urun.ad,
@@ -154,7 +172,10 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         urun_id: urun.id,
         sktZorunlu: urun.skt_takibi === true,
       },
-    ]);
+      adet,
+    );
+    setSatirlar(sonuc.satirlar);
+    vurgula(sonuc.vurgulanan);
   };
 
   /**
@@ -165,24 +186,37 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   const barkodEnter = async (tus: KeyboardEvent<HTMLInputElement>) => {
     if (tus.key !== 'Enter') return;
     tus.preventDefault();
-    const deger = barkodGirdi.trim();
+    // "12*8690..." → koli girişini tek harekete indirir (kasadaki çarpan alışkanlığı).
+    const { carpan, barkod } = carpanCoz(barkodGirdi);
     setBarkodGirdi('');
-    if (!deger) {
-      setSatirlar((s) => [...s, bosSatir()]);
-      barkodAlani.current?.focus();
+
+    if (!barkod) {
+      const sonuc = satiriKat(satirlar, bosSatir(), carpan);
+      setSatirlar(sonuc.satirlar);
+      vurgula(sonuc.vurgulanan);
+      adaOdaklan();
       return;
     }
+
     try {
-      const sonuc = await cagir<{ bulundu: boolean; urun?: SecilenUrun }>('urun.barkodOku', { barkod: deger });
+      const sonuc = await cagir<{ bulundu: boolean; urun?: SecilenUrun }>('urun.barkodOku', { barkod });
       if (sonuc.bulundu && sonuc.urun) {
-        satirEkleMevcut(sonuc.urun);
+        satirEkleMevcut(sonuc.urun, carpan);
+        // Kartlı ürün tamam: el okuyucuda kalsın, sıradaki okutulsun.
+        barkodAlani.current?.focus();
       } else {
-        setSatirlar((s) => [...s, bosSatir(deger)]);
-        bildir.bilgi('Ürün bulunamadı', 'Yeni ürün satırı eklendi; adını ve satış fiyatını girin.');
+        const kat = satiriKat(satirlar, bosSatir(barkod), carpan);
+        setSatirlar(kat.satirlar);
+        vurgula(kat.vurgulanan);
+        if (!kat.birlesti) {
+          bildir.bilgi('Ürün bulunamadı', 'Yeni ürün satırı eklendi; adını ve satış fiyatını girin.');
+          adaOdaklan();
+        } else {
+          barkodAlani.current?.focus();
+        }
       }
     } catch (hata) {
       hatayiBildir(hata, 'Barkod');
-    } finally {
       barkodAlani.current?.focus();
     }
   };
@@ -235,6 +269,15 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
 
   // SKT takibi açık ürünlerde tarih girilmeden onay verilmez (ürün kartındaki söz; mevcut Mal Kabul davranışı korunur).
   const sktEksikler = satirlar.filter((s) => s.sktZorunlu && !s.skt.trim());
+  /*
+   * SKT ve lot sütunları yalnız GEREKTİĞİNDE açılır.
+   *
+   * Dokuz sütun yan yana dizilince ürün adı ve fiyatlar sıkışıyordu; oysa son
+   * kullanma tarihi yalnız kartında SKT takibi açık üründe anlamlı.
+   */
+  const sktGerekli = sktSutunuGerekli(satirlar);
+  /** Kaç satır yeni ürün açacak — sayaçta gösterilir. */
+  const yeniSatirSayisi = satirlar.filter((s) => !s.urun_id).length;
 
   const kaydedilebilir =
     Boolean(tedarikciId) &&
@@ -368,7 +411,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
 
       <div className="mb-3 flex flex-wrap items-end gap-2 border-t border-cizgi pt-3">
         <div className="min-w-[240px] flex-1">
-          <Alan etiket="Barkod" ipucu="Okutun ya da yazıp Enter'layın. Boş Enter, barkodsuz yeni ürün satırı açar.">
+          <Alan etiket="Barkod" ipucu="Okutun ya da yazıp Enter'layın. Koli için çarpan: 12*barkod. Boş Enter, barkodsuz yeni ürün satırı açar.">
             <input
               ref={barkodAlani}
               className="alan"
@@ -382,6 +425,15 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         <button type="button" className="tus-ikincil" onClick={() => setAramaAcik((a) => !a)}>
           {aramaAcik ? 'Aramayı kapat' : 'Mevcut üründen ekle'}
         </button>
+        {/* Canlı sayaç: kırk kalemlik girişte toplam ekranın altında kalıyor,
+            kullanıcı nerede olduğunu görmek için aşağı kaydırmak zorundaydı. */}
+        <div className="ml-auto text-right text-sm leading-tight">
+          <div className="text-metin-3">
+            {satirlar.length} satır
+            {yeniSatirSayisi > 0 && <span className="text-vurgu"> · {yeniSatirSayisi} yeni ürün</span>}
+          </div>
+          <div className="font-mono text-base font-bold">{paraFormat(genelToplam)}</div>
+        </div>
       </div>
 
       {aramaAcik && (
@@ -404,8 +456,8 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
               <th className="w-28">Alış (KDV hariç)</th>
               <th className="w-28">Satış (KDV dahil)</th>
               <th className="w-20">KDV</th>
-              <th className="w-32">SKT</th>
-              <th className="w-24">Lot</th>
+              {sktGerekli && <th className="w-32">SKT</th>}
+              {sktGerekli && <th className="w-24">Lot</th>}
               <th className="w-10" />
             </tr>
           </thead>
@@ -413,7 +465,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
             {satirlar.map((s, i) => {
               const yeniUrun = !s.urun_id;
               return (
-                <tr key={i}>
+                <tr key={i} className={vurgulu === i ? 'bg-vurgu-yumusak' : ''}>
                   <td>
                     {yeniUrun ? (
                       <input
@@ -430,9 +482,17 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                     {yeniUrun ? (
                       <div className="flex items-center gap-2">
                         <input
+                          data-ad-alani
                           className="alan py-1"
                           value={s.ad}
                           onChange={(e) => guncelle(i, { ad: e.target.value })}
+                          onKeyDown={(e) => {
+                            // Ad yazıldı: el okuyucuya dönsün, sıradaki ürün okutulsun.
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              barkodAlani.current?.focus();
+                            }
+                          }}
                           placeholder="Ürün adı *"
                         />
                         <Rozet tur="bilgi">Yeni</Rozet>
@@ -463,19 +523,23 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                       ))}
                     </select>
                   </td>
-                  <td>
-                    <input
-                      type="date"
-                      className={`alan py-1 ${s.sktZorunlu && !s.skt ? 'border-tehlike' : ''}`}
-                      value={s.skt}
-                      aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
-                      onChange={(e) => guncelle(i, { skt: e.target.value })}
-                    />
-                    {s.sktZorunlu && !s.skt && <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>}
-                  </td>
-                  <td>
-                    <input className="alan py-1" value={s.lot} onChange={(e) => guncelle(i, { lot: e.target.value })} />
-                  </td>
+                  {sktGerekli && (
+                    <>
+                      <td>
+                        <input
+                          type="date"
+                          className={`alan py-1 ${s.sktZorunlu && !s.skt ? 'border-tehlike' : ''}`}
+                          value={s.skt}
+                          aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
+                          onChange={(e) => guncelle(i, { skt: e.target.value })}
+                        />
+                        {s.sktZorunlu && !s.skt && <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>}
+                      </td>
+                      <td>
+                        <input className="alan py-1" value={s.lot} onChange={(e) => guncelle(i, { lot: e.target.value })} />
+                      </td>
+                    </>
+                  )}
                   <td>
                     <button type="button" className="text-tehlike" onClick={() => setSatirlar((liste) => liste.filter((_, j) => j !== i))}>
                       ✕
