@@ -50,6 +50,49 @@ describe('TSPL etiketi', () => {
   });
 });
 
+/**
+ * Türkçe destekli TSPL — sahada Gainscha 4B-2074C üzerinde doğrulandı.
+ *
+ * NEDEN BAYT DÜZEYİNDE SINANIYOR: "ğ" harfi kaynakta U+011F'tir ama yazıcıya
+ * CP1254'ün tek baytlık 0xF0'ı gitmek zorundadır. Metin karşılaştırması bu
+ * farkı göremez; yanlış bayt giderse etiket sessizce bozuk harf basar.
+ */
+describe('TSPL etiketi — Türkçe kod sayfası', () => {
+  const trSecenek = { rafGoster: true, birimFiyatGoster: true, turkce: true };
+  const bayt = (ad: string) => etiketBaytlari('TSPL', { ...urun, ad }, olcu, trSecenek);
+
+  it('kod sayfasını her işte bildirir', () => {
+    expect(bayt('Elma').toString('latin1')).toContain('CODEPAGE 1254');
+  });
+
+  it('Latin-1 dışı Türkçe harfleri CP1254 baytına çevirir', () => {
+    const baytlar = [...bayt('Çiğ Köfte Şiş')];
+    // ğ → 0xF0, ş → 0xFE: Latin-1'de karşılığı olmayan harfler.
+    expect(baytlar).toContain(0xf0);
+    expect(baytlar).toContain(0xfe);
+    // Ç, ö zaten Latin-1 ile aynı kod noktasında.
+    expect(baytlar).toContain(0xc7);
+    expect(baytlar).toContain(0xf6);
+  });
+
+  it('noktalı ve noktasız i ailesini ayırır', () => {
+    const baytlar = [...bayt('İki Kırmızı')];
+    expect(baytlar, 'İ büyük noktalı = 0xDD').toContain(0xdd);
+    expect(baytlar, 'ı küçük noktasız = 0xFD').toContain(0xfd);
+    expect(baytlar, 'i küçük noktalı ASCII kalır = 0x69').toContain(0x69);
+  });
+
+  it('CP1254 içinde olmayan ₺ simgesini TL olarak yazar', () => {
+    expect(bayt('Elma').toString('latin1')).toContain('TL');
+  });
+
+  it('önizleme ile baskı aynı metni taşır — Türkçe ASCII’ye indirilmez', () => {
+    const yerlesim = etiketYerlesimi({ ...urun, ad: 'Çiğ Köfte' }, olcu, trSecenek);
+    const adOgesi = yerlesim.ogeler.find((o) => o.tip === 'metin' && o.metin.includes('Köfte'));
+    expect(adOgesi, 'yerleşimdeki ad Türkçe kalmalı ki önizleme kağıtla aynı olsun').toBeDefined();
+  });
+});
+
 describe('ZPL etiketi', () => {
   /**
    * ZPL milimetre değil NOKTA ister. 203 dpi'da 40 mm = 320 nokta.

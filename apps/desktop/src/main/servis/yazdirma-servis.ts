@@ -207,6 +207,13 @@ function etiketSecenekleriniOku(baglam: Baglam, ustveri?: AyarUstverisi): Etiket
   return {
     rafGoster: ustBool(baglam, ustveri, AYAR.ETIKET_RAF_GOSTER, false),
     birimFiyatGoster: ustBool(baglam, ustveri, AYAR.ETIKET_BIRIM_FIYAT_GOSTER, true),
+    /*
+     * Türkçe yalnız TSPL'de basılır: TSPL işin başında `CODEPAGE 1254` bildirir
+     * ve yazıcının gömülü fontu Türkçenin tamamını (I, i, İ, ı dahil) çizer.
+     * ZPL emülasyonunda aynı harfler doğrulanmadığı için orada metin ASCII'ye
+     * iner — boş kutu basmaktansa "Urun" basmak yeğdir.
+     */
+    turkce: etiketDiliniOku(baglam, ustveri) === 'TSPL',
   };
 }
 

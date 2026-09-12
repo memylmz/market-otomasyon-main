@@ -36,6 +36,14 @@ export interface EtiketIcerigi {
 export interface EtiketSecenekleri {
   rafGoster: boolean;
   birimFiyatGoster: boolean;
+  /**
+   * Yazıcı Türkçe harfleri basabiliyor mu (TSPL + CODEPAGE 1254).
+   *
+   * Dili bilen servis katmanı doldurur. Yerleşim bunu bilmek ZORUNDA: ekrandaki
+   * önizleme ile kağıda basılan aynı metni göstermeli — biri "Ürün", öbürü
+   * "Urun" yazarsa kullanıcı farkı ancak etiketi rafa astıktan sonra görür.
+   */
+  turkce?: boolean;
 }
 
 export type YerlesimOgesi =
@@ -83,6 +91,33 @@ function adKisalt(ad: string, kullanilabilirMm: number, yukseklikMm: number): st
  * sahada yazıcıya göre deneme gerektirdiğinden, "Ç" yerine boş kutu basmaktansa
  * "C" basmak yeğdir.
  */
+/**
+ * Türkçe harfleri CP1254'e (Windows Türkçe / Latin-5) taşır.
+ *
+ * Yalnız Latin-1'de KARŞILIĞI OLMAYAN altı harf çevrilir; ç ö ü Ç Ö Ü zaten
+ * Latin-1'de aynı kod noktasında durur ve `latin1` kodlaması onları olduğu
+ * gibi geçirir. Buradaki kod noktaları tek baytlık olduğu için `etiketBaytlari`
+ * içindeki latin1 kodlaması doğru CP1254 baytını üretir.
+ *
+ * ₺ simgesi CP1254'te yoktur; "TL" yazmak boş kutu basmaktan iyidir.
+ *
+ * SAHADA DOĞRULANDI: Gainscha 4B-2074C üzerinde CODEPAGE 1254 ile Türkçenin
+ * tamamı (I, i, İ, ı dahil) doğru basıldı; CP857 aynı yazıcıda i ailesini
+ * bozuyordu.
+ */
+function cp1254eTasi(metin: string): string {
+  const harita: Record<string, string> = {
+    ğ: '\u00f0',
+    Ğ: '\u00d0',
+    ı: '\u00fd',
+    İ: '\u00dd',
+    ş: '\u00fe',
+    Ş: '\u00de',
+    '₺': 'TL',
+  };
+  return metin.replace(/[ğĞıİşŞ₺]/g, (h) => harita[h] ?? h);
+}
+
 function asciyeIndir(metin: string): string {
   const harita: Record<string, string> = {
     ç: 'c',
@@ -123,11 +158,14 @@ export function etiketYerlesimi(icerik: EtiketIcerigi, olcu: EtiketOlcusu, secen
   let y = KENAR_MM;
 
   const adYukseklik = 3;
+  // Yazıcı Türkçe basabiliyorsa metin olduğu gibi kalır; basamıyorsa ASCII'ye iner.
+  const yaz = (metin: string): string => (secenek.turkce ? metin : asciyeIndir(metin));
+
   ogeler.push({
     tip: 'metin',
     xMm: KENAR_MM,
     yMm: y,
-    metin: asciyeIndir(adKisalt(icerik.ad, kullanilabilirMm, adYukseklik)),
+    metin: yaz(adKisalt(icerik.ad, kullanilabilirMm, adYukseklik)),
     yukseklikMm: adYukseklik,
     kalin: true,
   });
@@ -138,7 +176,7 @@ export function etiketYerlesimi(icerik: EtiketIcerigi, olcu: EtiketOlcusu, secen
       tip: 'metin',
       xMm: KENAR_MM,
       yMm: y,
-      metin: asciyeIndir(`Raf: ${icerik.rafKonumu}`),
+      metin: yaz(`Raf: ${icerik.rafKonumu}`),
       yukseklikMm: 2,
       kalin: false,
     });
@@ -151,7 +189,7 @@ export function etiketYerlesimi(icerik: EtiketIcerigi, olcu: EtiketOlcusu, secen
     tip: 'metin',
     xMm: KENAR_MM,
     yMm: y,
-    metin: asciyeIndir(paraFormat(icerik.fiyat)),
+    metin: yaz(paraFormat(icerik.fiyat)),
     yukseklikMm: fiyatYukseklik,
     kalin: true,
   });
@@ -257,6 +295,11 @@ function tspl(yerlesim: EtiketYerlesimi, olcu: EtiketOlcusu, adet: number): stri
     `DENSITY ${Math.min(15, Math.max(0, olcu.isi))}`,
     `SPEED ${Math.min(12, Math.max(1, olcu.hiz))}`,
     'DIRECTION 1',
+    /*
+     * Kod sayfası HER İŞTE yeniden bildirilir; yazıcı bir önceki işten kalan
+     * ayarı taşıyabilir ve etiket sessizce yanlış harflerle çıkar.
+     */
+    'CODEPAGE 1254',
     'CLS',
   ];
 
@@ -265,7 +308,7 @@ function tspl(yerlesim: EtiketYerlesimi, olcu: EtiketOlcusu, adet: number): stri
     const y = nokta(oge.yMm, olcu.dpi);
     if (oge.tip === 'metin') {
       const { font, carpan } = tsplFont(oge.yukseklikMm);
-      satirlar.push(`TEXT ${x},${y},"${font}",0,${carpan},${carpan},"${oge.metin}"`);
+      satirlar.push(`TEXT ${x},${y},"${font}",0,${carpan},${carpan},"${cp1254eTasi(oge.metin)}"`);
     } else if (oge.tip === 'barkod') {
       const modulNokta = Math.max(1, Math.round(oge.modulMm / (25.4 / olcu.dpi)));
       satirlar.push(
