@@ -50,6 +50,29 @@
   "overrides": [
     {
       "files": [
+        "apps/desktop/src/renderer/**/*.ts",
+        "apps/desktop/src/renderer/**/*.tsx"
+      ],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "prompt",
+            "message": "Electron prompt() desteklemez (istisna fırlatır). Bunun yerine Diyalog bileşeniyle kendi giriş diyaloğunu aç."
+          }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "window",
+            "property": "prompt",
+            "message": "Electron prompt() desteklemez (istisna fırlatır). Bunun yerine Diyalog bileşeniyle kendi giriş diyaloğunu aç."
+          }
+        ]
+      }
+    },
+    {
+      "files": [
         "**/test/**/*.ts",
         "**/*.test.ts",
         "**/scripts/**/*.ts"

@@ -492,6 +492,17 @@ function UrunKartiDiyalogu({
   });
   const [gonderiliyor, setGonderiliyor] = useState(false);
   const [barkodlar, setBarkodlar] = useState<string[]>([]);
+  /*
+   * Etiket adedi kendi diyaloğundan sorulur, `window.prompt` ile DEĞİL.
+   *
+   * Electron `prompt()`'u desteklemez: çağrı "prompt() is not supported."
+   * diye istisna fırlatır. Eskiden adet bununla soruluyordu ve istisna
+   * try bloğunun dışında kaldığı için düğme sessizce ölüyordu — ne etiket
+   * çıkıyor ne ekranda bir şey görünüyordu.
+   */
+  const [etiketAdediAcik, setEtiketAdediAcik] = useState(false);
+  const [etiketAdedi, setEtiketAdedi] = useState('1');
+  const [etiketBasiliyor, setEtiketBasiliyor] = useState(false);
   /** Kısa kod ayrı tutulur; kaydederken barkod listesine katılır. */
   const [kisaKod, setKisaKod] = useState('');
 
@@ -602,6 +613,26 @@ function UrunKartiDiyalogu({
     }
   };
 
+  const etiketiYazdir = async () => {
+    if (!mevcut) return;
+    const adet = Math.max(1, Math.min(100, Number(etiketAdedi.replace(',', '.')) || 1));
+    setEtiketBasiliyor(true);
+    try {
+      const sonuc = await cagir<{ basarili: boolean; hata?: string }>('urun.etiketYazdir', { urunId: mevcut.id, adet });
+      if (sonuc.basarili) {
+        bildir.basari(`${adet} etiket yazdırıldı`);
+        setEtiketAdediAcik(false);
+      } else {
+        // Diyalog AÇIK kalır: yazıcı sorunu düzeltilip tekrar denenebilsin.
+        bildir.uyari('Etiket yazdırılamadı', sonuc.hata);
+      }
+    } catch (hata) {
+      hatayiBildir(hata, 'Etiket yazdırma');
+    } finally {
+      setEtiketBasiliyor(false);
+    }
+  };
+
   const icBarkodUret = async () => {
     if (!mevcut) return;
     try {
@@ -643,20 +674,9 @@ function UrunKartiDiyalogu({
               type="button"
               className="tus-ikincil"
               title="Ürünün raf etiketini yazdırır (ad, fiyat, barkod)"
-              onClick={async () => {
-                const adetMetni = window.prompt('Kaç adet etiket basılsın?', '1');
-                if (adetMetni === null) return;
-                const adet = Math.max(1, Math.min(100, Number(adetMetni) || 1));
-                try {
-                  const sonuc = await cagir<{ basarili: boolean; hata?: string }>('urun.etiketYazdir', {
-                    urunId: mevcut.id,
-                    adet,
-                  });
-                  if (sonuc.basarili) bildir.basari(`${adet} etiket yazdırıldı`);
-                  else bildir.uyari('Etiket yazdırılamadı', sonuc.hata);
-                } catch (hata) {
-                  hatayiBildir(hata, 'Etiket yazdırma');
-                }
+              onClick={() => {
+                setEtiketAdedi('1');
+                setEtiketAdediAcik(true);
               }}
             >
               Etiket Yazdır
@@ -896,6 +916,43 @@ function UrunKartiDiyalogu({
           </Alan>
         </div>
       </div>
+
+      {/* Etiket adedi — Electron `prompt()` desteklemediği için kendi diyaloğumuz. */}
+      <Diyalog
+        acik={etiketAdediAcik}
+        baslik="Etiket Yazdır"
+        aciklama={mevcut ? `${mevcut.ad} için raf etiketi basılacak.` : undefined}
+        genislik="dar"
+        onKapat={() => setEtiketAdediAcik(false)}
+        altBilgi={
+          <>
+            <button type="button" className="tus-ikincil" onClick={() => setEtiketAdediAcik(false)}>
+              Vazgeç
+            </button>
+            <button type="button" className="tus-birincil" onClick={() => void etiketiYazdir()} disabled={etiketBasiliyor}>
+              {etiketBasiliyor ? 'Yazdırılıyor…' : 'Yazdır'}
+            </button>
+          </>
+        }
+      >
+        <Alan etiket="Kaç adet?" ipucu="En fazla 100 adet.">
+          <input
+            className="alan sayi"
+            type="number"
+            min={1}
+            max={100}
+            value={etiketAdedi}
+            data-odak
+            onChange={(e) => setEtiketAdedi(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !etiketBasiliyor) {
+                e.preventDefault();
+                void etiketiYazdir();
+              }
+            }}
+          />
+        </Alan>
+      </Diyalog>
     </Diyalog>
   );
 }
