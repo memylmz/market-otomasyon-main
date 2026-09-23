@@ -452,6 +452,16 @@ export const zAlisGirdi = z.object({
           lot_no: zMetin(60).nullable().optional(),
           /** Doluysa MEVCUT ürünün satış fiyatı da güncellenir. */
           yeni_satis_fiyati: zKurusPozitif.optional(),
+          /*
+           * MEVCUT ürüne bu faturada kaydedilecek barkod.
+           *
+           * Sahadaki en sık karışıklık: ürün katalogda vardır ama elindeki
+           * ambalajın barkodu kartına kayıtlı değildir. Okutulunca "bulunamadı"
+           * der, kullanıcı da mükerrer ürün açar. Bu alan, kalemi mevcut ürüne
+           * bağlarken okutulan barkodu o ürüne eklemeyi sağlar — aynı barkod
+           * bir daha sorulmaz. Barkod başka bir üründeyse mal kabul reddeder.
+           */
+          barkod_ekle: zBarkod.optional(),
         })
         .refine((k) => Boolean(k.urun_id) !== Boolean(k.yeni_urun), {
           message: 'Kalem ya mevcut bir ürüne ya da yeni bir ürüne bağlı olmalıdır',
@@ -466,6 +476,9 @@ export const zAlisGirdi = z.object({
          */
         .refine((k) => !(k.yeni_urun && k.yeni_satis_fiyati !== undefined), {
           message: 'Yeni üründe satış fiyatı `yeni_urun.satis_fiyati` ile verilir; `yeni_satis_fiyati` kullanılamaz',
+        })
+        .refine((k) => !(k.yeni_urun && k.barkod_ekle !== undefined), {
+          message: 'Yeni üründe barkod `yeni_urun.barkod` ile verilir; `barkod_ekle` yalnız mevcut ürün içindir',
         }),
     )
     .min(1, 'En az bir kalem gereklidir')

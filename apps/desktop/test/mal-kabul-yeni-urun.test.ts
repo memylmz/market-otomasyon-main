@@ -190,3 +190,65 @@ describe('faturada yeni ürün', () => {
     expect(kasaHareketi?.adet).toBe(0);
   });
 });
+
+
+/**
+ * Katalogda olan ama barkodu kartına kayıtlı OLMAYAN ürün (§11.8).
+ *
+ * Sahadaki en sık karışıklık bu: ürün vardır, elindeki ambalajın barkodu
+ * yoktur. Okutulunca "bulunamadı" der; kullanıcı mükerrer ürün açar.
+ * Kalemi mevcut ürüne bağlarken barkod da eklenir — bir daha sorulmaz.
+ */
+describe('mevcut ürüne barkod ekleme', () => {
+  it('okutulan barkodu mevcut ürüne kaydeder', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    const urunId = urunEkle(ortam, { ad: 'Ayran 1L', stok: adet(0), alisFiyati: 900 });
+
+    malKabulOnayla(ortam.uygulama.baglam, ortam.admin, {
+      tedarikci_id: tedarikciId,
+      kalemler: [{ urun_id: urunId, barkod_ekle: '8690000000029', miktar: adet(6), birim_fiyat: 900, kdv_orani: 10 }],
+    });
+
+    expect(barkodSahibi(ortam.uygulama.baglam.vt, '8690000000029'), 'barkod artık bu ürüne ait').toBe(urunId);
+    const olaylar = ortam.uygulama.baglam.vt
+      .hazirla('SELECT olay_tipi FROM sync_outbox')
+      .tumu<{ olay_tipi: string }>()
+      .map((o) => o.olay_tipi);
+    expect(olaylar, 'merkez de görsün diye olay yazılır').toContain('BARKOD_KAYDEDILDI');
+  });
+
+  it('barkod zaten o üründeyse sessizce geçer, ikinci kayıt açmaz', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    const urunId = urunEkle(ortam, { ad: 'Kola', barkod: '8690000000036', stok: adet(0) });
+
+    malKabulOnayla(ortam.uygulama.baglam, ortam.admin, {
+      tedarikci_id: tedarikciId,
+      kalemler: [{ urun_id: urunId, barkod_ekle: '8690000000036', miktar: adet(2), birim_fiyat: 900, kdv_orani: 20 }],
+    });
+
+    const adet_ = ortam.uygulama.baglam.vt
+      .hazirla('SELECT COUNT(*) AS adet FROM barkodlar WHERE barkod = ?')
+      .tek<{ adet: number }>('8690000000036');
+    expect(adet_?.adet).toBe(1);
+  });
+
+  it('barkod BAŞKA bir üründeyse faturanın tamamını reddeder', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    const sahipUrun = urunEkle(ortam, { ad: 'Başkasının Ürünü', barkod: '8690000000043' });
+    const hedefUrun = urunEkle(ortam, { ad: 'Hedef Ürün', stok: adet(0) });
+    expect(sahipUrun).not.toBe(hedefUrun);
+
+    expect(() =>
+      malKabulOnayla(ortam.uygulama.baglam, ortam.admin, {
+        tedarikci_id: tedarikciId,
+        kalemler: [{ urun_id: hedefUrun, barkod_ekle: '8690000000043', miktar: adet(1), birim_fiyat: 900, kdv_orani: 20 }],
+      }),
+    ).toThrow(/kayıtlı/);
+
+    expect(barkodSahibi(ortam.uygulama.baglam.vt, '8690000000043'), 'sahip değişmemeli').toBe(sahipUrun);
+    expect(
+      ortam.uygulama.baglam.vt.hazirla('SELECT COUNT(*) AS adet FROM alis_faturalari').tek<{ adet: number }>()!.adet,
+      'fatura yazılmamalı',
+    ).toBe(0);
+  });
+});

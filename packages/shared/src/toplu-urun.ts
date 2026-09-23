@@ -99,7 +99,24 @@ export function topluGirisKalemleri(
     const sktLotAlanlari = { ...(skt ? { skt } : {}), ...(lot ? { lot_no: lot } : {}) };
 
     if (satir.urun_id) {
-      kalemler.push({ urun_id: satir.urun_id, miktar, birim_fiyat: alis, kdv_orani: kdvOrani, ...sktLotAlanlari });
+      /*
+       * Satırdaki barkod kaleme TAŞINIR (`barkod_ekle`).
+       *
+       * Kullanıcı katalogda bulunmayan bir barkodu okutup satırı mevcut ürüne
+       * bağladığında o barkodun ürüne kaydedilmesini istiyoruz; yoksa aynı
+       * barkod her mal kabulde yeniden "bulunamadı" der ve mükerrer ürün
+       * açılmasına davetiye çıkar. Barkod zaten o ürüne aitse mal kabul
+       * tarafında atlanır — zararsızdır.
+       */
+      const mevcutBarkod = satir.barkod.trim() ? barkodNormalize(satir.barkod) : '';
+      kalemler.push({
+        urun_id: satir.urun_id,
+        miktar,
+        birim_fiyat: alis,
+        kdv_orani: kdvOrani,
+        ...(mevcutBarkod ? { barkod_ekle: mevcutBarkod } : {}),
+        ...sktLotAlanlari,
+      });
       return;
     }
 

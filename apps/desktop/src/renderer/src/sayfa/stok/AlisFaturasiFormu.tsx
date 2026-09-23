@@ -108,6 +108,8 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   const [satirlar, setSatirlar] = useState<Satir[]>([]);
   const [barkodGirdi, setBarkodGirdi] = useState('');
   const [aramaAcik, setAramaAcik] = useState(false);
+  /** Hangi satır mevcut bir ürüne bağlanmayı bekliyor (null = yok). */
+  const [baglanacak, setBaglanacak] = useState<number | null>(null);
   const [gonderiliyor, setGonderiliyor] = useState(false);
   /** Son okutulan/birleşen satır — kısa süre vurgulanır ki kullanıcı ne olduğunu görsün. */
   const [vurgulu, setVurgulu] = useState<number | null>(null);
@@ -155,6 +157,35 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
    */
   const adaOdaklan = () => {
     requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-ad-alani]')?.focus());
+  };
+
+  /*
+   * Yeni ürün satırını MEVCUT bir ürüne bağlar.
+   *
+   * Sahadaki en sık karışıklık: ürün katalogda vardır ama elindeki ambalajın
+   * barkodu kartına kayıtlı değildir; okutulunca "bulunamadı" der ve kullanıcı
+   * mükerrer ürün açar. Burada satır mevcut ürüne bağlanır ve OKUTULAN BARKOD
+   * satırda kalır — fatura kaydedilirken o ürüne eklenir, bir daha sorulmaz.
+   */
+  const satiriUruneBagla = (sira: number, urun: SecilenUrun) => {
+    setSatirlar((liste) =>
+      liste.map((s, j) =>
+        j === sira
+          ? {
+              ...s,
+              ad: urun.ad,
+              // Kullanıcı alış fiyatını girdiyse ona dokunma; girmediyse karttan doldur.
+              alis: s.alis || urun.alis_fiyati,
+              satis: urun.satis_fiyati,
+              kdv: String(urun.kdv_orani),
+              urun_id: urun.id,
+              sktZorunlu: urun.skt_takibi === true,
+            }
+          : s,
+      ),
+    );
+    setBaglanacak(null);
+    vurgula(sira);
   };
 
   const satirEkleMevcut = (urun: SecilenUrun, adet = 1) => {
@@ -445,6 +476,25 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         </div>
       )}
 
+      {baglanacak !== null && (
+        <div className="mb-3 rounded border border-bilgi bg-bilgi-yumusak p-2">
+          <div className="mb-1 flex items-center justify-between text-xs text-metin-2">
+            <span>
+              Barkod <strong>{satirlar[baglanacak]?.barkod || '—'}</strong> hangi ürüne ait? Seçtiğiniz ürünün kartına
+              bu barkod eklenecek.
+            </span>
+            <button type="button" className="text-xs text-metin-3 hover:underline" onClick={() => setBaglanacak(null)}>
+              Vazgeç
+            </button>
+          </div>
+          <UrunSecici
+            onSec={(urun) => satiriUruneBagla(baglanacak, urun)}
+            placeholder="Barkodun ait olduğu ürünü arayın…"
+            otomatikOdak
+          />
+        </div>
+      )}
+
       {satirlar.length === 0 ? (
         <p className="py-6 text-center text-sm text-metin-4">
           Barkod okutarak, yazıp Enter&apos;layarak ya da isimle arayarak kalem ekleyin.
@@ -509,6 +559,19 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                           placeholder="Ürün adı *"
                         />
                         <Rozet tur="bilgi">Yeni ürün</Rozet>
+                        {/*
+                          * Katalogda olan ama barkodu kartına yazılmamış ürünler için kaçış yolu.
+                          * Bağlanınca okutulan barkod satırda kalır ve fatura kaydedilirken
+                          * o ürünün kartına eklenir — aynı ürün ikinci kez açılmaz.
+                          */}
+                        <button
+                          type="button"
+                          className="whitespace-nowrap text-xs text-bilgi hover:underline"
+                          onClick={() => setBaglanacak(i)}
+                          title="Bu satırı katalogdaki mevcut bir ürüne bağla"
+                        >
+                          Mevcut ürüne bağla
+                        </button>
                       </div>
                     ) : (
                       <span className="font-medium">{s.ad}</span>

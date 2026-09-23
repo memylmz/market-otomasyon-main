@@ -672,6 +672,60 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
     vurgula(sonuc.vurgulanan);
   };
 
+  /*
+   * Yeni ürün satırını MEVCUT bir ürüne bağlar (kasadaki karşılığı:
+   * AlisFaturasiFormu.tsx `satiriUruneBagla`).
+   *
+   * Ürün katalogda vardır ama elindeki ambalajın barkodu kartına kayıtlı
+   * değildir; okutulunca bulunamaz ve kullanıcı mükerrer ürün açar. Burada
+   * satır mevcut ürüne bağlanır, OKUTULAN BARKOD satırda kalır ve fatura
+   * uygulanırken o ürünün kartına eklenir — bir daha sorulmaz.
+   */
+  const satiriUruneBagla = (sira: number, urun: Urun) => {
+    setSatirlar((liste) =>
+      liste.map((x, j) =>
+        j === sira
+          ? {
+              ...x,
+              ad: urun.ad,
+              // Kullanıcı alış fiyatını girdiyse ona dokunma; girmediyse karttan doldur.
+              alis: x.alis || urun.alis_fiyati,
+              satis: urun.satis_fiyati,
+              kdv: String(urun.kdv_orani),
+              urun_id: urun.id,
+              sktZorunlu: Boolean(urun.skt_takibi),
+            }
+          : x,
+      ),
+    );
+    vurgula(sira);
+  };
+
+  /*
+   * Satırın bağlanacağı ürünü seçtiren açılır liste. Kart ve tablo düzeni aynı
+   * satırı iki kez çizdiği için tek yerde tutulur. Bileşen DEĞİL, JSX döndüren
+   * bir yardımcıdır: bileşen olsaydı her üst render'da yeniden bağlanır ve
+   * açık olan liste kapanırdı.
+   */
+  const baglaSecici = (sira: number) => (
+    <select
+      className="alan py-1 text-xs"
+      value=""
+      onChange={(e) => {
+        const urun = urunHaritasi.get(e.target.value);
+        if (urun) satiriUruneBagla(sira, urun);
+      }}
+      title="Bu satırı katalogdaki mevcut bir ürüne bağla; okutulan barkod o ürüne eklenir"
+    >
+      <option value="">Mevcut ürüne bağla…</option>
+      {(urunler.veri?.data ?? []).map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.ad}
+        </option>
+      ))}
+    </select>
+  );
+
   /**
    * Barkod alanı akışın merkezidir (bkz. AlisFaturasiFormu.tsx): bulunan ürün
    * doğrudan satıra bağlanır, bulunamayan barkod "yeni ürün" satırı açar, boş
@@ -984,6 +1038,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                         ✕
                       </button>
                     </div>
+                    {yeniUrun && baglaSecici(i)}
                     <div className="grid grid-cols-2 gap-2">
                       <label className="block text-xs">
                         <span className="etiket">Barkod</span>
@@ -1095,6 +1150,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                                 placeholder="Ürün adı *"
                               />
                               <Rozet tur="bilgi">Yeni</Rozet>
+                              {baglaSecici(i)}
                             </div>
                           ) : (
                             <span className="font-medium">{s.ad}</span>

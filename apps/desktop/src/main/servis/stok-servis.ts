@@ -415,6 +415,54 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
       const urun = urunBul(vt, kalem.urun_id);
       if (!urun) throw hatalar.bulunamadi('Ürün');
 
+      /*
+       * OKUTULAN BARKODU MEVCUT ÜRÜNE KAYDET (§11.8).
+       *
+       * Sahadaki en sık karışıklık: ürün katalogda vardır ama elindeki
+       * ambalajın barkodu kartına kayıtlı değildir. Okutulunca "bulunamadı"
+       * der; kullanıcı da mükerrer ürün açar. Kalemi mevcut ürüne bağlarken
+       * barkod da eklenirse aynı barkod BİR DAHA sorulmaz.
+       *
+       * Barkod başka bir ürüne aitse fatura tümden reddedilir: sessizce sahip
+       * değiştirmek, satışta yanlış ürünün okunmasına yol açardı.
+       */
+      if (!kalem.yeniAcildi && kalem.barkod_ekle) {
+        const eklenecek = barkodNormalize(kalem.barkod_ekle);
+        const sahip = eklenecek ? barkodSahibi(vt, eklenecek) : null;
+        if (sahip && sahip !== urun.id) {
+          const sahipUrun = urunBul(vt, sahip);
+          throw new UygulamaHatasi(
+            HATA_KODU.BARKOD_KULLANIMDA,
+            `"${eklenecek}" barkodu "${sahipUrun?.ad ?? sahip}" ürününde kayıtlı; "${urun.ad}" ürününe eklenemez.`,
+            { detay: { barkod: eklenecek, mevcut_urun_id: sahip, hedef_urun_id: urun.id } },
+          );
+        }
+        if (eklenecek && !sahip) {
+          const barkodId = barkodEkle(vt, urun.id, eklenecek, null, cihazId, kayitZamani);
+          olayYaz(
+            vt,
+            {
+              id: uuid(),
+              olay_tipi: 'BARKOD_KAYDEDILDI',
+              entity: 'barkod',
+              entity_id: barkodId,
+              veri: {
+                id: barkodId,
+                urun_id: urun.id,
+                barkod: eklenecek,
+                ambalaj_aciklamasi: null,
+                aktif_mi: true,
+                created_at: kayitZamani,
+                updated_at: kayitZamani,
+              },
+              olusturma_zamani: kayitZamani,
+            },
+            cihazId,
+            kayitZamani,
+          );
+        }
+      }
+
       alisKalemiEkle(
         vt,
         {
