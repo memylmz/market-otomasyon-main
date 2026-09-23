@@ -15,7 +15,7 @@
 import { simdi } from '@market/shared';
 import type { Vt } from '../db/surucu.js';
 import { iadeYap } from './satis-servis.js';
-import type { Aktor, Baglam } from './baglam.js';
+import { yetkisiVarMi, type Aktor, type Baglam } from './baglam.js';
 
 export interface IadeTalimati {
   id: string;
@@ -79,20 +79,46 @@ export function bekleyenIadeleriIsle(baglam: Baglam, aktor: Aktor): IslemSonucu 
   for (const talimat of bekleyenler) {
     // Talimat BU kasaya yazılmışsa uygulanır; iki kasa uygularsa iade iki kez işlenir.
     if (talimat.hedef_cihaz_id && talimat.hedef_cihaz_id !== cihazId) continue;
+    /*
+     * Yetkisiz kullanıcı oturumdayken talimat BEKLER, başarısız SAYILMAZ.
+     *
+     * Kardeş servisler (alış, cari) bunu yapıyordu; burada yoktu. `iadeYap`
+     * yetki hatası fırlatıyor, hata yakalanıp talimatın `hata` alanına
+     * yazılıyor ve her senkron turunda sahte bir başarısızlık üretiliyordu.
+     * Kasiyer oturumdayken iade eninde sonunda uygulanıyor ama arada yanıltıcı
+     * hata kaydı birikiyordu.
+     */
+    if (!yetkisiVarMi(aktor, 'satis.iade')) continue;
 
     try {
       const kalemler = JSON.parse(talimat.kalemler) as { satis_kalemi_id: string; miktar: number }[];
-      const sonuc = iadeYap(baglam, aktor, {
-        kaynak_satis_id: talimat.satis_id,
-        kalemler,
-        iade_yontemi: talimat.iade_yontemi,
-        neden: talimat.neden,
+      /*
+       * UYGULAMA VE "UYGULANDI" İŞARETİ TEK İŞLEMDE.
+       *
+       * Eskiden ikisi ayrı yazmaydı: talimat uygulanıyor, ardından ayrı bir
+       * UPDATE ile işaretleniyordu. Arada elektrik kesilirse işlem yapılmış
+       * ama talimat "bekliyor" kalıyor ve bir sonraki senkronda TEKRAR
+       * uygulanıyordu. Deneyle doğrulandı: alış faturasında stok 10→20 adet,
+       * tedarikçi borcu 120→240 TL, fatura sayısı 1→2 oldu; hiçbir koruma
+       * devreye girmedi.
+       *
+       * Sürücü iç içe işlemi SAVEPOINT ile desteklediği için, içeride kendi
+       * `vt.islem`ini açan servisler bundan etkilenmez.
+       */
+      const satisId = vt.islem(() => {
+        const sonuc = iadeYap(baglam, aktor, {
+          kaynak_satis_id: talimat.satis_id,
+          kalemler,
+          iade_yontemi: talimat.iade_yontemi,
+          neden: talimat.neden,
+        });
+        vt.hazirla(
+          'UPDATE iade_talimatlari SET uygulandi_mi = 1, sonuc_satis_id = ?, hata = NULL, updated_at = ? WHERE id = ?',
+        ).calistir(sonuc.satisId, simdi(), talimat.id);
+        return sonuc.satisId;
       });
-      vt.hazirla(
-        'UPDATE iade_talimatlari SET uygulandi_mi = 1, sonuc_satis_id = ?, hata = NULL, updated_at = ? WHERE id = ?',
-      ).calistir(sonuc.satisId, simdi(), talimat.id);
       uygulanan++;
-      baglam.kayit.bilgi('Panelden gelen iade uygulandı', { talimat_id: talimat.id, satis_id: sonuc.satisId });
+      baglam.kayit.bilgi('Panelden gelen iade uygulandı', { talimat_id: talimat.id, satis_id: satisId });
     } catch (hata) {
       const mesaj = hata instanceof Error ? hata.message : String(hata);
       vt.hazirla('UPDATE iade_talimatlari SET hata = ?, updated_at = ? WHERE id = ?').calistir(mesaj, simdi(), talimat.id);

@@ -91,12 +91,34 @@ export function bekleyenAlisTalimatlariniIsle(baglam: Baglam, aktor: Aktor): Isl
     }
 
     try {
-      const faturaId = uygula(baglam, aktor, talimat, govde);
-      vt.hazirla(
-        'UPDATE alis_talimatlari SET uygulandi_mi = 1, sonuc_fatura_id = ?, hata = NULL, updated_at = ? WHERE id = ?',
-      ).calistir(faturaId, simdi(), talimat.id);
+      /*
+       * UYGULAMA VE "UYGULANDI" İŞARETİ TEK İŞLEMDE.
+       *
+       * Eskiden ikisi ayrı yazmaydı: talimat uygulanıyor, ardından ayrı bir
+       * UPDATE ile işaretleniyordu. Arada elektrik kesilirse işlem yapılmış
+       * ama talimat "bekliyor" kalıyor ve bir sonraki senkronda TEKRAR
+       * uygulanıyordu. Deneyle doğrulandı: alış faturasında stok 10→20 adet,
+       * tedarikçi borcu 120→240 TL, fatura sayısı 1→2 oldu; hiçbir koruma
+       * devreye girmedi.
+       *
+       * Sürücü iç içe işlemi SAVEPOINT ile desteklediği için, içeride kendi
+       * `vt.islem`ini açan servisler bundan etkilenmez.
+       */
+      const faturaId = vt.islem(() => {
+        const id = uygula(baglam, aktor, talimat, govde);
+        vt.hazirla(
+          'UPDATE alis_talimatlari SET uygulandi_mi = 1, sonuc_fatura_id = ?, hata = NULL, updated_at = ? WHERE id = ?',
+        ).calistir(id, simdi(), talimat.id);
+        return id;
+      });
       uygulanan++;
-      baglam.kayit.bilgi('Panelden gelen alış talimatı uygulandı', { talimat_id: talimat.id, tip: talimat.tip });
+      // Sonuç kimliği de loglanır: "bu talimat hangi faturayı üretti" sorusu
+      // sonradan yalnız logdan cevaplanabiliyor.
+      baglam.kayit.bilgi('Panelden gelen alış talimatı uygulandı', {
+        talimat_id: talimat.id,
+        tip: talimat.tip,
+        fatura_id: faturaId,
+      });
     } catch (hata) {
       const mesaj = hata instanceof Error ? hata.message : String(hata);
       isaretle(vt, talimat.id, null, mesaj);
