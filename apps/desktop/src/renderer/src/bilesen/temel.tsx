@@ -12,7 +12,12 @@ export interface DiyalogOzellikleri {
   acik: boolean;
   baslik: string;
   aciklama?: string;
-  genislik?: 'dar' | 'orta' | 'genis';
+  /**
+   * `tam`: neredeyse tüm ekranı kaplar. Mal kabul gibi ONLARCA SATIRIN yan
+   * yana girildiği formlar için; dar bir diyalogda sütunlar sıkışıyor ve
+   * kullanıcı sürekli kaydırmak zorunda kalıyor.
+   */
+  genislik?: 'dar' | 'orta' | 'genis' | 'tam';
   onKapat: () => void;
   children: ReactNode;
   altBilgi?: ReactNode;
@@ -60,7 +65,14 @@ export function Diyalog({ acik, baslik, aciklama, genislik = 'orta', onKapat, ch
 
   if (!acik) return null;
 
-  const genislikSinifi = genislik === 'dar' ? 'max-w-md' : genislik === 'genis' ? 'max-w-5xl' : 'max-w-2xl';
+  const genislikSinifi =
+    genislik === 'dar'
+      ? 'max-w-md'
+      : genislik === 'genis'
+        ? 'max-w-5xl'
+        : genislik === 'tam'
+          ? 'max-w-[96vw]'
+          : 'max-w-2xl';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ortu/50 p-4" role="presentation">
@@ -69,7 +81,7 @@ export function Diyalog({ acik, baslik, aciklama, genislik = 'orta', onKapat, ch
         role="dialog"
         aria-modal="true"
         aria-label={baslik}
-        className={`kart w-full ${genislikSinifi} max-h-[90vh] overflow-hidden shadow-2xl`}
+        className={`kart w-full ${genislikSinifi} ${genislik === 'tam' ? 'h-[94vh] max-h-[94vh]' : 'max-h-[90vh]'} overflow-hidden shadow-2xl`}
       >
         <header className="border-b border-cizgi px-5 py-4">
           <h2 className="text-lg font-semibold">{baslik}</h2>

@@ -30,3 +30,7 @@ desktop.ini
 
 # Claude Code yerel ayarlari
 .claude/settings.local.json
+
+# Etiket yazıcısına gidecek TSPL çıktısının yanlışlıkla IP adlı dosyaya
+# yazılmış hâli; kod değil, artık.
+apps/desktop/192.168.*

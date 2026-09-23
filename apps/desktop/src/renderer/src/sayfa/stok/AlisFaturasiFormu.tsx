@@ -209,7 +209,10 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         setSatirlar(kat.satirlar);
         vurgula(kat.vurgulanan);
         if (!kat.birlesti) {
-          bildir.bilgi('Ürün bulunamadı', 'Yeni ürün satırı eklendi; adını ve satış fiyatını girin.');
+          bildir.uyari(
+            `"${barkod}" katalogda yok`,
+            'YENİ ÜRÜN olarak açılacak. Ürün zaten varsa bu barkod ona kayıtlı değil demektir — ürün kartından ekleyebilirsiniz.',
+          );
           adaOdaklan();
         } else {
           barkodAlani.current?.focus();
@@ -326,7 +329,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
       acik={acik}
       baslik="Mal Kabul / Alış Faturası"
       aciklama="Onaylandığında stok artar, tedarikçiye cari borç oluşur; katalogda olmayan ürünler fatura ile aynı anda açılır."
-      genislik="genis"
+      genislik="tam"
       onKapat={onKapat}
       altBilgi={
         <>
@@ -465,7 +468,17 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
             {satirlar.map((s, i) => {
               const yeniUrun = !s.urun_id;
               return (
-                <tr key={i} className={vurgulu === i ? 'bg-vurgu-yumusak' : ''}>
+                <tr
+                  key={i}
+                  /*
+                   * Yeni ürün satırı KALICI olarak işaretlenir. Bulunamama
+                   * bilgisi yalnız geçici bir bildirimle veriliyordu ve
+                   * kolayca kaçıyordu; kullanıcı katalogda olduğunu sandığı
+                   * bir ürünün yeni olarak açılacağını ancak faturayı
+                   * kaydettikten sonra fark ediyordu.
+                   */
+                  className={`${vurgulu === i ? 'bg-vurgu-yumusak' : ''} ${yeniUrun ? 'border-l-2 border-bilgi' : ''}`}
+                >
                   <td>
                     {yeniUrun ? (
                       <input
@@ -495,7 +508,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                           }}
                           placeholder="Ürün adı *"
                         />
-                        <Rozet tur="bilgi">Yeni</Rozet>
+                        <Rozet tur="bilgi">Yeni ürün</Rozet>
                       </div>
                     ) : (
                       <span className="font-medium">{s.ad}</span>
