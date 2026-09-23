@@ -33,6 +33,8 @@ import {
   type AlisKalemGirdisi,
   type Kurus,
   type TopluGirisSatiri,
+  carpanCoz,
+  satiriKat,
 } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { api, uclar } from '@/lib/api';
@@ -613,12 +615,45 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
   const [gonderiliyor, setGonderiliyor] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
   const barkodAlani = useRef<HTMLInputElement>(null);
+  /** Son eklenen/birleşen satır — kısa süre vurgulanır ki kullanıcı ne olduğunu görsün. */
+  const [vurgulu, setVurgulu] = useState<number | null>(null);
+  const vurguZamanlayici = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const vurgula = (sira: number) => {
+    setVurgulu(sira);
+    if (vurguZamanlayici.current) clearTimeout(vurguZamanlayici.current);
+    vurguZamanlayici.current = setTimeout(() => setVurgulu(null), 1200);
+  };
+
+  useEffect(() => () => void (vurguZamanlayici.current && clearTimeout(vurguZamanlayici.current)), []);
+
+  /*
+   * Yeni ürün satırının ad alanına odaklanır.
+   *
+   * Panel mobil-öncelikli olduğu için ad alanı İKİ KEZ çizilir (dar ekranda
+   * kart, geniş ekranda tablo) ve biri CSS ile gizlidir. Gizli bir alana
+   * odaklanmak sessizce başarısız olur; bu yüzden GÖRÜNÜR olan seçilir.
+   * Yeni satır listenin başına eklendiği için ilk görünür alan doğru olandır.
+   */
+  const adaOdaklan = () => {
+    requestAnimationFrame(() => {
+      const adaylar = Array.from(document.querySelectorAll<HTMLInputElement>('[data-ad-alani]'));
+      adaylar.find((a) => a.offsetParent !== null)?.focus();
+    });
+  };
 
   const urunHaritasi = useMemo(() => new Map((urunler.veri?.data ?? []).map((u) => [u.id, u])), [urunler.veri]);
 
-  const satirEkleMevcut = (urun: Urun, barkod = '') => {
-    setSatirlar((s) => [
-      ...s,
+  /*
+   * Satır katma kuralı KASAYLA ORTAK (`satiriKat`, @market/shared): aynı ürün
+   * ikinci kez girilince miktar artar, yeni satır açılmaz. Eskiden her giriş
+   * yeni satır ekliyordu; bir koliden on iki kez okutan kullanıcı faturada
+   * aynı ürünü on iki kez görüyordu. Yeni satır EN ÜSTE eklenir — kırk
+   * kalemlik faturada en alta eklenen satır ekranın dışında kalıyordu.
+   */
+  const satirEkleMevcut = (urun: Urun, barkod = '', adet = 1) => {
+    const sonuc = satiriKat(
+      satirlar,
       {
         barkod: barkod || urun.barkod || '',
         ad: urun.ad,
@@ -631,7 +666,10 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
         urun_id: urun.id,
         sktZorunlu: Boolean(urun.skt_takibi),
       },
-    ]);
+      adet,
+    );
+    setSatirlar(sonuc.satirlar);
+    vurgula(sonuc.vurgulanan);
   };
 
   /**
@@ -645,11 +683,14 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
   const barkodAra = async (tus: KeyboardEvent<HTMLInputElement>) => {
     if (tus.key !== 'Enter' || barkodAraniyor) return;
     tus.preventDefault();
-    const deger = barkodGirdi.trim();
+    // "12*barkod" → koli girişi tek harekete iner (kasadaki çarpan alışkanlığı).
+    const { carpan, barkod: deger } = carpanCoz(barkodGirdi);
     setBarkodGirdi('');
     if (!deger) {
-      setSatirlar((s) => [...s, bosSatir()]);
-      barkodAlani.current?.focus();
+      const bos = satiriKat(satirlar, bosSatir(), carpan);
+      setSatirlar(bos.satirlar);
+      vurgula(bos.vurgulanan);
+      adaOdaklan();
       return;
     }
     setBarkodAraniyor(true);
@@ -658,16 +699,20 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
       const sonuc = await api<{ data: Urun[] }>(`${uclar.urunler}?barkod=${encodeURIComponent(deger)}`);
       const bulunan = sonuc.data[0];
       if (bulunan) {
-        satirEkleMevcut(bulunan, bulunan.barkod ?? deger);
+        satirEkleMevcut(bulunan, bulunan.barkod ?? deger, carpan);
+        barkodAlani.current?.focus();
       } else {
-        setSatirlar((s) => [...s, bosSatir(deger)]);
+        const kat = satiriKat(satirlar, bosSatir(deger), carpan);
+        setSatirlar(kat.satirlar);
+        vurgula(kat.vurgulanan);
+        // Yeni ürün satırı ad bekler; imleç oraya gitmezse her üründe fareye
+        // uzanmak gerekir.
+        if (!kat.birlesti) adaOdaklan();
       }
     } catch (h) {
       setHata(h instanceof Error ? h.message : 'Barkod sorgulanamadı.');
     } finally {
       setBarkodAraniyor(false);
-      // Elde tarayıcı olan kullanıcı ekrana dokunmadan arka arkaya okutabilsin.
-      barkodAlani.current?.focus();
     }
   };
 
@@ -913,14 +958,21 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
               {satirlar.map((s, i) => {
                 const yeniUrun = !s.urun_id;
                 return (
-                  <div key={i} className="kart space-y-2 p-3">
+                  <div key={i} className={`kart space-y-2 p-3 ${vurgulu === i ? 'border-vurgu bg-vurgu-yumusak' : ''}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-1 items-center gap-2">
                         {yeniUrun ? (
                           <input
+                            data-ad-alani
                             className="alan"
                             value={s.ad}
                             onChange={(e) => guncelle(i, { ad: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                barkodAlani.current?.focus();
+                              }
+                            }}
                             placeholder="Ürün adı *"
                           />
                         ) : (
@@ -1013,7 +1065,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                   {satirlar.map((s, i) => {
                     const yeniUrun = !s.urun_id;
                     return (
-                      <tr key={i}>
+                      <tr key={i} className={vurgulu === i ? 'bg-vurgu-yumusak' : ''}>
                         <td>
                           {yeniUrun ? (
                             <input
@@ -1030,9 +1082,16 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                           {yeniUrun ? (
                             <div className="flex items-center gap-2">
                               <input
+                                data-ad-alani
                                 className="alan py-1"
                                 value={s.ad}
                                 onChange={(e) => guncelle(i, { ad: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    barkodAlani.current?.focus();
+                                  }
+                                }}
                                 placeholder="Ürün adı *"
                               />
                               <Rozet tur="bilgi">Yeni</Rozet>
