@@ -334,7 +334,7 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
      * en pahalıya mal olan hâlidir.
      */
     const cozulmusKalemler = hesaplananlar.map((kalem, sira) => {
-      if (kalem.urun_id) return { ...kalem, urun_id: kalem.urun_id };
+      if (kalem.urun_id) return { ...kalem, urun_id: kalem.urun_id, yeniAcildi: false };
 
       const yeni = kalem.yeni_urun!;
       const barkod = yeni.barkod ? barkodNormalize(yeni.barkod) : null;
@@ -408,7 +408,7 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
         kayitZamani,
       );
 
-      return { ...kalem, urun_id: yeniUrunId };
+      return { ...kalem, urun_id: yeniUrunId, yeniAcildi: true };
     });
 
     for (const kalem of cozulmusKalemler) {
@@ -448,6 +448,17 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
         kayitZamani,
       );
       stokOlayiYaz(baglam, hareketId, kalem.urun_id, 'GIRIS', kalem.miktar, aktor, kayitZamani);
+
+      /*
+       * FİYAT GÜNCELLEMESİ YALNIZ MEVCUT ÜRÜNDE.
+       *
+       * Bu faturada açılan ürünün alış ve satış fiyatı zaten doğru değerlerle
+       * yazıldı ve olayı kuyruğa düştü; burada tekrar yazmak boşuna bir UPDATE
+       * üretiyordu. Dahası `yeni_satis_fiyati` ile birlikte gelirse az önce
+       * açılan ürünün fiyatını OLAY YAZMADAN eziyordu — kasa ile bulut
+       * ayrışıyordu. (Şema artık o kombinasyonu da reddediyor.)
+       */
+      if (kalem.yeniAcildi) continue;
 
       // Alış fiyatı her zaman güncellenir; satış fiyatı yalnız istenirse.
       urunKaydet(

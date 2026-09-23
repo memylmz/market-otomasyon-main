@@ -455,6 +455,17 @@ export const zAlisGirdi = z.object({
         })
         .refine((k) => Boolean(k.urun_id) !== Boolean(k.yeni_urun), {
           message: 'Kalem ya mevcut bir ürüne ya da yeni bir ürüne bağlı olmalıdır',
+        })
+        /*
+         * Yeni üründe `yeni_satis_fiyati` KABUL EDİLMEZ.
+         *
+         * Yeni ürünün raf fiyatı zaten `yeni_urun.satis_fiyati`dır. İkisi
+         * birlikte gönderilirse mal kabul döngüsü, az önce açtığı ürünün
+         * fiyatını OLAY YAZMADAN eziyordu: kasada yeni fiyat, bulutta eski
+         * fiyat kalıyor ve iki taraf sessizce ayrışıyordu.
+         */
+        .refine((k) => !(k.yeni_urun && k.yeni_satis_fiyati !== undefined), {
+          message: 'Yeni üründe satış fiyatı `yeni_urun.satis_fiyati` ile verilir; `yeni_satis_fiyati` kullanılamaz',
         }),
     )
     .min(1, 'En az bir kalem gereklidir')
