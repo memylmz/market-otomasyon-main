@@ -179,3 +179,172 @@ describe('alış talimatı — yeni ürün kalemleri', () => {
     expect(yanit.statusCode).not.toBe(200);
   });
 });
+
+/**
+ * Talimatın kasadaki SONUCU buluta dönmeli (§11.8).
+ *
+ * NEDEN VAR: akış tek yönlüydü. Bulut talimatı yazıyor, kasa uyguluyor ve
+ * orada bitiyordu; bulut sonucu hiç öğrenmediği için satır sonsuza kadar
+ * "bekliyor" kalıyordu. Sonucu: bir kez düzeltme/iptal gönderilen fatura
+ * panelde KALICI olarak kilitleniyor, ikinci bir talimat da API tarafından
+ * "zaten bekleyen talimat var" diye reddediliyordu.
+ */
+function sonucOlayi(talimatId: string, ek: Record<string, unknown> = {}) {
+  const id = uuid();
+  return {
+    uuid: id,
+    tip: 'TALIMAT_SONUCLANDI' as const,
+    entity: 'alis_talimatlari',
+    entity_id: talimatId,
+    olusturma_zamani: simdi(),
+    veri: {
+      varlik: 'alis_talimatlari',
+      talimat_id: talimatId,
+      uygulandi_mi: true,
+      sonuc_fatura_id: null,
+      hata: null,
+      sonuc_zamani: simdi(),
+      ...ek,
+    },
+  };
+}
+
+function sonucGonder(olaylar: unknown[]) {
+  return uygulama.inject({
+    method: 'POST',
+    url: UCLAR.senkronPush,
+    headers: { 'x-device-token': CIHAZ_TOKEN },
+    payload: { cihaz_id: 'kasa-01', sema_surumu: 1, protokol_surumu: 1, olaylar },
+  });
+}
+
+async function talimatKimligi(): Promise<string> {
+  const satir = await vt.tek<{ id: string }>('SELECT id FROM alis_talimatlari WHERE isletme_id = ?', [ISLETME_ID]);
+  return String(satir?.id);
+}
+
+describe('talimat sonucunun buluta dönmesi', () => {
+  it('uygulandı bildirimi talimatı kapatır ve ürettiği faturayı kaydeder', async () => {
+    expect((await talimatGonder(yeniUrunGovdesi())).statusCode).toBe(200);
+    const talimatId = await talimatKimligi();
+    const faturaId = uuid();
+
+    const yanit = await sonucGonder([sonucOlayi(talimatId, { sonuc_fatura_id: faturaId })]);
+    expect(yanit.statusCode).toBe(200);
+
+    const satir = await vt.tek<{ uygulandi_mi: number; sonuc_fatura_id: string | null; hata: string | null }>(
+      'SELECT uygulandi_mi, sonuc_fatura_id, hata FROM alis_talimatlari WHERE isletme_id = ? AND id = ?',
+      [ISLETME_ID, talimatId],
+    );
+    expect(satir?.uygulandi_mi, 'talimat kapanmalı').toBe(1);
+    expect(satir?.sonuc_fatura_id).toBe(faturaId);
+    expect(satir?.hata).toBeNull();
+  });
+
+  it('kapanan talimat artık "bekliyor" listesinde görünmez', async () => {
+    expect((await talimatGonder(yeniUrunGovdesi())).statusCode).toBe(200);
+    const talimatId = await talimatKimligi();
+
+    const once = await uygulama.inject({
+      method: 'GET',
+      url: UCLAR.alisTalimatlari,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect((once.json() as { data: unknown[] }).data, 'uygulanmadan önce bekliyor olmalı').toHaveLength(1);
+
+    await sonucGonder([sonucOlayi(talimatId)]);
+
+    const sonra = await uygulama.inject({
+      method: 'GET',
+      url: UCLAR.alisTalimatlari,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect((sonra.json() as { data: unknown[] }).data, 'uygulandıktan sonra listeden düşmeli').toHaveLength(0);
+  });
+
+  it('hata bildirimi talimatı kapatmaz, sebebi saklar', async () => {
+    expect((await talimatGonder(yeniUrunGovdesi())).statusCode).toBe(200);
+    const talimatId = await talimatKimligi();
+
+    await sonucGonder([sonucOlayi(talimatId, { uygulandi_mi: false, hata: 'Ürün bulunamadı.' })]);
+
+    const satir = await vt.tek<{ uygulandi_mi: number; hata: string | null }>(
+      'SELECT uygulandi_mi, hata FROM alis_talimatlari WHERE isletme_id = ? AND id = ?',
+      [ISLETME_ID, talimatId],
+    );
+    // Uygulanmamış talimat beklemeye devam eder; kullanıcı sebebini görüp
+    // düzeltebilsin diye hata saklanır.
+    expect(satir?.uygulandi_mi).toBe(0);
+    expect(satir?.hata).toBe('Ürün bulunamadı.');
+
+    const liste = await uygulama.inject({
+      method: 'GET',
+      url: UCLAR.alisTalimatlari,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const kayitlar = (liste.json() as { data: { hata: string | null }[] }).data;
+    expect(kayitlar).toHaveLength(1);
+    expect(kayitlar[0]!.hata, 'sebep panele dönmeli').toBe('Ürün bulunamadı.');
+  });
+
+  it('bekleyen talimat listesi faturanın özetini taşır', async () => {
+    expect((await talimatGonder(yeniUrunGovdesi({ fatura_no: 'TPT-42' }))).statusCode).toBe(200);
+
+    const liste = await uygulama.inject({
+      method: 'GET',
+      url: UCLAR.alisTalimatlari,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const kayit = (liste.json() as {
+      data: { tedarikci_adi: string | null; fatura_no: string | null; kalem_sayisi: number; tutar: number; yeni_urun_sayisi: number }[];
+    }).data[0]!;
+
+    // Kullanıcı gönderdiği faturayı tanıyabilmeli: kim, kaç kalem, ne kadar.
+    expect(kayit.tedarikci_adi).toBe('Toptancı A');
+    expect(kayit.fatura_no).toBe('TPT-42');
+    expect(kayit.kalem_sayisi).toBe(1);
+    expect(kayit.yeni_urun_sayisi).toBe(1);
+    // 12 adet × 15,00 = 180,00 net, %20 KDV ile 216,00.
+    expect(kayit.tutar).toBe(21_600);
+  });
+});
+
+describe('uygulanan talimat faturayı kilitlemez', () => {
+  const FATURA_ID = '77777777-7777-4777-8777-777777777777';
+
+  async function faturaYaz(): Promise<void> {
+    const zaman = simdi();
+    await vt.calistir(
+      `INSERT INTO alis_faturalari (id, isletme_id, tedarikci_id, fatura_no, tarih, genel_toplam,
+                                    odenen_tutar, created_at, updated_at, cihaz_id, durum)
+       VALUES (?, ?, ?, 'ESKI-1', ?, 10000, 0, ?, ?, 'kasa-01', 'ONAYLANDI')`,
+      [FATURA_ID, ISLETME_ID, TEDARIKCI_ID, zaman, zaman, zaman],
+    );
+  }
+
+  function duzeltmeGonder(faturaNo: string) {
+    return talimatGonder({ tip: 'GUNCELLE', fatura_id: FATURA_ID, fatura_no: faturaNo });
+  }
+
+  it('bekleyen talimat varken ikinci düzeltme reddedilir', async () => {
+    await faturaYaz();
+    expect((await duzeltmeGonder('YENI-1')).statusCode).toBe(200);
+    // Kasa henüz uygulamadı: üst üste iki düzeltme sırayı belirsizleştirir.
+    expect((await duzeltmeGonder('YENI-2')).statusCode).toBe(400);
+  });
+
+  it('kasa uyguladığını bildirince fatura yeniden düzeltilebilir', async () => {
+    await faturaYaz();
+    expect((await duzeltmeGonder('YENI-1')).statusCode).toBe(200);
+    const talimatId = await talimatKimligi();
+
+    await sonucGonder([sonucOlayi(talimatId, { sonuc_fatura_id: FATURA_ID })]);
+
+    /*
+     * ASIL HATA BUYDU: sonuç hiç dönmediği için talimat sonsuza kadar bekliyor
+     * kalıyor, bu istek de kalıcı olarak 400 alıyordu. Yani bir kez düzeltilen
+     * fatura panelden bir daha ASLA düzeltilemiyor ya da iptal edilemiyordu.
+     */
+    expect((await duzeltmeGonder('YENI-2')).statusCode).toBe(200);
+  });
+});

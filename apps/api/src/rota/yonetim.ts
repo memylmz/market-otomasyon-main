@@ -1066,6 +1066,87 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
    * `yonetici` koruması ADMIN ve MÜDÜR'dür; kasadaki `stok.giris` yetkisiyle
    * aynı kitle. Kasiyer ne panelden ne kasadan alış faturası giremez.
    */
+  /**
+   * Kasada uygulanmayı bekleyen alış talimatları.
+   *
+   * NEDEN VAR: `OLUSTUR` talimatının henüz bir faturası yoktur, panelin fatura
+   * listesi de yalnız `alis_faturalari`yı okur. Yani kullanıcı faturayı
+   * gönderiyor ve kasa uygulayıp sonuç senkronla geri dönene kadar EKRANDA
+   * HİÇBİR İZ kalmıyordu — kasa kapalıysa bu saatler sürebilir. "Olmadı" sanıp
+   * ikinci kez gönderen kullanıcı iki fatura oluşturuyordu.
+   *
+   * Uygulananlar dönmez: onlar artık faturanın kendisidir.
+   */
+  uygulama.get(UCLAR.alisTalimatlari, yonetici, async (istek) => {
+    const isletmeId = istek.kullanici?.isletmeId as string;
+    const satirlar = await uygulama.vt.tumu<{
+      id: string;
+      tip: string;
+      fatura_id: string | null;
+      veri: string;
+      hedef_cihaz_id: string;
+      hata: string | null;
+      created_at: string;
+    }>(
+      `SELECT t.id, t.tip, t.fatura_id, t.veri, t.hedef_cihaz_id, t.hata, t.created_at
+         FROM alis_talimatlari t
+        WHERE t.isletme_id = ? AND t.silindi_mi = 0 AND t.uygulandi_mi = 0
+        ORDER BY t.created_at DESC
+        LIMIT 100`,
+      [isletmeId],
+    );
+
+    // Tedarikçi adı gövdenin içindeki kimlikten çözülür: talimat henüz bir
+    // faturaya bağlı olmadığı için JOIN edilecek bir belge yok.
+    const tedarikciAdlari = new Map<string, string>();
+    const kimlikler = new Set<string>();
+    const cozulmus = satirlar.map((satir) => {
+      let govde: Record<string, unknown> = {};
+      try {
+        govde = JSON.parse(satir.veri) as Record<string, unknown>;
+      } catch {
+        govde = {};
+      }
+      const tedarikciId = typeof govde.tedarikci_id === 'string' ? govde.tedarikci_id : null;
+      if (tedarikciId) kimlikler.add(tedarikciId);
+      const kalemler = Array.isArray(govde.kalemler) ? (govde.kalemler as Record<string, unknown>[]) : [];
+      return { satir, govde, tedarikciId, kalemler };
+    });
+
+    if (kimlikler.size > 0) {
+      const yerTutucu = Array.from(kimlikler, () => '?').join(', ');
+      const cariler = await uygulama.vt.tumu<{ id: string; ad_unvan: string }>(
+        `SELECT id, ad_unvan FROM cariler WHERE isletme_id = ? AND id IN (${yerTutucu})`,
+        [isletmeId, ...kimlikler],
+      );
+      for (const cari of cariler) tedarikciAdlari.set(cari.id, cari.ad_unvan);
+    }
+
+    const data = cozulmus.map(({ satir, govde, tedarikciId, kalemler }) => ({
+      id: satir.id,
+      tip: satir.tip,
+      fatura_id: satir.fatura_id,
+      hedef_cihaz_id: satir.hedef_cihaz_id,
+      hata: satir.hata,
+      created_at: satir.created_at,
+      tedarikci_id: tedarikciId,
+      tedarikci_adi: tedarikciId ? (tedarikciAdlari.get(tedarikciId) ?? null) : null,
+      fatura_no: (govde.fatura_no as string | null) ?? null,
+      kalem_sayisi: kalemler.length,
+      // Toplam kasada hesaplanır; burada yalnız kabaca göstermek için toplanır.
+      tutar: kalemler.reduce((toplam, kalem) => {
+        const miktar = Number(kalem.miktar ?? 0);
+        const fiyat = Number(kalem.birim_fiyat ?? 0);
+        const kdv = Number(kalem.kdv_orani ?? 0);
+        const net = Math.round((miktar * fiyat) / 1000);
+        return toplam + net + Math.round((net * kdv) / 100);
+      }, 0),
+      yeni_urun_sayisi: kalemler.filter((kalem) => kalem.yeni_urun).length,
+    }));
+
+    return { data, uretim_zamani: simdi() };
+  });
+
   uygulama.post(UCLAR.alisTalimatlari, yonetici, async (istek) => {
     const govde = zAlisTalimatiGovde.parse(istek.body);
     const isletmeId = istek.kullanici?.isletmeId as string;
@@ -1135,8 +1216,10 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
         // Faturayı yazan kasa tercih edilir: nakit ödemenin iadesi o çekmeceden çıkar.
         tercihEdilenCihaz = fatura.cihaz_id;
 
+        // Yalnız HENÜZ UYGULANMAMIŞ talimat engel olur; uygulanmış olan bu
+        // faturanın geçmişidir, yeni bir düzeltmeyi sonsuza kadar bloklamamalı.
         const bekleyen = await islem.tek<{ id: string }>(
-          'SELECT id FROM alis_talimatlari WHERE isletme_id = ? AND fatura_id = ? AND silindi_mi = 0',
+          'SELECT id FROM alis_talimatlari WHERE isletme_id = ? AND fatura_id = ? AND silindi_mi = 0 AND uygulandi_mi = 0',
           [isletmeId, faturaId],
         );
         if (bekleyen) throw hatalar.dogrulama('Bu fatura için kasada uygulanmayı bekleyen bir talimat zaten var.');

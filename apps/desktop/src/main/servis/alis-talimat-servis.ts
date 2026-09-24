@@ -13,8 +13,9 @@
  * bekletilir ve koşullar oluşunca işlenir.
  */
 
-import { simdi } from '@market/shared';
+import { simdi, uuid } from '@market/shared';
 import type { Vt } from '../db/surucu.js';
+import { olayYaz } from '../depo/senkron.js';
 import { alisFaturasiGuncelle, alisFaturasiIptal, malKabulOnayla } from './stok-servis.js';
 import { yetkisiVarMi, type Aktor, type Baglam } from './baglam.js';
 
@@ -80,7 +81,11 @@ export function bekleyenAlisTalimatlariniIsle(baglam: Baglam, aktor: Aktor): Isl
     try {
       govde = JSON.parse(talimat.veri) as Record<string, unknown>;
     } catch {
-      isaretle(vt, talimat.id, null, 'Talimat gövdesi okunamadı.');
+      const mesaj = 'Talimat gövdesi okunamadı.';
+      vt.islem(() => {
+        isaretle(vt, talimat.id, null, mesaj);
+        sonucuBildir(vt, cihazId, talimat.id, null, mesaj);
+      });
       basarisiz++;
       continue;
     }
@@ -106,9 +111,14 @@ export function bekleyenAlisTalimatlariniIsle(baglam: Baglam, aktor: Aktor): Isl
        */
       const faturaId = vt.islem(() => {
         const id = uygula(baglam, aktor, talimat, govde);
+        const zaman = simdi();
         vt.hazirla(
           'UPDATE alis_talimatlari SET uygulandi_mi = 1, sonuc_fatura_id = ?, hata = NULL, updated_at = ? WHERE id = ?',
-        ).calistir(id, simdi(), talimat.id);
+        ).calistir(id, zaman, talimat.id);
+        // Sonuç buluta da GİDER: yoksa talimat orada sonsuza kadar "bekliyor"
+        // kalır ve panel o faturayı bir daha açmaz. Olay aynı işlemde yazılır
+        // ki uygulama ile bildirim birbirinden ayrı düşmesin.
+        sonucuBildir(vt, cihazId, talimat.id, id, null, zaman);
         return id;
       });
       uygulanan++;
@@ -121,13 +131,58 @@ export function bekleyenAlisTalimatlariniIsle(baglam: Baglam, aktor: Aktor): Isl
       });
     } catch (hata) {
       const mesaj = hata instanceof Error ? hata.message : String(hata);
-      isaretle(vt, talimat.id, null, mesaj);
+      vt.islem(() => {
+        isaretle(vt, talimat.id, null, mesaj);
+        // Hata da bildirilir: panelde "bekliyor" yazıp duran talimatın neden
+        // ilerlemediği ancak böyle görülebiliyor.
+        sonucuBildir(vt, cihazId, talimat.id, null, mesaj);
+      });
       basarisiz++;
       baglam.kayit.uyari('Panelden gelen alış talimatı uygulanamadı', { talimat_id: talimat.id, mesaj });
     }
   }
 
   return { uygulanan, basarisiz };
+}
+
+/**
+ * Talimatın sonucunu senkron kuyruğuna yazar.
+ *
+ * Talimat akışı tek yönlüydü: panel niyeti yazıyor, kasa uyguluyor, orada
+ * bitiyordu. Bulut sonucu öğrenmediği için satır sonsuza kadar "bekliyor"
+ * kalıyor, panel de o faturanın düzenle/iptal düğmelerini bir daha açmıyordu.
+ *
+ * `varlik` alanı şimdilik hep aynı: cari/iade/stok talimatlarında da aynı
+ * defekt var, aynı olay tipiyle kapatılabilsinler diye ayrı tutuldu.
+ */
+function sonucuBildir(
+  vt: Vt,
+  cihazId: string,
+  talimatId: string,
+  faturaId: string | null,
+  hata: string | null,
+  zaman = simdi(),
+): void {
+  olayYaz(
+    vt,
+    {
+      id: uuid(),
+      olay_tipi: 'TALIMAT_SONUCLANDI',
+      entity: 'alis_talimatlari',
+      entity_id: talimatId,
+      veri: {
+        varlik: 'alis_talimatlari',
+        talimat_id: talimatId,
+        uygulandi_mi: hata === null,
+        sonuc_fatura_id: faturaId,
+        hata,
+        sonuc_zamani: zaman,
+      },
+      olusturma_zamani: zaman,
+    },
+    cihazId,
+    zaman,
+  );
 }
 
 function isaretle(vt: Vt, id: string, faturaId: string | null, hata: string | null): void {

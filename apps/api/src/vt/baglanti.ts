@@ -243,6 +243,8 @@ CREATE TABLE IF NOT EXISTS alis_talimatlari (
   fatura_id TEXT, veri TEXT NOT NULL, hedef_cihaz_id TEXT NOT NULL, kullanici_id TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cihaz_id TEXT,
   versiyon INTEGER NOT NULL, silindi_mi INTEGER NOT NULL DEFAULT 0,
+  -- Kasadaki sonuc: uygulandi mi, hangi belgeyi uretti, olmadiysa neden.
+  uygulandi_mi INTEGER NOT NULL DEFAULT 0, sonuc_fatura_id TEXT, hata TEXT, sonuc_zamani TEXT,
   PRIMARY KEY (isletme_id, id)
 );
 CREATE INDEX IF NOT EXISTS ix_alis_talimat_versiyon ON alis_talimatlari(isletme_id, versiyon);
@@ -461,6 +463,17 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
    * SKT ve lot bilgisi yalnız kasada duruyordu; panel son kullanma takibi
    * yapamıyordu (§11.5). Alanlar merkeze de taşınır.
    */
+  /*
+   * Talimatın kasadaki SONUCU. Bulut talimatı yazıyor ama ne olduğunu hiç
+   * öğrenmiyordu: satır sonsuza kadar "bekliyor" kalıyor, panel de o faturayı
+   * kalıcı olarak kilitliyordu (düzenle/iptal düğmeleri bir daha açılmıyordu).
+   * Kasa artık `TALIMAT_SONUCLANDI` olayıyla bu sütunları dolduruyor.
+   */
+  await sutunEkle(vt, 'alis_talimatlari', 'uygulandi_mi INTEGER NOT NULL DEFAULT 0');
+  await sutunEkle(vt, 'alis_talimatlari', 'sonuc_fatura_id TEXT');
+  await sutunEkle(vt, 'alis_talimatlari', 'hata TEXT');
+  await sutunEkle(vt, 'alis_talimatlari', 'sonuc_zamani TEXT');
+
   await sutunEkle(vt, 'stok_hareketleri', 'skt TEXT');
   await sutunEkle(vt, 'stok_hareketleri', 'lot_no TEXT');
   await sutunEkle(vt, 'stok_hareketleri', 'belge_tipi TEXT');

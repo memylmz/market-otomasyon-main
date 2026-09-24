@@ -1032,6 +1032,36 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       return;
     }
 
+    /*
+     * Panelden inen talimatın kasadaki sonucu (§11.8).
+     *
+     * Döngüyü kapatan olay budur: bulut talimatı yazıyor ama ne olduğunu hiç
+     * öğrenmiyordu. Satır sonsuza kadar "bekliyor" kalıyor, panel de o faturayı
+     * kalıcı olarak kilitliyordu. Şimdilik yalnız alış talimatları bu olayı
+     * üretir; `varlik` alanı diğer talimat tablolarına genişletmek içindir.
+     */
+    case 'TALIMAT_SONUCLANDI': {
+      const talimatId = metin(veri.talimat_id);
+      // Bilinmeyen tabloya yazmak SQL enjeksiyonu demektir; beyaz liste dışına çıkılmaz.
+      if (!talimatId || metin(veri.varlik, 'alis_talimatlari') !== 'alis_talimatlari') return;
+      const uygulandi = veri.uygulandi_mi ? 1 : 0;
+      await islem.calistir(
+        `UPDATE alis_talimatlari SET uygulandi_mi = ?, sonuc_fatura_id = COALESCE(?, sonuc_fatura_id),
+                hata = ?, sonuc_zamani = ?, updated_at = ?
+          WHERE isletme_id = ? AND id = ?`,
+        [
+          uygulandi,
+          (veri.sonuc_fatura_id as string | null) ?? null,
+          (veri.hata as string | null) ?? null,
+          metin(veri.sonuc_zamani, baglam.zaman),
+          baglam.zaman,
+          isletmeId,
+          talimatId,
+        ],
+      );
+      return;
+    }
+
     case 'DENETIM_KAYDI':
       await islem.calistir(
         `INSERT INTO denetim_log (id, isletme_id, kullanici_id, islem, entity, entity_id, eski_deger, yeni_deger, zaman, cihaz_id)

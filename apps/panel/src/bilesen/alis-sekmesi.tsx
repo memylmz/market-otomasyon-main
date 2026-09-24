@@ -92,6 +92,20 @@ interface Urun {
   barkod?: string;
 }
 
+/** Kasada uygulanmayı bekleyen talimat (henüz bir fatura değil). */
+interface BekleyenTalimat {
+  id: string;
+  tip: string;
+  fatura_id: string | null;
+  hata: string | null;
+  created_at: string;
+  tedarikci_adi: string | null;
+  fatura_no: string | null;
+  kalem_sayisi: number;
+  tutar: Kurus;
+  yeni_urun_sayisi: number;
+}
+
 const DURUM_ROZETI: Record<string, 'basari' | 'tehlike' | 'notr'> = {
   ONAYLANDI: 'basari',
   IPTAL: 'tehlike',
@@ -108,6 +122,15 @@ export function AlisSekmesi() {
     `${uclar.alisFaturalari}?from=${baslangic}&to=${bitis}&limit=200`,
     [baslangic, bitis],
   );
+
+  /*
+   * Kasada bekleyen talimatlar AYRI çekilir: yeni fatura talimatının henüz bir
+   * `alis_faturalari` satırı yoktur, dolayısıyla yukarıdaki listede görünmez.
+   * Bu olmadan kullanıcı faturayı gönderiyor ve kasa uygulayana kadar ekranda
+   * hiçbir iz göremiyordu.
+   */
+  const bekleyenler = useVeri<{ data: BekleyenTalimat[] }>(uclar.alisTalimatlari, [baslangic, bitis]);
+  const bekleyen = bekleyenler.veri?.data ?? [];
 
   const faturalar = liste.veri?.data ?? [];
   const gecerliler = faturalar.filter((f) => f.durum !== 'IPTAL');
@@ -130,6 +153,49 @@ export function AlisSekmesi() {
             Yeni Alış Faturası
           </button>
         </section>
+
+        {/*
+          KASADA BEKLEYENLER — faturanın kendisi henüz yok.
+          Bu bölüm olmadan kullanıcı "Kaydet"e basıyor, fatura listede
+          görünmüyor ve olmadı sanıp ikinci kez gönderiyordu (iki fatura).
+        */}
+        {bekleyen.length > 0 && (
+          <section className="kart border-uyari-cizgi bg-uyari-yumusak p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium">Kasada işlenmeyi bekliyor ({bekleyen.length})</p>
+              <button type="button" className="text-xs text-metin-3 hover:underline" onClick={() => bekleyenler.tazele()}>
+                Yenile
+              </button>
+            </div>
+            <ul className="mt-2 space-y-1.5">
+              {bekleyen.map((t) => (
+                <li key={t.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+                  <span className="font-medium text-metin">
+                    {t.tip === 'OLUSTUR' ? (t.tedarikci_adi ?? 'Tedarikçi') : t.tip === 'IPTAL' ? 'Fatura iptali' : 'Fatura düzeltmesi'}
+                  </span>
+                  {t.tip === 'OLUSTUR' && (
+                    <span className="text-metin-3">
+                      {t.kalem_sayisi} kalem · {paraFormat(t.tutar)}
+                      {t.yeni_urun_sayisi > 0 && ` · ${t.yeni_urun_sayisi} yeni ürün`}
+                    </span>
+                  )}
+                  {t.fatura_no && <span className="text-metin-3">· {t.fatura_no}</span>}
+                  <span className="text-metin-4">· {tarihSaatFormat(t.created_at)}</span>
+                  {/*
+                    Hata varsa sebebi YAZILIR. Eskiden kasadaki hata yalnız o
+                    makinenin yerel kaydında kalıyordu; panelde talimat sessizce
+                    beklemeye devam ediyor, kimse nedenini bilmiyordu.
+                  */}
+                  {t.hata && <span className="w-full text-tehlike">Uygulanamadı: {t.hata}</span>}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-metin-3">
+              Stok ve cari defterini yalnız kasa yazar. Kasa açıldığında ya da bir sonraki senkronda işlenecek; nakit
+              ödemeli faturalar açık kasa ister.
+            </p>
+          </section>
+        )}
 
         {liste.yukleniyor && !liste.veri ? (
           <Yukleniyor />
@@ -211,6 +277,7 @@ export function AlisSekmesi() {
           onKapat={() => setSeciliId(null)}
           onDegisti={() => {
             liste.tazele();
+            bekleyenler.tazele();
           }}
         />
       )}
@@ -221,6 +288,7 @@ export function AlisSekmesi() {
           onGonderildi={() => {
             setYeniAcik(false);
             liste.tazele();
+            bekleyenler.tazele();
           }}
         />
       )}
@@ -235,7 +303,7 @@ export function AlisSekmesi() {
 interface DetayVerisi {
   fatura: (Fatura & { notlar: string | null; iptal_neden: string | null; iptal_zamani: string | null }) | null;
   kalemler: Kalem[];
-  bekleyen_talimatlar: { id: string; tip: string; created_at: string }[];
+  bekleyen_talimatlar: { id: string; tip: string; hata: string | null; created_at: string }[];
 }
 
 function FaturaDetayi({ faturaId, onKapat, onDegisti }: { faturaId: string; onKapat: () => void; onDegisti: () => void }) {
@@ -272,6 +340,14 @@ function FaturaDetayi({ faturaId, onKapat, onDegisti }: { faturaId: string; onKa
               <p className="mt-1 text-xs text-metin-2">
                 {bekleyen.map((t) => t.tip).join(', ')} — kasa bir sonraki senkronda uygular, kapalıysa açılışta işler.
               </p>
+              {/* Hata varsa sebebi yazılır; yoksa talimat sessizce bekliyor görünüyordu. */}
+              {bekleyen
+                .filter((t) => t.hata)
+                .map((t) => (
+                  <p key={t.id} className="mt-1 text-xs text-tehlike">
+                    Uygulanamadı: {t.hata}
+                  </p>
+                ))}
             </div>
           )}
 
@@ -429,7 +505,7 @@ function DuzenleFormu({
           Vazgeç
         </button>
         <button type="button" className="tus-birincil flex-1" onClick={() => void gonder()} disabled={gonderiliyor}>
-          {gonderiliyor ? 'Gönderiliyor…' : 'Kasaya Gönder'}
+          {gonderiliyor ? 'Kaydediliyor…' : 'Faturayı Kaydet'}
         </button>
       </div>
     </div>
@@ -485,7 +561,7 @@ function IptalFormu({ fatura, onVazgec, onTamam }: { fatura: Fatura; onVazgec: (
           Vazgeç
         </button>
         <button type="button" className="tus-tehlike flex-1" onClick={() => void gonder()} disabled={!gecerli}>
-          {gonderiliyor ? 'Gönderiliyor…' : 'Kasaya Gönder'}
+          {gonderiliyor ? 'Kaydediliyor…' : 'Faturayı Kaydet'}
         </button>
       </div>
     </div>
@@ -939,7 +1015,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
               Vazgeç
             </button>
             <button type="button" className="tus-birincil" onClick={() => void gonder()} disabled={!gecerli}>
-              {gonderiliyor ? 'Gönderiliyor…' : 'Kasaya Gönder'}
+              {gonderiliyor ? 'Kaydediliyor…' : 'Faturayı Kaydet'}
             </button>
           </div>
         </div>
@@ -1442,7 +1518,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                 </span>
               ))}
             <span className="ml-auto text-xs text-metin-4">
-              Fatura kasada oluşur; talimat bir sonraki senkronda uygulanır.
+              Kaydedilince kasada işlenir; kasa kapalıysa açılışta.
             </span>
           </div>
         )}

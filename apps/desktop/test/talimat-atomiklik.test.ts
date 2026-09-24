@@ -92,3 +92,78 @@ describe('alış talimatı atomikliği', () => {
     expect(vt.hazirla('SELECT COUNT(*) AS adet FROM alis_faturalari').tek<{ adet: number }>()!.adet).toBe(1);
   });
 });
+
+/**
+ * Talimatın SONUCU buluta geri dönmeli (§11.8).
+ *
+ * NEDEN VAR: akış tek yönlüydü — panel niyeti yazıyor, kasa uyguluyor ve orada
+ * bitiyordu. Bulut sonucu hiç öğrenmediği için talimat satırı sonsuza kadar
+ * "bekliyor" kalıyor, panel de o faturanın düzenle/iptal düğmelerini bir daha
+ * açmıyordu. Outbox'a `TALIMAT_SONUCLANDI` düşmezse o kilit geri gelir.
+ */
+describe('alış talimatı sonucunun bildirilmesi', () => {
+  /** Outbox'taki sonuç olaylarını çözülmüş gövdeleriyle verir. */
+  function sonucOlaylari(): { entity_id: string; veri: Record<string, unknown> }[] {
+    return ortam.uygulama.baglam.vt
+      .hazirla("SELECT entity_id, veri FROM sync_outbox WHERE olay_tipi = 'TALIMAT_SONUCLANDI' ORDER BY rowid")
+      .tumu<{ entity_id: string; veri: string }>()
+      .map((satir) => ({ entity_id: satir.entity_id, veri: JSON.parse(satir.veri) as Record<string, unknown> }));
+  }
+
+  it('uygulandığında sonucu ve ürettiği faturayı bildirir', () => {
+    const vt = ortam.uygulama.baglam.vt;
+    const tedarikciId = tedarikciEkle(ortam);
+    const urunId = urunEkle(ortam, { ad: 'Kola', stok: adet(0), alisFiyati: 1000 });
+    const talimatId = talimatYaz(tedarikciId, urunId);
+
+    expect(bekleyenAlisTalimatlariniIsle(ortam.uygulama.baglam, ortam.admin)).toEqual({ uygulanan: 1, basarisiz: 0 });
+
+    const olaylar = sonucOlaylari();
+    expect(olaylar, 'tek bir sonuç olayı yazılmalı').toHaveLength(1);
+    expect(olaylar[0]!.entity_id).toBe(talimatId);
+    expect(olaylar[0]!.veri.uygulandi_mi, 'başarı bildirilmeli').toBe(true);
+    expect(olaylar[0]!.veri.hata).toBeNull();
+    expect(olaylar[0]!.veri.varlik).toBe('alis_talimatlari');
+
+    // Bildirilen fatura kimliği gerçekten yazılan faturayı göstermeli; yanlış
+    // kimlik bildirilirse bulut talimatı asla kapatamaz.
+    const faturaId = vt.hazirla('SELECT id FROM alis_faturalari').tek<{ id: string }>()!.id;
+    expect(olaylar[0]!.veri.sonuc_fatura_id).toBe(faturaId);
+  });
+
+  it('uygulanamadığında hatayı bildirir ve olay tek kalır', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    // Var olmayan ürün: mal kabul reddeder.
+    const talimatId = talimatYaz(tedarikciId, uuid());
+
+    expect(bekleyenAlisTalimatlariniIsle(ortam.uygulama.baglam, ortam.admin)).toEqual({ uygulanan: 0, basarisiz: 1 });
+
+    const olaylar = sonucOlaylari();
+    expect(olaylar).toHaveLength(1);
+    expect(olaylar[0]!.entity_id).toBe(talimatId);
+    expect(olaylar[0]!.veri.uygulandi_mi, 'başarısızlık bildirilmeli').toBe(false);
+    expect(olaylar[0]!.veri.hata, 'sebep yazılmalı').toBeTruthy();
+    expect(olaylar[0]!.veri.sonuc_fatura_id).toBeNull();
+  });
+
+  it('işaret yazılamazsa sonuç da bildirilmez — yarım bildirim olmaz', () => {
+    const vt = ortam.uygulama.baglam.vt;
+    const tedarikciId = tedarikciEkle(ortam);
+    const urunId = urunEkle(ortam, { ad: 'Kola', stok: adet(0), alisFiyati: 1000 });
+    talimatYaz(tedarikciId, urunId);
+
+    vt.hazirla(
+      `CREATE TRIGGER test_isaret_engeli BEFORE UPDATE ON alis_talimatlari
+       WHEN NEW.uygulandi_mi = 1
+       BEGIN SELECT RAISE(ABORT, 'test: isaret yazilamadi'); END`,
+    ).calistir();
+
+    expect(bekleyenAlisTalimatlariniIsle(ortam.uygulama.baglam, ortam.admin)).toEqual({ uygulanan: 0, basarisiz: 1 });
+
+    // Başarı olayı geri alınmalı; geriye YALNIZ hata bildirimi kalmalı. Aksi
+    // halde bulut "uygulandı" sanıp talimatı kapatır, kasa ise yeniden dener.
+    const olaylar = sonucOlaylari();
+    expect(olaylar).toHaveLength(1);
+    expect(olaylar[0]!.veri.uygulandi_mi).toBe(false);
+  });
+});

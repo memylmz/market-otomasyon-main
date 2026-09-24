@@ -193,10 +193,15 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
      * Kasada uygulanmayı bekleyen talimat da döner: panelden verilen iptal ya
      * da düzeltme anında değil, kasa bir sonraki senkronda uyguladığında
      * görünür. Ekran bunu söylemezse kullanıcı "olmadı" sanıp ikinci kez dener.
+     *
+     * `uygulandi_mi = 0` filtresi şart: kasa sonucu `TALIMAT_SONUCLANDI` ile
+     * bildirene kadar bu sütun yoktu, uygulanmış talimat da "bekliyor"
+     * görünüyor ve fatura kalıcı olarak kilitli kalıyordu. Hata varsa satır
+     * bekliyor sayılmaya devam eder — nedeni ekranda yazsın diye `hata` da döner.
      */
     const bekleyen = await uygulama.vt.tumu<Record<string, unknown>>(
-      `SELECT id, tip, created_at FROM alis_talimatlari
-        WHERE isletme_id = ? AND fatura_id = ? AND silindi_mi = 0 ORDER BY created_at`,
+      `SELECT id, tip, hata, created_at FROM alis_talimatlari
+        WHERE isletme_id = ? AND fatura_id = ? AND silindi_mi = 0 AND uygulandi_mi = 0 ORDER BY created_at`,
       [isletmeId, istek.params.id],
     );
 

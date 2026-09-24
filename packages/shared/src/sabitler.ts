@@ -166,6 +166,16 @@ export const OLAY_TIPI = [
   'ALIS_FATURASI_IPTAL',
   /** Faturanın belge bilgileri (fatura no, vade, not) düzeltildi; mali etkisi yoktur. */
   'ALIS_FATURASI_GUNCELLENDI',
+  /*
+   * Panelden inen bir TALİMATIN kasada ne olduğu — uygulandı mı, hangi belgeyi
+   * üretti, olmadıysa neden.
+   *
+   * Talimat akışı tek yönlüydü: panel niyeti yazıyor, kasa uyguluyor ve orada
+   * bitiyordu. Bulut sonucu HİÇ öğrenmediği için talimat satırı sonsuza kadar
+   * "bekliyor" kalıyor, panel de o faturayı kalıcı olarak kilitliyordu. Bu olay
+   * döngüyü kapatır.
+   */
+  'TALIMAT_SONUCLANDI',
   'AYAR_DEGISTI',
   'DENETIM_KAYDI',
   'GUNLUK_OZET',
