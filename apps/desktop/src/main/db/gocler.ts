@@ -815,6 +815,25 @@ export const GOCLER: readonly Goc[] = [
     `,
     asagi: ``,
   },
+  {
+    surum: 9,
+    ad: 'talimat_sonuc_bildirimi',
+    /*
+     * Talimatın SONUCU buluta bildirildi mi (§11.8).
+     *
+     * Talimat akışı tek yönlüydü: kasa uyguluyor, sonucu yalnız kendi yerel
+     * kaydına yazıyordu. Bulut hiç öğrenmediği için talimat satırı orada
+     * sonsuza kadar "bekliyor" kalıyor, panel de o faturanın düzenle/iptal
+     * düğmelerini bir daha AÇMIYORDU.
+     *
+     * Bu sütun iki işi birden görür: bundan sonra yazılan bildirimleri işaretler
+     * ve ZATEN UYGULANMIŞ eski talimatları `0` bırakarak telafi bildirimine
+     * aday gösterir (bkz. `bildirilmemisSonuclariGonder`). Varsayılanın 0 olması
+     * kasten: eski satırların hepsi bir kez geriye dönük bildirilmelidir.
+     */
+    yukari: `ALTER TABLE alis_talimatlari ADD COLUMN sonuc_bildirildi_mi INTEGER NOT NULL DEFAULT 0;`,
+    asagi: ``,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

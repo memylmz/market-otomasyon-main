@@ -18,7 +18,7 @@ import { adminSayisi, kullaniciKaydet } from './depo/kullanici.js';
 import { parolaHashle } from './guvenlik/parola.js';
 import { SenkronZamanlayicisi, type SenkronSonucu } from './senkron/motor.js';
 import { ayarlariOku, SISTEM_AKTORU, type Aktor, type Baglam } from './servis/baglam.js';
-import { bekleyenAlisTalimatlariniIsle } from './servis/alis-talimat-servis.js';
+import { bekleyenAlisTalimatlariniIsle, bildirilmemisSonuclariGonder } from './servis/alis-talimat-servis.js';
 import { bekleyenCariTalimatlariniIsle } from './servis/cari-talimat-servis.js';
 import { bekleyenIadeleriIsle } from './servis/iade-talimat-servis.js';
 import { cihazTokeniOku } from './servis/lisans-servis.js';
@@ -89,6 +89,22 @@ export class Uygulama {
     const cihazId = cihazKimliginiCoz(vt);
     const uygulama = new Uygulama(vt, yollar, kayit.alt({ cihaz_id: cihazId }), cihazId);
     uygulama.varsayilanlariHazirla();
+
+    /*
+     * Sonuç bildirimi sonradan eklendi; o ana kadar uygulanmış talimatlar
+     * bulutta sonsuza kadar "bekliyor" kaldı ve panel o faturaların
+     * düzenle/iptal düğmelerini bir daha açmadı. Tek seferlik telafi burada
+     * çalışır: hangi talimatın uygulandığını yalnız kasa bilir. Aktör
+     * gerektirmez — yerelde zaten kesinleşmiş bir olguyu kuyruğa yazar.
+     */
+    try {
+      bildirilmemisSonuclariGonder(uygulama.baglam);
+    } catch (hata) {
+      // Telafi açılışı düşürmemeli; eksik bildirim bir sonraki açılışta yeniden denenir.
+      kayit.uyari('Bildirilmemiş talimat sonuçları gönderilemedi', {
+        mesaj: hata instanceof Error ? hata.message : String(hata),
+      });
+    }
 
     kayit.bilgi('Uygulama başlatıldı', {
       surucu: vt.surucuAdi,

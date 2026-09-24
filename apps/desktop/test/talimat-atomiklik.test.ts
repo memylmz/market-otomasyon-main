@@ -17,7 +17,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { adet, simdi, uuid } from '@market/shared';
 import { cariBul } from '../src/main/depo/cari.js';
 import { stokOku } from '../src/main/depo/stok.js';
-import { alisTalimatiniSakla, bekleyenAlisTalimatlariniIsle } from '../src/main/servis/alis-talimat-servis.js';
+import {
+  alisTalimatiniSakla,
+  bekleyenAlisTalimatlariniIsle,
+  bildirilmemisSonuclariGonder,
+} from '../src/main/servis/alis-talimat-servis.js';
 import { tedarikciEkle, testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
 
 let ortam: TestOrtami;
@@ -165,5 +169,88 @@ describe('alış talimatı sonucunun bildirilmesi', () => {
     const olaylar = sonucOlaylari();
     expect(olaylar).toHaveLength(1);
     expect(olaylar[0]!.veri.uygulandi_mi).toBe(false);
+  });
+});
+
+/**
+ * Sonuç bildirimi olmadan uygulanmış ESKİ talimatların telafisi (§11.8).
+ *
+ * NEDEN VAR: bildirim sonradan eklendi. O ana kadar uygulanmış talimatlar
+ * bulutta sonsuza kadar "bekliyor" kaldı; panel o faturaların düzenle/iptal
+ * düğmelerini bir daha açmadı. Kilit ancak kasanın geriye dönük bildirimiyle
+ * açılır — hangi talimatın uygulandığını yalnız kasa bilir.
+ */
+describe('bildirilmemiş sonuçların telafisi', () => {
+  /** Bildirim mekanizmasından ÖNCEKİ durumu kurar: uygulanmış ama bildirilmemiş. */
+  function eskiUygulanmisTalimat(faturaId: string | null): string {
+    const vt = ortam.uygulama.baglam.vt;
+    const id = uuid();
+    vt.islem(() => {
+      alisTalimatiniSakla(vt, {
+        id,
+        tip: 'GUNCELLE',
+        fatura_id: faturaId,
+        veri: { tip: 'GUNCELLE', fatura_no: 'ESKI-1' },
+        hedef_cihaz_id: ortam.uygulama.cihazId,
+        created_at: simdi(),
+      });
+      vt.hazirla(
+        'UPDATE alis_talimatlari SET uygulandi_mi = 1, sonuc_fatura_id = ?, sonuc_bildirildi_mi = 0 WHERE id = ?',
+      ).calistir(faturaId, id);
+    });
+    return id;
+  }
+
+  function sonucOlaylari(): { entity_id: string; veri: Record<string, unknown> }[] {
+    return ortam.uygulama.baglam.vt
+      .hazirla("SELECT entity_id, veri FROM sync_outbox WHERE olay_tipi = 'TALIMAT_SONUCLANDI' ORDER BY rowid")
+      .tumu<{ entity_id: string; veri: string }>()
+      .map((satir) => ({ entity_id: satir.entity_id, veri: JSON.parse(satir.veri) as Record<string, unknown> }));
+  }
+
+  it('uygulanmış ama bildirilmemiş talimatı geriye dönük bildirir', () => {
+    const faturaId = uuid();
+    const talimatId = eskiUygulanmisTalimat(faturaId);
+
+    expect(bildirilmemisSonuclariGonder(ortam.uygulama.baglam)).toBe(1);
+
+    const olaylar = sonucOlaylari();
+    expect(olaylar).toHaveLength(1);
+    expect(olaylar[0]!.entity_id).toBe(talimatId);
+    expect(olaylar[0]!.veri.uygulandi_mi).toBe(true);
+    // Fatura kimliği taşınmalı; bulut talimatı doğru belgeye bağlayabilsin.
+    expect(olaylar[0]!.veri.sonuc_fatura_id).toBe(faturaId);
+  });
+
+  it('ikinci çağrıda tekrar bildirmez', () => {
+    eskiUygulanmisTalimat(uuid());
+
+    expect(bildirilmemisSonuclariGonder(ortam.uygulama.baglam)).toBe(1);
+    // İşaret konduğu için sorgu artık boş döner; yoksa her açılışta kuyruk şişerdi.
+    expect(bildirilmemisSonuclariGonder(ortam.uygulama.baglam)).toBe(0);
+    expect(sonucOlaylari()).toHaveLength(1);
+  });
+
+  it('henüz uygulanmamış talimatı bildirmez', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    const urunId = urunEkle(ortam, { ad: 'Kola', stok: adet(0), alisFiyati: 1000 });
+    talimatYaz(tedarikciId, urunId);
+
+    // Bekleyen talimatın sonucu HENÜZ YOK; "uygulandı" bildirmek bulutta
+    // hiç yapılmamış bir işi kapatmak olurdu.
+    expect(bildirilmemisSonuclariGonder(ortam.uygulama.baglam)).toBe(0);
+    expect(sonucOlaylari()).toHaveLength(0);
+  });
+
+  it('normal akışta uygulanan talimat telafiye kalmaz', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    const urunId = urunEkle(ortam, { ad: 'Kola', stok: adet(0), alisFiyati: 1000 });
+    talimatYaz(tedarikciId, urunId);
+    bekleyenAlisTalimatlariniIsle(ortam.uygulama.baglam, ortam.admin);
+
+    // Bildirim uygulama anında yazıldığı için telafiye iş düşmemeli; düşseydi
+    // aynı sonuç iki kez bildirilirdi.
+    expect(bildirilmemisSonuclariGonder(ortam.uygulama.baglam)).toBe(0);
+    expect(sonucOlaylari()).toHaveLength(1);
   });
 });

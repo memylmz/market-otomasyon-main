@@ -146,6 +146,38 @@ export function bekleyenAlisTalimatlariniIsle(baglam: Baglam, aktor: Aktor): Isl
 }
 
 /**
+ * ZATEN UYGULANMIŞ ama sonucu hiç bildirilmemiş talimatları geriye dönük
+ * bildirir — tek seferlik telafi.
+ *
+ * Sonuç bildirimi sonradan eklendi. O ana kadar uygulanmış talimatlar bulutta
+ * sonsuza kadar "bekliyor" kaldı ve panel o faturaların düzenle/iptal
+ * düğmelerini bir daha açmadı. Bu kilidi kendiliğinden açmanın tek doğru yolu
+ * budur: hangi talimatın uygulandığını YALNIZ KASA bilir, bulutta o bilgi hiç
+ * yok. Bulut üzerinde elle tahmin yürütmek yanlış faturayı kapatabilirdi.
+ *
+ * `sonuc_bildirildi_mi` işareti sayesinde bir kez çalışır; sonraki açılışlarda
+ * sorgu boş döner.
+ */
+export function bildirilmemisSonuclariGonder(baglam: Baglam): number {
+  const { vt, cihazId } = baglam;
+  const eksikler = vt
+    .hazirla(
+      `SELECT id, sonuc_fatura_id FROM alis_talimatlari
+        WHERE uygulandi_mi = 1 AND sonuc_bildirildi_mi = 0`,
+    )
+    .tumu<{ id: string; sonuc_fatura_id: string | null }>();
+  if (eksikler.length === 0) return 0;
+
+  vt.islem(() => {
+    for (const talimat of eksikler) {
+      sonucuBildir(vt, cihazId, talimat.id, talimat.sonuc_fatura_id, null);
+    }
+  });
+  baglam.kayit.bilgi('Bildirilmemiş talimat sonuçları geriye dönük gönderildi', { adet: eksikler.length });
+  return eksikler.length;
+}
+
+/**
  * Talimatın sonucunu senkron kuyruğuna yazar.
  *
  * Talimat akışı tek yönlüydü: panel niyeti yazıyor, kasa uyguluyor, orada
@@ -163,6 +195,7 @@ function sonucuBildir(
   hata: string | null,
   zaman = simdi(),
 ): void {
+  vt.hazirla('UPDATE alis_talimatlari SET sonuc_bildirildi_mi = 1 WHERE id = ?').calistir(talimatId);
   olayYaz(
     vt,
     {
