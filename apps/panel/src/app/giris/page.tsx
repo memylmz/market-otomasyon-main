@@ -1,8 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { girisYap } from '@/lib/api';
+import { useEffect, useState } from 'react';
+import { girisYap, kaliciOturumAyarla, kaliciOturumMu } from '@/lib/api';
 
 export default function GirisSayfasi() {
   const yonlendir = useRouter();
@@ -10,12 +10,28 @@ export default function GirisSayfasi() {
   const [sifre, setSifre] = useState('');
   const [hata, setHata] = useState<string | null>(null);
   const [gonderiliyor, setGonderiliyor] = useState(false);
+  /*
+   * Oturum bu cihazda açık kalsın mı.
+   *
+   * Varsayılan AÇIK. Panel telefona kurulan bir PWA ve işletim sistemi sayfayı
+   * sık sık bellekten atıyor; oturum yalnız sekmede yaşarken kullanıcı her
+   * dönüşünde giriş ekranıyla karşılaşıyordu. Ortak bir bilgisayarda kapatılır,
+   * o zaman oturum sekme kapanınca düşer (§15.5).
+   *
+   * Başlangıç değeri okunurken `useState` başlatıcısı kullanılır: sunucu
+   * tarafında `localStorage` yoktur, render sırasında okumak sayfayı düşürür.
+   */
+  const [kalici, setKalici] = useState(true);
+
+  useEffect(() => setKalici(kaliciOturumMu()), []);
 
   const gonder = async (olay: React.FormEvent) => {
     olay.preventDefault();
     setGonderiliyor(true);
     setHata(null);
     try {
+      // Tercih girişten ÖNCE yazılır: token'ın hangi depoya yazılacağını belirler.
+      kaliciOturumAyarla(kalici);
       await girisYap(kullaniciAdi.trim(), sifre);
       yonlendir.replace('/');
     } catch (h) {
@@ -58,6 +74,21 @@ export default function GirisSayfasi() {
               required
             />
           </label>
+
+          <label className="flex items-center gap-2 text-sm text-metin-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-vurgu"
+              checked={kalici}
+              onChange={(e) => setKalici(e.target.checked)}
+            />
+            Bu cihazda oturumum açık kalsın
+          </label>
+          {!kalici && (
+            <p className="text-xs text-metin-4">
+              Oturum yalnız bu sekmede yaşar; sekmeyi kapatınca çıkış yapılır. Ortak kullanılan bilgisayarlar için.
+            </p>
+          )}
 
           {hata && (
             <p className="rounded-lg border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm text-metin" role="alert">

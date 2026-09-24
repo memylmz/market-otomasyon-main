@@ -1,9 +1,19 @@
 /**
  * API istemcisi (panel tarafı).
  *
- * Token'lar `sessionStorage`'da tutulur: sekme kapanınca oturum düşer, ortak
- * kullanılan bir bilgisayarda kalıcı iz bırakmaz (§15.5). Access token süresi
- * dolduğunda refresh ile bir kez otomatik yenilenir.
+ * OTURUM NEREDE DURUR: kullanıcı seçer (§15.5).
+ *
+ * Varsayılan `localStorage`'dır — oturum sekme kapanınca da, telefon uygulamayı
+ * bellekten atınca da yaşar. Önceden HER ZAMAN `sessionStorage` kullanılıyordu:
+ * ortak bilgisayarda iz bırakmama gerekçesi doğruydu ama bedeli ağırdı. Panel
+ * telefona kurulan bir PWA; işletim sistemi sayfayı sık sık bellekten atar ve
+ * kullanıcı her dönüşünde giriş ekranıyla karşılaşıyordu. Üstelik 30 günlük
+ * refresh token da sekmeyle birlikte öldüğü için hiç işe yaramıyordu.
+ *
+ * Ortak bilgisayarda giriş ekranındaki "Bu cihazda oturumum açık kalsın"
+ * kapatılırsa eski davranışa dönülür: oturum yalnız o sekmede yaşar.
+ *
+ * Access token süresi dolduğunda refresh ile bir kez otomatik yenilenir.
  */
 
 'use client';
@@ -16,6 +26,33 @@ const TABAN = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:3010';
 const ACCESS_ANAHTARI = 'market.access';
 const REFRESH_ANAHTARI = 'market.refresh';
 const KULLANICI_ANAHTARI = 'market.kullanici';
+/** Oturumun kalıcı mı (localStorage) yoksa sekmelik mi (sessionStorage) tutulacağını işaretler. */
+const KALICI_ANAHTARI = 'market.kalici';
+
+/*
+ * Oturumun yaşadığı depo.
+ *
+ * Gizli pencerede ya da depolama kapalıyken erişim İSTİSNA ATAR; panelin
+ * tamamen açılmaması yerine oturumsuz çalışması yeğdir, bu yüzden her erişim
+ * korumalıdır.
+ */
+function depo(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    // Anahtar yoksa KALICI: yeni varsayılan bu. Yalnız açıkça '0' yazılmışsa sekmelik.
+    return localStorage.getItem(KALICI_ANAHTARI) === '0' ? sessionStorage : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function oku(anahtar: string): string | null {
+  try {
+    return depo()?.getItem(anahtar) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export interface PanelKullanicisi {
   id: string;
@@ -26,16 +63,11 @@ export interface PanelKullanicisi {
 }
 
 export function tokenlariOku(): { access: string | null; refresh: string | null } {
-  if (typeof window === 'undefined') return { access: null, refresh: null };
-  return {
-    access: sessionStorage.getItem(ACCESS_ANAHTARI),
-    refresh: sessionStorage.getItem(REFRESH_ANAHTARI),
-  };
+  return { access: oku(ACCESS_ANAHTARI), refresh: oku(REFRESH_ANAHTARI) };
 }
 
 export function kullaniciyiOku(): PanelKullanicisi | null {
-  if (typeof window === 'undefined') return null;
-  const ham = sessionStorage.getItem(KULLANICI_ANAHTARI);
+  const ham = oku(KULLANICI_ANAHTARI);
   if (!ham) return null;
   try {
     return JSON.parse(ham) as PanelKullanicisi;
@@ -45,16 +77,56 @@ export function kullaniciyiOku(): PanelKullanicisi | null {
 }
 
 function oturumuYaz(access: string, refresh: string, kullanici: PanelKullanicisi): void {
-  sessionStorage.setItem(ACCESS_ANAHTARI, access);
-  sessionStorage.setItem(REFRESH_ANAHTARI, refresh);
-  sessionStorage.setItem(KULLANICI_ANAHTARI, JSON.stringify(kullanici));
+  const hedef = depo();
+  if (!hedef) return;
+  try {
+    hedef.setItem(ACCESS_ANAHTARI, access);
+    hedef.setItem(REFRESH_ANAHTARI, refresh);
+    hedef.setItem(KULLANICI_ANAHTARI, JSON.stringify(kullanici));
+  } catch {
+    // Depo dolu ya da kapalı: oturum bu sayfa ömrü kadar yaşar, panel yine çalışır.
+  }
 }
 
 export function oturumuTemizle(): void {
   if (typeof window === 'undefined') return;
-  sessionStorage.removeItem(ACCESS_ANAHTARI);
-  sessionStorage.removeItem(REFRESH_ANAHTARI);
-  sessionStorage.removeItem(KULLANICI_ANAHTARI);
+  // İKİ depodan da silinir: kullanıcı tercihini değiştirmiş olabilir, eski
+  // depoda kalan token "çıkış yaptım" dedikten sonra geri dönerdi.
+  for (const hedef of [() => localStorage, () => sessionStorage]) {
+    try {
+      const d = hedef();
+      d.removeItem(ACCESS_ANAHTARI);
+      d.removeItem(REFRESH_ANAHTARI);
+      d.removeItem(KULLANICI_ANAHTARI);
+    } catch {
+      /* depo kapalı olabilir */
+    }
+  }
+}
+
+/**
+ * Oturumun bu cihazda kalıcı tutulup tutulmayacağını belirler.
+ *
+ * Giriş YAPILMADAN ÖNCE çağrılır: `oturumuYaz` hangi depoya yazacağını buradan
+ * öğrenir.
+ */
+export function kaliciOturumAyarla(kalici: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(KALICI_ANAHTARI, kalici ? '1' : '0');
+  } catch {
+    /* depo kapalıysa sessionStorage'a düşer */
+  }
+}
+
+export function kaliciOturumMu(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return localStorage.getItem(KALICI_ANAHTARI) !== '0';
+  } catch {
+    // Depo kapalıysa kalıcı oturum zaten mümkün değil; kutu işaretsiz görünmeli.
+    return false;
+  }
 }
 
 async function hamIstek<T>(yol: string, secenekler: RequestInit = {}, token?: string | null): Promise<T> {
@@ -127,7 +199,22 @@ export async function api<T>(yol: string, secenekler: RequestInit = {}): Promise
     try {
       const yeniAccess = await tokenYenile(refresh);
       return await hamIstek<T>(yol, secenekler, yeniAccess);
-    } catch {
+    } catch (ikinciHata) {
+      /*
+       * OTURUM YALNIZ KİMLİK GERÇEKTEN REDDEDİLDİYSE SİLİNİR.
+       *
+       * Eskiden buradaki her hata oturumu siliyordu: ağ koptuysa, sunucu 500
+       * verdiyse ya da yenilenen token'la yapılan istek alakasız bir sebeple
+       * düştüyse kullanıcı giriş ekranına atılıyordu. Telefonda panel uykudan
+       * döndüğünde access token çoktan dolmuş oluyor, yenileme isteği bağlantı
+       * daha toparlanmadan gidiyor ve elde 30 günlük geçerli bir refresh token
+       * varken oturum çöpe gidiyordu.
+       *
+       * Şimdi yalnız sunucu "bu kimlik geçersiz" derse silinir; diğer her hata
+       * olduğu gibi yukarı verilir, ekran "tekrar dene" gösterir.
+       */
+      const kimlikReddedildi = ikinciHata instanceof UygulamaHatasi && ikinciHata.kod === 'KIMLIK_DOGRULANAMADI';
+      if (!kimlikReddedildi) throw ikinciHata;
       oturumuTemizle();
       throw new UygulamaHatasi('KIMLIK_DOGRULANAMADI', 'Oturumunuz sona erdi. Lütfen tekrar giriş yapın.');
     }
