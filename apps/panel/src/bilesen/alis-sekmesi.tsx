@@ -20,8 +20,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   bugun,
+  faturaToplamlari,
   gunEkle,
-  kdvAyir,
+  satirOzeti,
   KDV_ORANLARI,
   miktarFormat,
   paraFormat,
@@ -30,11 +31,11 @@ import {
   tarihSaatFormat,
   topluGirisKalemleri,
   VARSAYILAN_KDV_ORANI,
-  type AlisKalemGirdisi,
   type Kurus,
   type TopluGirisSatiri,
   carpanCoz,
   satiriKat,
+  sktSutunuGerekli,
 } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { api, uclar } from '@/lib/api';
@@ -519,25 +520,6 @@ function bosSatir(barkod = ''): SatirGirdisi {
 }
 
 /**
- * Fatura toplamı kasadaki kuralla BİREBİR aynı hesaplanır (bkz.
- * `AlisFaturasiFormu.tsx` — `faturaToplamlari`): birim fiyat KDV hariçtir, KDV
- * satır bazında eklenir. Bu, satır→kalem çevriminin bir PARÇASI değildir (o
- * `topluGirisKalemleri`den gelir ve panelde tekrar yazılmaz); burada yalnız
- * dönen kalemler üzerinde gezinip ekranda gösterilecek toplamı üretir.
- */
-function faturaToplamlari(kalemler: readonly AlisKalemGirdisi[]): { araToplam: Kurus; kdvToplam: Kurus; genelToplam: Kurus } {
-  let araToplam = 0;
-  let kdvToplam = 0;
-  for (const kalem of kalemler) {
-    const net = Math.round((kalem.miktar * kalem.birim_fiyat) / 1000);
-    const { kdv } = kdvAyir(net + Math.round((net * kalem.kdv_orani) / 100), kalem.kdv_orani);
-    araToplam += net;
-    kdvToplam += kdv;
-  }
-  return { araToplam, kdvToplam, genelToplam: araToplam + kdvToplam };
-}
-
-/**
  * Para girişi — kasadaki `ParaAlani`nın panel karşılığı. Panelde ortak bir
  * para giriş bileşeni yoktu; barkodla dolan fiyatın kullanıcı satırı elle
  * düzenlerken sıçramaması için kasadaki UX BİREBİR tekrarlanır: alan
@@ -612,6 +594,15 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
   const [barkodGirdi, setBarkodGirdi] = useState('');
   const [barkodAraniyor, setBarkodAraniyor] = useState(false);
   const [urunSecimi, setUrunSecimi] = useState('');
+  /**
+   * Toptancının kâğıdında yazan genel toplam; ekrandaki toplamla karşılaştırılır.
+   * Kasadaki alanla BİREBİR aynı (bkz. AlisFaturasiFormu.tsx).
+   */
+  const [beyanToplam, setBeyanToplam] = useState('');
+  /** Fatura üst bilgileri katlanır bölümde; varsayılan kapalı — iş barkod alanında başlar. */
+  const [detayAcik, setDetayAcik] = useState(false);
+  /** Son silinen satır — yanlış ✕ tıklamasının bedeli koliyi yeniden okutmak olmasın. */
+  const [silinen, setSilinen] = useState<{ satir: SatirGirdisi; sira: number } | null>(null);
   const [gonderiliyor, setGonderiliyor] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
   const barkodAlani = useRef<HTMLInputElement>(null);
@@ -773,7 +764,22 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
   const guncelle = (i: number, yama: Partial<SatirGirdisi>) =>
     setSatirlar((liste) => liste.map((x, j) => (j === i ? { ...x, ...yama } : x)));
 
-  const satirSil = (i: number) => setSatirlar((liste) => liste.filter((_, j) => j !== i));
+  const satirSil = (i: number) => {
+    const hedef = satirlar[i];
+    if (hedef) setSilinen({ satir: hedef, sira: i });
+    setSatirlar((liste) => liste.filter((_, j) => j !== i));
+  };
+
+  const silmeyiGeriAl = () => {
+    if (!silinen) return;
+    setSatirlar((liste) => {
+      const kopya = [...liste];
+      kopya.splice(Math.min(silinen.sira, kopya.length), 0, silinen.satir);
+      return kopya;
+    });
+    vurgula(Math.min(silinen.sira, satirlar.length));
+    setSilinen(null);
+  };
 
   // Satır → TopluGirisSatiri: ekranda Kurus tutulan alis/satis burada TR
   // biçimli metne çevrilir, çünkü topluGirisKalemleri (kasa ve panelle ORTAK)
@@ -814,6 +820,23 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
   }, [donusumSatirlari, marjSayi, kategoriId]);
 
   const { araToplam, kdvToplam, genelToplam } = useMemo(() => faturaToplamlari(kalemler), [kalemler]);
+
+  /*
+   * Satır başına tutar ve kâr marjı — kasadaki tabloyla AYNI sütunlar.
+   * Tutar olmadan toptancının kâğıdıyla satır satır karşılaştırma yapılamıyor,
+   * marj olmadan alışın altına satış yazıldığı fark edilmiyordu.
+   */
+  const ozetler = useMemo(() => donusumSatirlari.map((satir) => satirOzeti(satir, marjSayi)), [donusumSatirlari, marjSayi]);
+
+  /** Hangi satır numaraları hatalı — satırı kırmızı işaretlemek için. */
+  const hataliSatirlar = useMemo(() => new Set(hatalar.map((h) => h.satir)), [hatalar]);
+
+  /** Toptancının kâğıdındaki toplamla ekrandaki toplamın farkı; `null` = beyan girilmedi. */
+  const beyanFarki = useMemo(() => {
+    const beyan = paraParse(beyanToplam);
+    if (beyan === null || satirlar.length === 0) return null;
+    return { beyan, fark: genelToplam - beyan };
+  }, [beyanToplam, genelToplam, satirlar.length]);
 
   // Borç kalsın → 0 ve alan kapalı. Ödedim (nakit/havale) → kullanıcı elle yazmadıysa
   // genel toplamı TAKİP eder; yazdıysa o değer kalır — tam ödeme de kısmi ödeme de
@@ -862,27 +885,76 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
     }
   };
 
+  /** Katlanır bölüm kapalıyken üst bilgilerin tek satırlık özeti (kasadakiyle aynı). */
+  const detayOzeti = [
+    faturaNo.trim() ? `Fatura ${faturaNo.trim()}` : 'Fatura no yok',
+    tarih.split('-').reverse().join('.'),
+    odemeDurumu === 'BORC' ? 'Borç kalacak' : odemeDurumu === 'NAKIT' ? 'Nakit ödendi' : 'Havale/kart',
+    marjYuzde.trim() ? `Marj %${marjYuzde.trim()}` : 'Marj girilmedi',
+    kategoriId ? ((kategoriler.veri?.data ?? []).find((k) => k.id === kategoriId)?.ad ?? 'Kategori') : 'Kategorisiz',
+  ].join(' · ');
+
+  /*
+   * SKT ve lot sütunları yalnız GEREKTİĞİNDE açılır — kasadaki kuralın aynısı.
+   * Panelde her zaman açıktılar; on iki sütun yan yana dizilince ürün adı ve
+   * fiyatlar sıkışıyordu.
+   */
+  const sktGerekli = sktSutunuGerekli(satirlar);
+
+  /** Kaç satır yeni ürün açacak — üst şeritteki sayaçta gösterilir. */
+  const yeniSatirSayisi = satirlar.filter((s) => !s.urun_id).length;
+
   return (
     <Modal
       baslik="Yeni Alış Faturası"
-      genis
+      /* Kasadaki Mal Kabul formuyla AYNI düzen: tam ekran, sabit üst şerit, kayan tablo. */
+      tam
+      kaydirma={false}
       onKapat={onKapat}
       altBilgi={
-        <>
-          <button type="button" className="tus-ikincil flex-1" onClick={onKapat}>
-            Vazgeç
-          </button>
-          <button type="button" className="tus-birincil flex-1" onClick={() => void gonder()} disabled={!gecerli}>
-            {gonderiliyor ? 'Gönderiliyor…' : 'Kasaya Gönder'}
-          </button>
-        </>
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
+          {/* Toplamlar alt şeritte sabit durur; kırk kalemlik faturada aşağı kaydırmak gerekmesin. */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+            <span className="text-metin-3">
+              Ara toplam <span className="font-mono text-metin">{paraFormat(araToplam, { simge: false })}</span>
+            </span>
+            <span className="text-metin-3">
+              KDV <span className="font-mono text-metin">{paraFormat(kdvToplam, { simge: false })}</span>
+            </span>
+            <span className="font-medium">
+              Genel toplam <span className="font-mono text-lg font-bold">{paraFormat(genelToplam)}</span>
+            </span>
+            {odenenTutar > 0 && (
+              <span className="text-metin-3">
+                Ödenen <span className="font-mono text-vurgu">{paraFormat(odenenTutar)}</span>
+              </span>
+            )}
+            <span className="text-metin-3">
+              Kalan borç{' '}
+              <span className="font-mono font-bold text-uyari">{paraFormat(Math.max(0, genelToplam - odenenTutar))}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" className="tus-ikincil" onClick={onKapat}>
+              Vazgeç
+            </button>
+            <button type="button" className="tus-birincil" onClick={() => void gonder()} disabled={!gecerli}>
+              {gonderiliyor ? 'Gönderiliyor…' : 'Kasaya Gönder'}
+            </button>
+          </div>
+        </div>
       }
     >
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="block">
+      {/* ÜST ŞERİT — sürekli kullanılan iki alan: tedarikçi ve barkod (kasadakiyle aynı). */}
+      <div className="shrink-0 border-b border-cizgi pb-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block w-56 shrink-0">
             <span className="etiket">Tedarikçi *</span>
-            <select className="alan" value={tedarikciId} onChange={(e) => setTedarikciId(e.target.value)}>
+            <select
+              className={`alan ${tedarikciId ? '' : 'border-uyari-cizgi'}`}
+              value={tedarikciId}
+              onChange={(e) => setTedarikciId(e.target.value)}
+            >
               <option value="">Seçin…</option>
               {(tedarikciler.veri?.data ?? []).map((c) => (
                 <option key={c.id} value={c.id}>
@@ -891,95 +963,22 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
               ))}
             </select>
           </label>
-          <label className="block">
-            <span className="etiket">Fatura / irsaliye no</span>
-            <input className="alan" value={faturaNo} onChange={(e) => setFaturaNo(e.target.value)} />
-          </label>
-          <label className="block">
-            <span className="etiket">Fatura tarihi</span>
-            <input type="date" className="alan" value={tarih} onChange={(e) => setTarih(e.target.value)} />
-          </label>
-          <label className="block">
-            <span className="etiket">Vade tarihi</span>
-            <input type="date" className="alan" value={vadeTarihi} onChange={(e) => setVadeTarihi(e.target.value)} />
-          </label>
-          <label className="block">
-            <span className="etiket">Ödeme durumu</span>
-            <select
-              className="alan"
-              value={odemeDurumu}
-              onChange={(e) => {
-                // Yöntem değişince tutar yeniden genel toplamdan başlar — önceki elle
-                // yazılmış kısmi tutar farklı bir ödeme yöntemine sessizce taşınmasın.
-                setOdemeDurumu(e.target.value as OdemeDurumu);
-                setOdenenTutarElle(null);
-              }}
-            >
-              <option value="BORC">Ödemedim — borç kalsın</option>
-              <option value="NAKIT">Ödedim — nakit</option>
-              <option value="HAVALE">Ödedim — havale/kart</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="etiket">Ödenen tutar</span>
-            <ParaGirdi
-              deger={odenenTutar}
-              onDegisim={setOdenenTutarElle}
-              devreDisi={odemeDurumu === 'BORC'}
-              sinif={odenenTutarAsimi ? 'border-tehlike' : ''}
-            />
-            <span className="mt-1 block text-xs text-metin-4">
-              {odemeDurumu === 'BORC'
-                ? 'Borç kalsın seçiliyken tutar sıfırdır.'
-                : 'Azaltıp toptancıya elden verilen kısmi tutarı girebilirsiniz; kalanı tedarikçi borcu olarak kaydedilir.'}
-            </span>
-            {odenenTutarAsimi && <span className="mt-1 block text-xs text-tehlike">Ödenen tutar genel toplamı aşamaz.</span>}
-          </label>
-          <label className="block">
-            <span className="etiket">Kategori</span>
-            <select className="alan" value={kategoriId} onChange={(e) => setKategoriId(e.target.value)}>
-              <option value="">Kategorisiz</option>
-              {(kategoriler.veri?.data ?? []).map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.ad}
-                </option>
-              ))}
-            </select>
-            <span className="mt-1 block text-xs text-metin-4">Yalnız bu faturada açılacak yeni ürünlere uygulanır.</span>
-          </label>
-          <label className="block">
-            <span className="etiket">Hedef kâr marjı %</span>
-            <input
-              className="alan sayi"
-              value={marjYuzde}
-              onChange={(e) => setMarjYuzde(e.target.value)}
-              placeholder="Örn. 30"
-            />
-            <span className="mt-1 block text-xs text-metin-4">Yeni ürünlerde satış fiyatı boş bırakılırsa bu marjdan hesaplanır.</span>
-          </label>
-          <label className="block sm:col-span-2 lg:col-span-4">
-            <span className="etiket">Notlar</span>
-            <input className="alan" value={notlar} onChange={(e) => setNotlar(e.target.value)} />
-          </label>
-        </div>
-
-        <div className="flex flex-wrap items-end gap-2 border-t border-cizgi pt-3">
-          <label className="block min-w-[220px] flex-1">
-            <span className="etiket">Barkod</span>
+          <label className="block min-w-[240px] flex-1">
+            <span className="etiket">Barkod — okutun ya da yazıp Enter&apos;layın</span>
             <input
               ref={barkodAlani}
-              className="alan"
+              className="alan h-11 text-lg"
               value={barkodGirdi}
               onChange={(e) => setBarkodGirdi(e.target.value)}
               onKeyDown={(e) => void barkodAra(e)}
-              placeholder="Okutun ya da yazıp Enter'layın…"
+              placeholder="Barkod okutun…  (koli: 12*barkod · boş Enter: barkodsuz yeni ürün)"
               disabled={barkodAraniyor}
             />
           </label>
-          <label className="block min-w-[220px] flex-1">
-            <span className="etiket">Mevcut üründen ekle</span>
+          <label className="block w-52 shrink-0">
+            <span className="etiket">İsimle ekle</span>
             <select
-              className="alan"
+              className="alan h-11"
               value={urunSecimi}
               onChange={(e) => {
                 const urun = urunHaritasi.get(e.target.value);
@@ -987,7 +986,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                 setUrunSecimi('');
               }}
             >
-              <option value="">Barkodu olmayan ürünü adıyla seçin…</option>
+              <option value="">Ürünü adıyla seçin…</option>
               {(urunler.veri?.data ?? []).map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.ad}
@@ -995,26 +994,135 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
               ))}
             </select>
           </label>
-          <button type="button" className="tus-ikincil" onClick={() => setSatirlar((s) => [...s, bosSatir()])}>
-            + Barkodsuz satır ekle
-          </button>
+          <div className="ml-auto text-right leading-tight">
+            <div className="text-xs text-metin-3">
+              {satirlar.length} satır
+              {yeniSatirSayisi > 0 && <span className="text-bilgi"> · {yeniSatirSayisi} yeni ürün</span>}
+            </div>
+            <div className="font-mono text-xl font-bold">{paraFormat(genelToplam)}</div>
+          </div>
         </div>
 
+        {/* Fatura üst bilgileri katlanır: fatura başına bir kez girilirler, kalem listesinden yer çalmasınlar. */}
+        <details
+          className="mt-2 rounded-lg border border-cizgi bg-yuzey-2"
+          open={detayAcik}
+          onToggle={(e) => setDetayAcik((e.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary className="cursor-pointer select-none px-3 py-1.5 text-xs text-metin-3">
+            Fatura bilgileri — <span className="text-metin-2">{detayOzeti}</span>
+          </summary>
+          <div className="grid gap-3 border-t border-cizgi px-3 py-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="block">
+              <span className="etiket">Fatura / irsaliye no</span>
+              <input className="alan" value={faturaNo} onChange={(e) => setFaturaNo(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="etiket">Fatura tarihi</span>
+              <input type="date" className="alan" value={tarih} onChange={(e) => setTarih(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="etiket">Vade tarihi</span>
+              <input type="date" className="alan" value={vadeTarihi} onChange={(e) => setVadeTarihi(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="etiket">Ödeme durumu</span>
+              <select
+                className="alan"
+                value={odemeDurumu}
+                onChange={(e) => {
+                  // Yöntem değişince tutar yeniden genel toplamdan başlar — önceki elle
+                  // yazılmış kısmi tutar farklı bir ödeme yöntemine sessizce taşınmasın.
+                  setOdemeDurumu(e.target.value as OdemeDurumu);
+                  setOdenenTutarElle(null);
+                }}
+              >
+                <option value="BORC">Ödemedim — borç kalsın</option>
+                <option value="NAKIT">Ödedim — nakit</option>
+                <option value="HAVALE">Ödedim — havale/kart</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="etiket">Ödenen tutar</span>
+              <ParaGirdi
+                deger={odenenTutar}
+                onDegisim={setOdenenTutarElle}
+                devreDisi={odemeDurumu === 'BORC'}
+                sinif={odenenTutarAsimi ? 'border-tehlike' : ''}
+              />
+              <span className="mt-1 block text-xs text-metin-4">
+                {odemeDurumu === 'BORC'
+                  ? 'Borç kalsın seçiliyken tutar sıfırdır.'
+                  : 'Azaltıp toptancıya elden verilen kısmi tutarı girebilirsiniz; kalanı tedarikçi borcu olarak kaydedilir.'}
+              </span>
+              {odenenTutarAsimi && <span className="mt-1 block text-xs text-tehlike">Ödenen tutar genel toplamı aşamaz.</span>}
+            </label>
+            <label className="block">
+              <span className="etiket">Kategori</span>
+              <select className="alan" value={kategoriId} onChange={(e) => setKategoriId(e.target.value)}>
+                <option value="">Kategorisiz</option>
+                {(kategoriler.veri?.data ?? []).map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.ad}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-metin-4">Yalnız bu faturada açılacak yeni ürünlere uygulanır.</span>
+            </label>
+            <label className="block">
+              <span className="etiket">Hedef kâr marjı %</span>
+              <input
+                className="alan sayi"
+                value={marjYuzde}
+                onChange={(e) => setMarjYuzde(e.target.value)}
+                placeholder="Örn. 30"
+              />
+              <span className="mt-1 block text-xs text-metin-4">
+                Yeni ürünlerde satış fiyatı boş bırakılırsa bu marjdan hesaplanır.
+              </span>
+            </label>
+            <label className="block">
+              <span className="etiket">Notlar</span>
+              <input className="alan" value={notlar} onChange={(e) => setNotlar(e.target.value)} />
+            </label>
+          </div>
+        </details>
+      </div>
+
+      {/*
+        KALEM LİSTESİ — kalan yüksekliğin tamamını alır ve yalnız burası kayar;
+        başlık satırı yapışkandır. Dar ekranda (telefon) aynı veri kart olarak
+        dizilir: panel mobil-öncelikli bir PWA, on iki sütunlu tablo telefona
+        sığmaz. Kartlar aynı bilgiyi taşır — sıra no, tutar, marj dahil.
+      */}
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-lg border border-cizgi">
         {satirlar.length === 0 ? (
-          <BosDurum
-            baslik="Kalem yok"
-            aciklama="Barkod okutarak, yazıp Enter'layarak ya da isimle seçerek kalem ekleyin."
-          />
+          <div className="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
+            <p className="text-sm font-medium text-metin-2">Henüz kalem yok</p>
+            <p className="text-sm text-metin-4">
+              Barkodu okutun, yazıp Enter&apos;layın ya da &laquo;İsimle ekle&raquo; ile seçin.
+            </p>
+            <p className="text-xs text-metin-4">Koli girişi için çarpan kullanın: 12*8690000000000</p>
+          </div>
         ) : (
           <>
-            {/* Dar ekran: kart listesi. Geniş ekranda aynı veri tablo olarak dizilir (aşağıda). */}
-            <div className="space-y-3 lg:hidden">
+            {/* Dar ekran: kart listesi. */}
+            <div className="space-y-3 p-3 lg:hidden">
               {satirlar.map((s, i) => {
                 const yeniUrun = !s.urun_id;
+                const ozet = ozetler[i] ?? null;
+                const marj = ozet?.marjYuzde ?? null;
+                const hatali = hataliSatirlar.has(i + 1);
                 return (
-                  <div key={i} className={`kart space-y-2 p-3 ${vurgulu === i ? 'border-vurgu bg-vurgu-yumusak' : ''}`}>
+                  <div
+                    key={i}
+                    className={`kart space-y-2 p-3 ${vurgulu === i ? 'border-vurgu bg-vurgu-yumusak' : ''} ${
+                      hatali ? 'border-l-4 border-l-tehlike' : yeniUrun ? 'border-l-4 border-l-bilgi' : ''
+                    }`}
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-1 items-center gap-2">
+                        <span className="font-mono text-xs text-metin-4">{i + 1}</span>
                         {yeniUrun ? (
                           <input
                             data-ad-alani
@@ -1059,6 +1167,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                           className="alan sayi"
                           inputMode="decimal"
                           value={s.miktar}
+                          onFocus={(e) => e.currentTarget.select()}
                           onChange={(e) => guncelle(i, { miktar: e.target.value })}
                         />
                       </label>
@@ -1068,7 +1177,11 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                       </label>
                       <label className="block text-xs">
                         <span className="etiket">Satış (KDV dahil)</span>
-                        <ParaGirdi deger={s.satis} onDegisim={(v) => guncelle(i, { satis: v })} placeholder={yeniUrun ? 'marjdan' : '0,00'} />
+                        <ParaGirdi
+                          deger={s.satis}
+                          onDegisim={(v) => guncelle(i, { satis: v })}
+                          placeholder={yeniUrun ? 'marjdan' : '0,00'}
+                        />
                       </label>
                       <label className="block text-xs">
                         <span className="etiket">KDV %</span>
@@ -1080,130 +1193,216 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                           ))}
                         </select>
                       </label>
-                      <label className="block text-xs">
-                        <span className="etiket">Lot</span>
-                        <input className="alan" value={s.lot} onChange={(e) => guncelle(i, { lot: e.target.value })} />
-                      </label>
-                      <label className="col-span-2 block text-xs">
-                        <span className="etiket">SKT{s.sktZorunlu ? ' *' : ''}</span>
-                        <input
-                          type="date"
-                          className={`alan ${s.sktZorunlu && !s.skt ? 'border-tehlike' : ''}`}
-                          value={s.skt}
-                          aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
-                          onChange={(e) => guncelle(i, { skt: e.target.value })}
-                        />
-                        {s.sktZorunlu && !s.skt && <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>}
-                      </label>
+                      {sktGerekli && (
+                        <>
+                          <label className="block text-xs">
+                            <span className="etiket">Lot</span>
+                            <input className="alan" value={s.lot} onChange={(e) => guncelle(i, { lot: e.target.value })} />
+                          </label>
+                          <label className="col-span-2 block text-xs">
+                            <span className="etiket">SKT{s.sktZorunlu ? ' *' : ''}</span>
+                            <input
+                              type="date"
+                              className={`alan ${s.sktZorunlu && !s.skt ? 'border-tehlike' : ''}`}
+                              value={s.skt}
+                              aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
+                              onChange={(e) => guncelle(i, { skt: e.target.value })}
+                            />
+                            {s.sktZorunlu && !s.skt && (
+                              <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>
+                            )}
+                          </label>
+                        </>
+                      )}
+                    </div>
+                    {/* Satır tutarı ve marj — kasadaki sütunların kart karşılığı. */}
+                    <div className="flex items-center justify-between border-t border-cizgi pt-2 text-sm">
+                      <span className="text-xs text-metin-3">
+                        Marj{' '}
+                        {marj === null ? (
+                          <span className="text-metin-4">—</span>
+                        ) : (
+                          <span
+                            className={`font-mono ${
+                              marj < 0 ? 'font-bold text-tehlike' : marj < 5 ? 'text-uyari' : 'text-metin-2'
+                            }`}
+                          >
+                            %{marj.toFixed(1)}
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-mono font-medium">
+                        {ozet ? paraFormat(ozet.brut) : <span className="text-metin-4">—</span>}
+                      </span>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            <div className="tablo-sarmal hidden lg:block">
-              <table className="tablo">
-                <thead>
-                  <tr>
-                    <th className="w-32">Barkod</th>
-                    <th>Ürün</th>
-                    <th className="w-20">Miktar</th>
-                    <th className="w-28">Alış (KDV hariç)</th>
-                    <th className="w-28">Satış (KDV dahil)</th>
-                    <th className="w-20">KDV</th>
-                    <th className="w-32">SKT</th>
-                    <th className="w-24">Lot</th>
-                    <th className="w-10" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {satirlar.map((s, i) => {
-                    const yeniUrun = !s.urun_id;
-                    return (
-                      <tr key={i} className={vurgulu === i ? 'bg-vurgu-yumusak' : ''}>
-                        <td>
-                          {yeniUrun ? (
+            {/* Geniş ekran: kasadaki tablonun aynısı. */}
+            <table className="tablo tablo-yapiskan hidden lg:table">
+              <thead>
+                <tr>
+                  <th className="w-10 text-right">#</th>
+                  <th className="w-32">Barkod</th>
+                  <th>Ürün</th>
+                  <th className="w-20">Miktar</th>
+                  <th className="w-28">Alış (KDV hariç)</th>
+                  <th className="w-28">Satış (KDV dahil)</th>
+                  <th className="w-16 text-right">Marj</th>
+                  <th className="w-20">KDV</th>
+                  {sktGerekli && (
+                    <>
+                      <th className="w-36">SKT</th>
+                      <th className="w-24">Lot</th>
+                    </>
+                  )}
+                  <th className="w-28 text-right">Tutar</th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {satirlar.map((s, i) => {
+                  const yeniUrun = !s.urun_id;
+                  const ozet = ozetler[i] ?? null;
+                  const marj = ozet?.marjYuzde ?? null;
+                  const hatali = hataliSatirlar.has(i + 1);
+                  return (
+                    <tr
+                      key={i}
+                      className={`${vurgulu === i ? 'bg-vurgu-yumusak' : ''} ${
+                        hatali ? 'border-l-2 border-tehlike' : yeniUrun ? 'border-l-2 border-bilgi' : ''
+                      }`}
+                    >
+                      <td className="text-right font-mono text-xs text-metin-4">{i + 1}</td>
+                      <td>
+                        {yeniUrun ? (
+                          <input
+                            className="alan py-1"
+                            value={s.barkod}
+                            onChange={(e) => guncelle(i, { barkod: e.target.value })}
+                            placeholder="Barkodsuz"
+                          />
+                        ) : (
+                          <span className="font-mono text-xs text-metin-3">{s.barkod || '—'}</span>
+                        )}
+                      </td>
+                      <td>
+                        {yeniUrun ? (
+                          <div className="flex items-center gap-2">
                             <input
+                              data-ad-alani
                               className="alan py-1"
-                              value={s.barkod}
-                              onChange={(e) => guncelle(i, { barkod: e.target.value })}
-                              placeholder="Barkodsuz"
+                              value={s.ad}
+                              onChange={(e) => guncelle(i, { ad: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  barkodAlani.current?.focus();
+                                }
+                              }}
+                              placeholder="Ürün adı *"
                             />
-                          ) : (
-                            <span className="text-metin-3">{s.barkod || '—'}</span>
-                          )}
-                        </td>
-                        <td>
-                          {yeniUrun ? (
-                            <div className="flex items-center gap-2">
-                              <input
-                                data-ad-alani
-                                className="alan py-1"
-                                value={s.ad}
-                                onChange={(e) => guncelle(i, { ad: e.target.value })}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    barkodAlani.current?.focus();
-                                  }
-                                }}
-                                placeholder="Ürün adı *"
-                              />
-                              <Rozet tur="bilgi">Yeni</Rozet>
-                              {baglaSecici(i)}
-                            </div>
-                          ) : (
-                            <span className="font-medium">{s.ad}</span>
-                          )}
-                        </td>
-                        <td>
-                          <input
-                            className="alan sayi py-1"
-                            inputMode="decimal"
-                            value={s.miktar}
-                            onChange={(e) => guncelle(i, { miktar: e.target.value })}
-                          />
-                        </td>
-                        <td>
-                          <ParaGirdi deger={s.alis} onDegisim={(v) => guncelle(i, { alis: v })} />
-                        </td>
-                        <td>
-                          <ParaGirdi deger={s.satis} onDegisim={(v) => guncelle(i, { satis: v })} placeholder={yeniUrun ? 'marjdan' : '0,00'} />
-                        </td>
-                        <td>
-                          <select className="alan py-1" value={s.kdv} onChange={(e) => guncelle(i, { kdv: e.target.value })}>
-                            {KDV_ORANLARI.map((o) => (
-                              <option key={o} value={o}>
-                                %{o}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <input
-                            type="date"
-                            className={`alan py-1 ${s.sktZorunlu && !s.skt ? 'border-tehlike' : ''}`}
-                            value={s.skt}
-                            aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
-                            onChange={(e) => guncelle(i, { skt: e.target.value })}
-                          />
-                          {s.sktZorunlu && !s.skt && <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>}
-                        </td>
-                        <td>
-                          <input className="alan py-1" value={s.lot} onChange={(e) => guncelle(i, { lot: e.target.value })} />
-                        </td>
-                        <td>
-                          <button type="button" className="text-tehlike" onClick={() => satirSil(i)} aria-label="Satırı sil">
-                            ✕
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            <Rozet tur="bilgi">Yeni</Rozet>
+                            {baglaSecici(i)}
+                          </div>
+                        ) : (
+                          <span className="font-medium">{s.ad}</span>
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          className="alan sayi py-1"
+                          inputMode="decimal"
+                          value={s.miktar}
+                          onFocus={(e) => e.currentTarget.select()}
+                          onChange={(e) => guncelle(i, { miktar: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <ParaGirdi deger={s.alis} onDegisim={(v) => guncelle(i, { alis: v })} />
+                      </td>
+                      <td>
+                        <ParaGirdi
+                          deger={s.satis}
+                          onDegisim={(v) => guncelle(i, { satis: v })}
+                          placeholder={yeniUrun ? 'marjdan' : '0,00'}
+                        />
+                      </td>
+                      <td className="text-right">
+                        {marj === null ? (
+                          <span className="text-xs text-metin-4">—</span>
+                        ) : (
+                          <span
+                            className={`font-mono text-xs ${
+                              marj < 0 ? 'font-bold text-tehlike' : marj < 5 ? 'text-uyari' : 'text-metin-3'
+                            }`}
+                          >
+                            %{marj.toFixed(1)}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <select className="alan py-1" value={s.kdv} onChange={(e) => guncelle(i, { kdv: e.target.value })}>
+                          {KDV_ORANLARI.map((o) => (
+                            <option key={o} value={o}>
+                              %{o}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      {sktGerekli && (
+                        <>
+                          <td>
+                            <input
+                              type="date"
+                              className={`alan py-1 ${s.sktZorunlu && !s.skt ? 'border-tehlike' : ''}`}
+                              value={s.skt}
+                              aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
+                              onChange={(e) => guncelle(i, { skt: e.target.value })}
+                            />
+                            {s.sktZorunlu && !s.skt && (
+                              <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>
+                            )}
+                          </td>
+                          <td>
+                            <input className="alan py-1" value={s.lot} onChange={(e) => guncelle(i, { lot: e.target.value })} />
+                          </td>
+                        </>
+                      )}
+                      <td className="text-right">
+                        {ozet ? (
+                          <span className="font-mono text-sm font-medium">{paraFormat(ozet.brut, { simge: false })}</span>
+                        ) : (
+                          <span className="text-xs text-metin-4">—</span>
+                        )}
+                      </td>
+                      <td>
+                        <button type="button" className="text-tehlike" onClick={() => satirSil(i)} aria-label="Satırı sil">
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </>
+        )}
+      </div>
+
+      {/* Uyarılar ve fatura toplamı denetimi — kasadakiyle aynı sırada. */}
+      <div className="shrink-0 space-y-2 pt-2">
+        {silinen && (
+          <div className="flex items-center justify-between rounded-lg border border-cizgi bg-yuzey-2 px-3 py-1.5 text-xs">
+            <span className="text-metin-3">
+              &laquo;{silinen.satir.ad || silinen.satir.barkod || 'Boş satır'}&raquo; silindi.
+            </span>
+            <button type="button" className="font-medium text-vurgu hover:underline" onClick={silmeyiGeriAl}>
+              Geri al
+            </button>
+          </div>
         )}
 
         {hatalar.length > 0 && (
@@ -1219,21 +1418,34 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
         )}
 
         {satirlar.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <ParaKutusu etiket="Ara toplam" tutar={araToplam} alt="KDV hariç" />
-            <ParaKutusu etiket="KDV" tutar={kdvToplam} alt="Hesaplanan" />
-            <ParaKutusu etiket="Genel toplam" tutar={genelToplam} vurgulu />
-            <ParaKutusu etiket="Ödenen" tutar={odenenTutar} />
-            <ParaKutusu etiket="Kalan borç" tutar={Math.max(0, genelToplam - odenenTutar)} alt="Tedarikçiye" />
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-metin-3">Faturada yazan toplam</span>
+              <input
+                className="alan sayi w-32 py-1"
+                inputMode="decimal"
+                value={beyanToplam}
+                onChange={(e) => setBeyanToplam(e.target.value)}
+                placeholder="isteğe bağlı"
+                title="Toptancının kâğıdındaki genel toplamı yazın; ekrandaki toplamla karşılaştırılsın."
+              />
+            </label>
+            {beyanFarki !== null &&
+              (beyanFarki.fark === 0 ? (
+                <span className="rounded bg-vurgu-yumusak px-2 py-1 text-xs font-medium text-vurgu">
+                  ✓ Fatura toplamı tutuyor
+                </span>
+              ) : (
+                <span className="rounded bg-uyari-yumusak px-2 py-1 text-xs font-medium text-uyari">
+                  Fark {paraFormat(Math.abs(beyanFarki.fark))} — ekrandaki toplam faturadakinden{' '}
+                  {beyanFarki.fark > 0 ? 'FAZLA' : 'EKSİK'}
+                </span>
+              ))}
+            <span className="ml-auto text-xs text-metin-4">
+              Fatura kasada oluşur; talimat bir sonraki senkronda uygulanır.
+            </span>
           </div>
         )}
-
-        <p className="rounded-lg border border-cizgi bg-yuzey-2 px-3 py-2 text-xs text-metin-3">
-          Fatura kasada oluşur: stok ve cari defterinin tek yazıcısı kasadır. Kaydedildiğinde{' '}
-          <strong>ürünlerin stoğu otomatik artar</strong>, tedarikçiye borç yazılır; katalogda olmayan ürünler fatura ile{' '}
-          <strong>aynı anda</strong> açılır. Talimat bir sonraki senkronda uygulanır; nakit peşin ödeme varsa açık kasa gerektiği
-          için kasa kapalıysa açılışta işlenir.
-        </p>
 
         {hata && <p className="rounded-lg border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm">{hata}</p>}
       </div>

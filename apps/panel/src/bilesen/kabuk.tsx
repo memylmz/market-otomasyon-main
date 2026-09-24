@@ -309,12 +309,25 @@ export function Modal({
   children,
   onKapat,
   genis,
+  tam,
+  kaydirma = true,
   altBilgi,
 }: {
   baslik: string;
   children: ReactNode;
   onKapat: () => void;
   genis?: boolean;
+  /**
+   * `tam`: neredeyse tüm ekranı kaplar — kasadaki Diyalog'un `genislik="tam"`
+   * karşılığı. Alış faturası gibi ONLARCA satırın yan yana girildiği formlar
+   * dar bir modalde sütunları sıkıştırıyor, kullanıcıyı sürekli kaydırtıyordu.
+   */
+  tam?: boolean;
+  /**
+   * `false`: gövde kendi kaydırmasını yapmaz, kalan yüksekliği çocuğa verir.
+   * Üst şerit ve toplamlar sabit kalsın, yalnız ortadaki tablo kaysın diye.
+   */
+  kaydirma?: boolean;
   altBilgi?: ReactNode;
 }) {
   useEffect(() => {
@@ -328,16 +341,20 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-ortu/50 sm:items-center" role="dialog" aria-modal="true">
       <div
-        className={`kart max-h-[92vh] w-full overflow-y-auto rounded-b-none sm:rounded-b-xl ${genis ? 'max-w-3xl' : 'max-w-lg'}`}
+        className={`kart flex w-full flex-col rounded-b-none sm:rounded-b-xl ${
+          tam ? 'h-[94vh] max-h-[94vh] max-w-[96vw]' : `max-h-[92vh] ${genis ? 'max-w-3xl' : 'max-w-lg'}`
+        } ${kaydirma ? 'overflow-y-auto' : 'overflow-hidden'}`}
       >
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-cizgi bg-yuzey px-4 py-3">
+        <header className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-cizgi bg-yuzey px-4 py-3">
           <h2 className="font-semibold">{baslik}</h2>
           <button type="button" onClick={onKapat} className="text-metin-3 hover:text-metin" aria-label="Kapat">
             ✕
           </button>
         </header>
-        <div className="p-4">{children}</div>
-        {altBilgi && <footer className="sticky bottom-0 flex gap-2 border-t border-cizgi bg-yuzey px-4 py-3">{altBilgi}</footer>}
+        <div className={`min-h-0 flex-1 p-4 ${kaydirma ? '' : 'flex flex-col overflow-hidden'}`}>{children}</div>
+        {altBilgi && (
+          <footer className="sticky bottom-0 flex shrink-0 gap-2 border-t border-cizgi bg-yuzey px-4 py-3">{altBilgi}</footer>
+        )}
       </div>
     </div>
   );

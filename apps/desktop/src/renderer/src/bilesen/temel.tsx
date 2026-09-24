@@ -18,6 +18,13 @@ export interface DiyalogOzellikleri {
    * kullanıcı sürekli kaydırmak zorunda kalıyor.
    */
   genislik?: 'dar' | 'orta' | 'genis' | 'tam';
+  /**
+   * `false`: gövde KENDİ kaydırmasını yapmaz, kalan yüksekliği olduğu gibi
+   * çocuğa verir. Mal kabul gibi formlarda üst şerit ve toplamlar sabit
+   * kalmalı, yalnız ORTADAKİ tablo kaymalıdır; gövdenin tamamı kayarsa
+   * barkod alanı ve toplam ekranın dışına çıkıyordu.
+   */
+  kaydirma?: boolean;
   onKapat: () => void;
   children: ReactNode;
   altBilgi?: ReactNode;
@@ -30,7 +37,7 @@ export interface DiyalogOzellikleri {
  */
 const diyalogYigini: symbol[] = [];
 
-export function Diyalog({ acik, baslik, aciklama, genislik = 'orta', onKapat, children, altBilgi }: DiyalogOzellikleri) {
+export function Diyalog({ acik, baslik, aciklama, genislik = 'orta', kaydirma = true, onKapat, children, altBilgi }: DiyalogOzellikleri) {
   const kutu = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,14 +88,22 @@ export function Diyalog({ acik, baslik, aciklama, genislik = 'orta', onKapat, ch
         role="dialog"
         aria-modal="true"
         aria-label={baslik}
-        className={`kart w-full ${genislikSinifi} ${genislik === 'tam' ? 'h-[94vh] max-h-[94vh]' : 'max-h-[90vh]'} overflow-hidden shadow-2xl`}
+        className={`kart flex w-full flex-col ${genislikSinifi} ${genislik === 'tam' ? 'h-[94vh] max-h-[94vh]' : 'max-h-[90vh]'} overflow-hidden shadow-2xl`}
       >
-        <header className="border-b border-cizgi px-5 py-4">
+        <header className="shrink-0 border-b border-cizgi px-5 py-4">
           <h2 className="text-lg font-semibold">{baslik}</h2>
           {aciklama && <p className="mt-1 text-sm text-metin-3">{aciklama}</p>}
         </header>
-        <div className="max-h-[65vh] overflow-y-auto px-5 py-4">{children}</div>
-        {altBilgi && <footer className="flex justify-end gap-2 border-t border-cizgi px-5 py-3">{altBilgi}</footer>}
+        <div
+          className={`min-h-0 flex-1 px-5 py-4 ${kaydirma ? 'overflow-y-auto' : 'flex flex-col overflow-hidden'} ${
+            genislik === 'tam' ? '' : 'max-h-[65vh]'
+          }`}
+        >
+          {children}
+        </div>
+        {altBilgi && (
+          <footer className="flex shrink-0 justify-end gap-2 border-t border-cizgi px-5 py-3">{altBilgi}</footer>
+        )}
       </div>
     </div>
   );

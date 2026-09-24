@@ -312,8 +312,33 @@ export const temaEklentisi = plugin(({ addBase, addComponents }) => {
       },
       '& th:first-child, & td:first-child': { textAlign: 'left' },
       '& th.text-left, & td.text-left': { textAlign: 'left' },
-      '& th.text-center, & td.text-center, & th.text-right, & td.text-right': ORTALI,
+      '& th.text-center, & td.text-center': ORTALI,
+      /*
+       * `text-right` GERÇEKTEN sağa yaslar.
+       *
+       * Eskiden `text-center` ile aynı kurala bağlıydı; sınıfı yazan herkes
+       * sağa yaslamayı kastettiği hâlde sütun ortalı çıkıyor, tutar sütununda
+       * basamaklar alt alta gelmiyordu. Bileşen seçicisi Tailwind'in kendi
+       * `.text-right` yardımcısından daha özgül olduğu için sessizce kazanıyordu.
+       */
+      '& th.text-right, & td.text-right': { textAlign: 'right' },
       '& tbody tr:hover': { backgroundColor: 'rgb(var(--yuzey-2) / 0.7)' },
+    },
+
+    /*
+     * Yapışkan tablo başlığı — uzun listelerde sütunun ne olduğu görünür kalır.
+     *
+     * Sticky `thead`e değil HÜCRELERE verilir: `.tablo` çöken kenarlık
+     * (border-collapse: collapse) kullanıyor, bu kipte thead'in arka planı ve
+     * alt çizgisi kaydırma sırasında güvenilir biçimde çizilmiyor. Alt çizgi de
+     * `inset` gölgeyle hücrenin İÇİNE konur ki başlıkla birlikte kaysın.
+     */
+    '.tablo-yapiskan thead th': {
+      position: 'sticky',
+      top: '0',
+      zIndex: '10',
+      backgroundColor: renk('--yuzey-2'),
+      boxShadow: `inset 0 -1px 0 ${renk('--cizgi')}`,
     },
 
     /*

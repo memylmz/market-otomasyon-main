@@ -17,5 +17,6 @@ export * from './id.js';
 export * from './semalar.js';
 export * from './toplu-urun.js';
 export * from './alis-satir.js';
+export * from './alis-ozet.js';
 export * from './api-sozlesme.js';
 export * from './barkod-cizim.js';
