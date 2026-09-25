@@ -74,6 +74,7 @@ apps/desktop        Electron kasa uygulaması
 apps/api            Fastify + libSQL/Turso senkron ve rapor servisi
 apps/panel          Next.js mobil-öncelikli yönetim paneli (PWA)
 docs/               İşletim, güvenlik, KVKK ve senkron protokolü belgeleri
+docs/tasarim/       Özellik tasarım notları (karar gerekçeleri)
 ```
 
 ### Neden bu üçlü?
@@ -205,4 +206,7 @@ Ayrıntı: [`docs/kvkk.md`](docs/kvkk.md)
 - [Yedekleme ve felaket kurtarma](docs/yedekleme-dr.md)
 - [Güvenlik](docs/guvenlik.md)
 - [KVKK ve kişisel veri](docs/kvkk.md)
+- Tasarım notları — bir özelliğin NEDEN öyle yapıldığını kaydeder:
+  [panelden stok girişi](docs/tasarim/2026-09-02-panel-stok-girisi.md),
+  [tedarikçi bazlı toplu ürün girişi](docs/tasarim/2026-09-11-tedarikci-bazli-toplu-urun-girisi.md)
 - [Sürüm geçmişi](CHANGELOG.md)

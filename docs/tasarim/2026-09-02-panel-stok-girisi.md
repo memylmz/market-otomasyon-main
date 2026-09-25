@@ -1,7 +1,7 @@
 # Panelden stok girişi — tasarım
 
 **Tarih:** 2026-09-02
-**Durum:** Onaylandı, uygulanıyor
+**Durum:** Uygulandı
 **Kapsam:** Yönetim panelinden (a) yeni ürüne açılış stoğu vermek, (b) mevcut ürünün stoğunu düzeltmek.
 
 ---
@@ -9,7 +9,7 @@
 ## Sorun
 
 Panelde ürünün stok miktarı girilemiyor. Bu eksik bir ekran değil, protokolün açık bir
-kuralı: [senkron-protokolu.md](../../senkron-protokolu.md) "Satış/stok/kasa hareketleri
+kuralı: [senkron-protokolu.md](../senkron-protokolu.md) "Satış/stok/kasa hareketleri
 **hiçbir zaman** buluttan kasaya inmez — onların tek üreticisi kasadır" diyor. Buna uygun
 olarak API'de stok yazan hiçbir uç nokta yok; panelin ürün formunda yalnız kritik/ideal
 stok eşikleri var, gerçek stok yok.

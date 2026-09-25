@@ -1,6 +1,11 @@
 /**
  * Satış ekranından veresiye tahsilatı (F2) — §10.7.
  *
+ * ADI NEDEN BU: bu dosya bir tahsilat diyaloğu DEĞİL, borçlu müşteriyi seçtiren
+ * bir ön adımdır; tahsilatın kendisini ortak `bilesen/TahsilatDiyalogu`ya
+ * devreder. İkisi de `TahsilatDiyalogu` adını taşıdığı sürece "tahsilat
+ * ekranını düzelt" diyen biri yanlış dosyayı açıyordu.
+ *
  * Kasiyerin en sık yaptığı işlerden biri, borcunu ödemeye gelen müşteriyi
  * karşılamaktır; bunun için satışı bırakıp Cari Hesap ekranına gitmesi
  * gerekiyordu. Buradaki akış iki adım: borcu olan müşteriyi seç, tutarı gir.
@@ -12,7 +17,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { paraFormat, type Kurus } from '@market/shared';
 import { Diyalog, Kisayol, Yukleniyor } from '../../bilesen/temel';
-import { TahsilatDiyalogu as OrtakTahsilat } from '../../bilesen/TahsilatDiyalogu';
+import { TahsilatDiyalogu } from '../../bilesen/TahsilatDiyalogu';
 import { hatayiBildir } from '../../durum/bildirim';
 import { cagir } from '../../kopru';
 
@@ -23,7 +28,7 @@ interface BorcluSatiri {
   bakiye: Kurus;
 }
 
-export function TahsilatDiyalogu({ acik, onKapat }: { acik: boolean; onKapat: () => void }) {
+export function BorcluSecTahsilat({ acik, onKapat }: { acik: boolean; onKapat: () => void }) {
   const [terim, setTerim] = useState('');
   const [borclular, setBorclular] = useState<BorcluSatiri[]>([]);
   const [yukleniyor, setYukleniyor] = useState(false);
@@ -73,7 +78,7 @@ export function TahsilatDiyalogu({ acik, onKapat }: { acik: boolean; onKapat: ()
   // --- 2. adım: tutar girişi (ortak bileşen; Cari ekranı da aynısını kullanır) ---
   if (odenecek) {
     return (
-      <OrtakTahsilat
+      <TahsilatDiyalogu
         acik
         cari={{ id: odenecek.id, ad_unvan: odenecek.ad_unvan, tip: 'MUSTERI', bakiye: odenecek.bakiye }}
         onKapat={() => setOdenecek(null)}

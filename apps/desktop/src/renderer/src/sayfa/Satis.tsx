@@ -30,7 +30,7 @@ import { satisGirdisiOlustur, sepetDurumu, type EklenecekUrun, type SepetAnlik }
 import { useBarkodOdakYakalayici, useBarkodTekrarKorumasi, useKisayol } from '../kanca/useKisayol';
 import { cagir } from '../kopru';
 import { OdemeDiyalogu } from './satis/OdemeDiyalogu';
-import { TahsilatDiyalogu } from './satis/TahsilatDiyalogu';
+import { BorcluSecTahsilat } from './satis/BorcluSecTahsilat';
 import { UrunAramaDiyalogu } from './satis/UrunAramaDiyalogu';
 import { MusteriSecDiyalogu } from './satis/MusteriSecDiyalogu';
 import { IskontoDiyalogu } from './satis/IskontoDiyalogu';
@@ -1114,7 +1114,7 @@ export function SatisSayfasi() {
         onTamamla={(odemeler, onaylar) => satisiTamamla(odemeler, onaylar, fisYazdirilacak)}
       />
 
-      <TahsilatDiyalogu
+      <BorcluSecTahsilat
         acik={tahsilatAcik}
         onKapat={() => {
           setTahsilatAcik(false);

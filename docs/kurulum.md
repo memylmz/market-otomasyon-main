@@ -176,7 +176,8 @@ Akşam   → Kasa → Gün Sonu (nakdi say, tutarı gir)
 |---|---|
 | Barkod okutunca hiçbir şey olmuyor | İmleç barkod alanında mı? Okuyucu `Enter` gönderiyor mu? Not defterinde test edin. |
 | Fiş basılmıyor ama satış kaydediliyor | Beklenen davranıştır — satış yazıcıya bağımlı değildir. *Raporlar → Satışlar → Fiş yazdır* ile tekrar deneyin. |
-| Türkçe karakterler fişte bozuk | Yazıcı CP857 kod sayfasını desteklemiyor olabilir; yazıcı ayarlarından kod sayfasını kontrol edin. |
+| Türkçe karakterler fişte bozuk | Fiş görüntüye çevrilip basıldığı için kod sayfasıyla ilgisi yoktur. *Ayarlar → Donanım → Fişi görüntü olarak bas* açık olmalı; kapalıysa yazıcının kod sayfasına düşer ve Türkçe bozulur. |
+| Türkçe karakterler etikette bozuk | *Ayarlar → Donanım → Komut dili = TSPL* seçin. TSPL, CP1254 kod sayfasını kullanır; ZPL'de küçük ı/İ ailesi bozuk basılır. |
 | Senkron rozeti 🔴 | İnternet bağlantısı ve *Ayarlar → Senkron* sunucu adresi. Kasa bu durumda da normal çalışır. |
 | "Kasa açık değil" uyarısı | *Kasa → Açılış* yapın. |
 | Uygulama açılmıyor, DB hatası | *Ayarlar → Yedekleme → Geri Yükle* ya da `docs/yedekleme-dr.md` felaket senaryosu. |
