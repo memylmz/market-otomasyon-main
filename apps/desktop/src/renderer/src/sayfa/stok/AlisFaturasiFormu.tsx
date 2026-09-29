@@ -22,6 +22,7 @@ import {
   KDV_ORANLARI,
   VARSAYILAN_KDV_ORANI,
   carpanCoz,
+  kisaKodMu,
   satiriKat,
   sktSutunuGerekli,
   type AlisSatiri,
@@ -29,6 +30,7 @@ import {
   type TopluGirisSatiri,
 } from '@market/shared';
 import { Alan, Diyalog, ParaAlani, Rozet } from '../../bilesen/temel';
+import { UrunKartiDiyalogu, type UrunKartiTaslagi, type UrunSatiri } from '../../bilesen/UrunKartiDiyalogu';
 import { UrunSecici, type SecilenUrun } from '../../bilesen/UrunSecici';
 import { bildir, hatayiBildir } from '../../durum/bildirim';
 import { cagir } from '../../kopru';
@@ -90,6 +92,13 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   const [aramaAcik, setAramaAcik] = useState(false);
   /** Hangi satır mevcut bir ürüne bağlanmayı bekliyor (null = yok). */
   const [baglanacak, setBaglanacak] = useState<number | null>(null);
+  /**
+   * Satırdaki ürünün kartı açık mı. Mevcut üründe gerçek kart (kaydedince
+   * kataloğa yazar); yeni üründe TASLAK (değerler satırda taşınır, ürün fatura
+   * kaydedilince açılır). `taslak` burada sabit tutulur — form her çizimde
+   * sıfırlanmasın.
+   */
+  const [kart, setKart] = useState<{ sira: number; urun: UrunSatiri } | { sira: number; taslak: UrunKartiTaslagi } | null>(null);
   /**
    * Toptancının kâğıdında yazan genel toplam. Girilirse ekrandaki toplamla
    * karşılaştırılır. Alış faturası girmenin ASIL işi budur: rakamlar tutuyor
@@ -248,6 +257,89 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
     }
   };
 
+  /** Satırdaki ürünün kartını açar. */
+  const kartiAc = async (sira: number) => {
+    const s = satirlar[sira];
+    if (!s) return;
+    if (s.urun_id) {
+      try {
+        const d = await cagir<{
+          urun: Omit<UrunSatiri, 'barkodlar' | 'stok' | 'kategori_adi'>;
+          barkodlar: { barkod: string }[];
+          stok: number;
+        }>('urun.detay', { urunId: s.urun_id });
+        setKart({ sira, urun: { ...d.urun, stok: d.stok, kategori_adi: null, barkodlar: d.barkodlar.map((b) => b.barkod) } });
+      } catch (hata) {
+        hatayiBildir(hata, 'Ürün kartı');
+      }
+      return;
+    }
+    const ek = s.kart?.ek_barkodlar ?? [];
+    setKart({
+      sira,
+      taslak: {
+        ad: s.ad,
+        barkodlar: [...(s.barkod.trim() ? [s.barkod.trim()] : []), ...ek.filter((b) => !kisaKodMu(b))],
+        kisaKod: ek.find((b) => kisaKodMu(b)) ?? '',
+        marka: s.kart?.marka ?? '',
+        // Satırda seçilmemişse faturanın genel kategorisi önerilir.
+        kategoriId: s.kart?.kategori_id ?? kategoriId,
+        birimTipi: s.kart?.birim_tipi ?? 'ADET',
+        alisFiyati: s.alis,
+        satisFiyati: s.satis,
+        kdvOrani: Number(s.kdv) || VARSAYILAN_KDV_ORANI,
+        kritikStok: s.kart?.kritik_stok ?? '',
+        rafKonumu: s.kart?.raf_konumu ?? '',
+        sktTakibi: s.kart?.skt_takibi ?? false,
+        notlar: s.kart?.notlar ?? '',
+      },
+    });
+  };
+
+  /** Taslak kartın değerleri satıra yazılır; ürün fatura kaydedilince açılır. */
+  const taslagiUygula = (sira: number, t: UrunKartiTaslagi) => {
+    guncelle(sira, {
+      ad: t.ad,
+      barkod: t.barkodlar[0] ?? '',
+      alis: t.alisFiyati,
+      satis: t.satisFiyati,
+      kdv: String(t.kdvOrani),
+      sktZorunlu: t.sktTakibi,
+      kart: {
+        marka: t.marka,
+        kategori_id: t.kategoriId || null,
+        birim_tipi: t.birimTipi,
+        kritik_stok: t.kritikStok,
+        raf_konumu: t.rafKonumu,
+        skt_takibi: t.sktTakibi,
+        notlar: t.notlar,
+        ek_barkodlar: [...t.barkodlar.slice(1), ...(t.kisaKod ? [t.kisaKod] : [])],
+      },
+    });
+    setKart(null);
+    vurgula(sira);
+  };
+
+  /** Mevcut ürünün kartı kaydedildi: satırdaki ad, raf fiyatı, KDV ve SKT zorunluluğu tazelenir. */
+  const kartKaydedildi = async (sira: number, urunId: string) => {
+    setKart(null);
+    try {
+      const d = await cagir<{ urun: { ad: string; satis_fiyati: number; kdv_orani: number; skt_takibi: boolean } }>(
+        'urun.detay',
+        { urunId },
+      );
+      guncelle(sira, {
+        ad: d.urun.ad,
+        satis: d.urun.satis_fiyati,
+        kdv: String(d.urun.kdv_orani),
+        sktZorunlu: d.urun.skt_takibi === true,
+      });
+      vurgula(sira);
+    } catch (hata) {
+      hatayiBildir(hata, 'Ürün kartı');
+    }
+  };
+
   const guncelle = (i: number, yama: Partial<Satir>) =>
     setSatirlar((liste) => liste.map((x, j) => (j === i ? { ...x, ...yama } : x)));
 
@@ -286,6 +378,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         skt: s.skt,
         lot: s.lot,
         urun_id: s.urun_id,
+        kart: s.kart,
       })),
     [satirlar],
   );
@@ -301,8 +394,9 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
     const sonuc = topluGirisKalemleri(donusumSatirlari, { marjYuzde: marjSayi });
     // Kategori yalnız YENİ ürünlere uygulanır. Bu bir hesap değil, seçilmiş
     // veriyi iliştirmektir — topluGirisKalemleri'nin işini burada tekrarlamaz.
+    // Satırın kartında kategori seçildiyse o kazanır; genel kategori yalnız boş olana gider.
     const kategoriliKalemler = sonuc.kalemler.map((k) =>
-      k.yeni_urun ? { ...k, yeni_urun: { ...k.yeni_urun, kategori_id: kategoriId || null } } : k,
+      k.yeni_urun ? { ...k, yeni_urun: { ...k.yeni_urun, kategori_id: k.yeni_urun.kategori_id ?? (kategoriId || null) } } : k,
     );
     return { kalemler: kategoriliKalemler, hatalar: sonuc.hatalar };
   }, [donusumSatirlari, marjSayi, kategoriId]);
@@ -711,6 +805,15 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                             placeholder="Ürün adı *"
                           />
                           <Rozet tur="bilgi">Yeni</Rozet>
+                          {/* Marka, kategori, birim, raf, SKT, kısa kod… ürün kartı formuyla. */}
+                          <button
+                            type="button"
+                            className="whitespace-nowrap text-xs text-vurgu hover:underline"
+                            onClick={() => void kartiAc(i)}
+                            title="Ürün kartını aç: marka, kategori, birim, raf, SKT takibi, kısa kod"
+                          >
+                            {s.kart ? 'kart ✓' : 'kart'}
+                          </button>
                           {/*
                             Katalogda olan ama barkodu kartına yazılmamış ürünler için kaçış yolu.
                             Bağlanınca okutulan barkod satırda kalır ve fatura kaydedilirken
@@ -726,7 +829,14 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                           </button>
                         </div>
                       ) : (
-                        <span className="font-medium">{s.ad}</span>
+                        <button
+                          type="button"
+                          className="text-left font-medium hover:text-vurgu hover:underline"
+                          onClick={() => void kartiAc(i)}
+                          title="Ürün kartını aç"
+                        >
+                          {s.ad}
+                        </button>
                       )}
                     </td>
                     <td>
@@ -875,6 +985,16 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
           </div>
         )}
       </div>
+
+      {kart && (
+        <UrunKartiDiyalogu
+          urun={'urun' in kart ? kart.urun : 'yeni'}
+          kategoriler={kategoriler}
+          onKapat={() => setKart(null)}
+          onKaydedildi={() => 'urun' in kart && void kartKaydedildi(kart.sira, kart.urun.id)}
+          taslak={'taslak' in kart ? { baslangic: kart.taslak, onUygula: (t) => taslagiUygula(kart.sira, t) } : undefined}
+        />
+      )}
     </Diyalog>
   );
 }

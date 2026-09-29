@@ -29,6 +29,41 @@ export interface TopluGirisSatiri {
   lot?: string;
   /** Doluysa satır mevcut bir ürüne bağlıdır; ad/barkod yalnız gösterim içindir. */
   urun_id?: string;
+  /** Yeni ürün satırında ürün kartı formundan girilen ayrıntılar. */
+  kart?: YeniUrunKarti;
+}
+
+/**
+ * Yeni ürün satırının kart ayrıntıları — ürün kartı formundan gelir.
+ * Yalnız yeni ürün satırında anlamlıdır; mevcut üründe kart zaten vardır.
+ */
+export interface YeniUrunKarti {
+  marka?: string | null;
+  kategori_id?: string | null;
+  birim_tipi?: 'ADET' | 'KG' | 'LT';
+  /** Kullanıcının yazdığı metin (`5`, `2,5`); boşsa konmaz. */
+  kritik_stok?: string;
+  raf_konumu?: string | null;
+  skt_takibi?: boolean;
+  notlar?: string | null;
+  ek_barkodlar?: string[];
+}
+
+/** Kart ayrıntılarından yalnız DOLU olanlar — boş alan şemaya hiç konmaz. */
+function kartAlanlari(kart: YeniUrunKarti | undefined): Record<string, unknown> {
+  if (!kart) return {};
+  const kritik = kart.kritik_stok?.trim() ? miktarParse(kart.kritik_stok) : null;
+  const ekBarkodlar = (kart.ek_barkodlar ?? []).map((b) => barkodNormalize(b)).filter(Boolean);
+  return {
+    ...(kart.marka?.trim() ? { marka: kart.marka.trim() } : {}),
+    ...(kart.kategori_id ? { kategori_id: kart.kategori_id } : {}),
+    ...(kart.birim_tipi ? { birim_tipi: kart.birim_tipi } : {}),
+    ...(kritik !== null && kritik > 0 ? { kritik_stok: kritik } : {}),
+    ...(kart.raf_konumu?.trim() ? { raf_konumu: kart.raf_konumu.trim() } : {}),
+    ...(kart.skt_takibi ? { skt_takibi: true } : {}),
+    ...(kart.notlar?.trim() ? { notlar: kart.notlar.trim() } : {}),
+    ...(ekBarkodlar.length ? { ek_barkodlar: ekBarkodlar } : {}),
+  };
 }
 
 export interface TopluGirisSonucu {
@@ -134,6 +169,7 @@ export function topluGirisKalemleri(
         satis_fiyati: satis,
         birim_tipi: 'ADET',
         kategori_id: null,
+        ...kartAlanlari(satir.kart),
       },
       miktar,
       birim_fiyat: alis,

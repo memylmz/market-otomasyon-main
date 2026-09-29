@@ -337,8 +337,15 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
       if (kalem.urun_id) return { ...kalem, urun_id: kalem.urun_id, yeniAcildi: false };
 
       const yeni = kalem.yeni_urun!;
-      const barkod = yeni.barkod ? barkodNormalize(yeni.barkod) : null;
-      if (barkod) {
+      /*
+       * Ana barkod + ürün kartı formundan gelen EK barkodlar (farklı ambalaj,
+       * kısa kod). Hepsi yazmadan ÖNCE denetlenir: biri başka üründeyse
+       * belgenin tamamı reddedilir.
+       */
+      const barkodlar = [
+        ...new Set([yeni.barkod, ...(yeni.ek_barkodlar ?? [])].map((b) => (b ? barkodNormalize(b) : ''))),
+      ].filter(Boolean);
+      for (const barkod of barkodlar) {
         const sahip = barkodSahibi(vt, barkod);
         if (sahip) {
           const sahipUrun = urunBul(vt, sahip);
@@ -362,13 +369,16 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
           satis_fiyati: yeni.satis_fiyati,
           kdv_orani: kalem.kdv_orani,
           kritik_stok: yeni.kritik_stok ?? 0,
+          raf_konumu: yeni.raf_konumu ?? null,
+          skt_takibi: yeni.skt_takibi ?? false,
+          notlar: yeni.notlar ?? null,
           varsayilan_tedarikci_id: girdi.tedarikci_id,
         },
         cihazId,
         kayitZamani,
       );
 
-      if (barkod) {
+      for (const barkod of barkodlar) {
         const barkodId = barkodEkle(vt, yeniUrunId, barkod, null, cihazId, kayitZamani);
         olayYaz(
           vt,

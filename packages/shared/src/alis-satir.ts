@@ -8,6 +8,8 @@
  * fonksiyona çıkarıldı ve testle kilitlendi; `.tsx` yalnız çizim yapar.
  */
 
+import type { YeniUrunKarti } from './toplu-urun.js';
+
 /** Faturaya giren bir satır. Tutarlar kuruş, miktar kullanıcı metni olarak durur. */
 export interface AlisSatiri {
   barkod: string;
@@ -24,6 +26,8 @@ export interface AlisSatiri {
   urun_id?: string;
   /** Ürün kartında SKT takibi açıksa bu satırda SKT zorunludur. */
   sktZorunlu: boolean;
+  /** Yeni ürün satırında ürün kartı formundan girilen ayrıntılar. */
+  kart?: YeniUrunKarti;
 }
 
 /**

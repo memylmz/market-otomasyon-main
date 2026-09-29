@@ -252,3 +252,66 @@ describe('mevcut ürüne barkod ekleme', () => {
     ).toBe(0);
   });
 });
+
+/*
+ * Mal kabul satırından ürün kartı formu açılıp ayrıntılar girilebilir; ürün
+ * yine fatura kaydedilince, belgeyle AYNI transaction'da doğar.
+ */
+describe('faturada yeni ürün — kart ayrıntıları', () => {
+  it('raf, SKT takibi, notlar ve ek barkod/kısa kod ürüne yazılır', () => {
+    const tedarikciId = tedarikciEkle(ortam, 'Toptancı K');
+    malKabulOnayla(ortam.uygulama.baglam, ortam.admin, {
+      tedarikci_id: tedarikciId,
+      kalemler: [
+        {
+          yeni_urun: {
+            ad: 'Defter A4',
+            barkod: '8690000000017',
+            satis_fiyati: 10_000,
+            birim_tipi: 'ADET',
+            marka: 'Kırtasiye Co',
+            kritik_stok: adet(5),
+            raf_konumu: 'B-02',
+            skt_takibi: true,
+            notlar: 'Çizgili',
+            ek_barkodlar: ['24', '8690000000024'],
+          },
+          miktar: adet(10),
+          birim_fiyat: 5000,
+          kdv_orani: 10,
+          skt: '2027-01-01',
+        },
+      ],
+    });
+
+    const urunId = barkodSahibi(ortam.uygulama.baglam.vt, '8690000000017')!;
+    const urun = urunBul(ortam.uygulama.baglam.vt, urunId);
+    expect(urun).toMatchObject({
+      marka: 'Kırtasiye Co',
+      kritik_stok: adet(5),
+      raf_konumu: 'B-02',
+      skt_takibi: true,
+      notlar: 'Çizgili',
+    });
+    expect(barkodSahibi(ortam.uygulama.baglam.vt, '24')).toBe(urunId);
+    expect(barkodSahibi(ortam.uygulama.baglam.vt, '8690000000024')).toBe(urunId);
+  });
+
+  it('ek barkod başka üründeyse fatura tümden reddedilir', () => {
+    const tedarikciId = tedarikciEkle(ortam, 'Toptancı K');
+    urunEkle(ortam, { ad: 'Eski Ürün', barkod: '8690000000031' });
+    expect(() =>
+      malKabulOnayla(ortam.uygulama.baglam, ortam.admin, {
+        tedarikci_id: tedarikciId,
+        kalemler: [
+          {
+            yeni_urun: { ad: 'Yeni', satis_fiyati: 1000, birim_tipi: 'ADET', ek_barkodlar: ['8690000000031'] },
+            miktar: adet(1),
+            birim_fiyat: 500,
+            kdv_orani: 20,
+          },
+        ],
+      }),
+    ).toThrow(/Eski Ürün/);
+  });
+});

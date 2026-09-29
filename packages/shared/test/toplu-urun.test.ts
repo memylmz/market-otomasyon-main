@@ -128,3 +128,52 @@ describe('topluGirisKalemleri', () => {
     expect(kalemler[0]!.lot_no).toBe('L-9');
   });
 });
+
+/*
+ * Mal kabulde yeni ürün satırı ürün kartı formuyla ayrıntılandırılabilir
+ * (marka, kategori, birim, raf, SKT takibi, ek barkod/kısa kod...). Bu
+ * bilgiler satırda taşınır ve fatura kaydedilince ürünle birlikte yazılır.
+ */
+describe('yeni ürün kartı ayrıntıları', () => {
+  it('satırdaki kart bilgileri yeni ürün kalemine taşınır', () => {
+    const { kalemler, hatalar } = topluGirisKalemleri([
+      {
+        barkod: '8690000000017',
+        ad: 'Defter A4',
+        miktar: '10',
+        alis: '50,00',
+        satis: '100,00',
+        kdv: '10',
+        kart: {
+          marka: 'Kırtasiye Co',
+          kategori_id: '33333333-3333-4333-8333-333333333333',
+          birim_tipi: 'ADET',
+          kritik_stok: '5',
+          raf_konumu: 'B-02',
+          skt_takibi: true,
+          notlar: 'Çizgili',
+          ek_barkodlar: ['24'],
+        },
+      },
+    ]);
+    expect(hatalar).toEqual([]);
+    expect(kalemler[0]?.yeni_urun).toMatchObject({
+      ad: 'Defter A4',
+      barkod: '8690000000017',
+      satis_fiyati: 10_000,
+      marka: 'Kırtasiye Co',
+      kategori_id: '33333333-3333-4333-8333-333333333333',
+      birim_tipi: 'ADET',
+      kritik_stok: 5000,
+      raf_konumu: 'B-02',
+      skt_takibi: true,
+      notlar: 'Çizgili',
+      ek_barkodlar: ['24'],
+    });
+  });
+
+  it('kart bilgisi yoksa eski davranış sürer', () => {
+    const { kalemler } = topluGirisKalemleri([{ barkod: '', ad: 'Kalem', miktar: '1', alis: '5', satis: '10', kdv: '20' }]);
+    expect(kalemler[0]?.yeni_urun).toEqual({ ad: 'Kalem', satis_fiyati: 1000, birim_tipi: 'ADET', kategori_id: null });
+  });
+});

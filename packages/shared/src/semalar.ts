@@ -423,6 +423,15 @@ export const zYeniUrunKalemi = z.object({
   /** KDV **dahil** raf fiyatı. Alış fiyatı kalemin `birim_fiyat` alanından gelir. */
   satis_fiyati: zKurusPozitif,
   kritik_stok: zMiktar.optional(),
+  /*
+   * Mal kabul satırından ürün kartı formu açılınca girilebilen ayrıntılar.
+   * Hepsi opsiyoneldir: eski kasa/panel sürümleri göndermez, ürün yine açılır.
+   */
+  raf_konumu: zMetin(60).nullable().optional(),
+  skt_takibi: z.boolean().optional(),
+  notlar: zMetin(500).nullable().optional(),
+  /** Ana barkoda EK barkodlar (farklı ambalaj, kısa kod/PLU). */
+  ek_barkodlar: z.array(zBarkod).max(10).optional(),
 });
 export type YeniUrunKalemi = z.infer<typeof zYeniUrunKalemi>;
 

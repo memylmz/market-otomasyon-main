@@ -37,18 +37,48 @@ interface Kategori {
   ad: string;
 }
 
+/**
+ * Henüz kaydedilmemiş ürünün form değerleri — mal kabul satırında taşınır.
+ * Ürün fatura kaydedilince, belgeyle aynı transaction'da açılır; formdan
+ * doğrudan kataloğa yazılsaydı vazgeçilen faturadan sahipsiz ürün kalırdı.
+ */
+export interface UrunKartiTaslagi {
+  ad: string;
+  /** Kısa kod HARİÇ barkodlar; ilki satırın barkodu olur. */
+  barkodlar: string[];
+  kisaKod: string;
+  marka: string;
+  kategoriId: string;
+  birimTipi: BirimTipi;
+  alisFiyati: Kurus;
+  satisFiyati: Kurus;
+  kdvOrani: number;
+  kritikStok: string;
+  rafKonumu: string;
+  sktTakibi: boolean;
+  notlar: string;
+}
+
 export function UrunKartiDiyalogu({
   urun,
   kategoriler,
   onKapat,
   onKaydedildi,
+  taslak,
 }: {
   urun: UrunSatiri | 'yeni' | null;
   kategoriler: Kategori[];
   onKapat: () => void;
   onKaydedildi: () => void;
+  /**
+   * Verilirse form KATALOĞA YAZMAZ: "Uygula" değerleri çağırana döndürür.
+   * `baslangic` çağıranda sabit tutulmalıdır (state); her çizimde yeni nesne
+   * gelirse form kullanıcının yazdıklarını sıfırlar.
+   */
+  taslak?: { baslangic: UrunKartiTaslagi; onUygula: (deger: UrunKartiTaslagi) => void };
 }) {
   const yeniMi = urun === 'yeni';
+  const taslakBaslangic = taslak?.baslangic;
   const mevcut = yeniMi ? null : urun;
   /*
    * Mevcut üründe stok değiştirmek DÜZELTME hareketi üretir ve ayrı bir yetki
@@ -110,6 +140,25 @@ export function UrunKartiDiyalogu({
       // Kısa kod listeden AYRILIR: kendi alanında düzenlenir, kaydederken geri katılır.
       setBarkodlar(mevcut.barkodlar.filter((b) => !kisaKodMu(b)));
       setKisaKod(kisaKodBul(mevcut.barkodlar) ?? '');
+    } else if (taslakBaslangic) {
+      const t = taslakBaslangic;
+      setForm({
+        ad: t.ad,
+        marka: t.marka,
+        kategoriId: t.kategoriId,
+        birimTipi: t.birimTipi,
+        alisFiyati: t.alisFiyati,
+        satisFiyati: t.satisFiyati,
+        kdvOrani: t.kdvOrani,
+        kritikStok: t.kritikStok,
+        rafKonumu: t.rafKonumu,
+        barkod: '',
+        stok: '',
+        sktTakibi: t.sktTakibi,
+        notlar: t.notlar,
+      });
+      setBarkodlar(t.barkodlar);
+      setKisaKod(t.kisaKod);
     } else {
       setForm({
         ad: '',
@@ -129,13 +178,33 @@ export function UrunKartiDiyalogu({
       setBarkodlar([]);
       setKisaKod('');
     }
-  }, [urun, mevcut]);
+  }, [urun, mevcut, taslakBaslangic]);
 
   if (!urun) return null;
 
   const kaydet = async () => {
     if (!form.ad.trim()) {
       bildir.uyari('Ürün adı zorunludur');
+      return;
+    }
+    if (taslak) {
+      // Okutulup Enter'lanmamış barkod da kaybolmasın.
+      const sonBarkod = form.barkod.trim();
+      taslak.onUygula({
+        ad: form.ad.trim(),
+        barkodlar: sonBarkod && !barkodlar.includes(sonBarkod) ? [...barkodlar, sonBarkod] : barkodlar,
+        kisaKod: kisaKod.trim(),
+        marka: form.marka,
+        kategoriId: form.kategoriId,
+        birimTipi: form.birimTipi,
+        alisFiyati: form.alisFiyati,
+        satisFiyati: form.satisFiyati,
+        kdvOrani: form.kdvOrani,
+        kritikStok: form.kritikStok,
+        rafKonumu: form.rafKonumu,
+        sktTakibi: form.sktTakibi,
+        notlar: form.notlar,
+      });
       return;
     }
     setGonderiliyor(true);
@@ -231,6 +300,7 @@ export function UrunKartiDiyalogu({
     <Diyalog
       acik
       baslik={yeniMi ? 'Yeni Ürün' : 'Ürün Kartı'}
+      aciklama={taslak ? 'Ürün, alış faturası kaydedilince bu bilgilerle açılır.' : undefined}
       genislik="genis"
       onKapat={onKapat}
       altBilgi={
@@ -269,7 +339,7 @@ export function UrunKartiDiyalogu({
             Vazgeç
           </button>
           <button type="button" className="tus-birincil" onClick={kaydet} disabled={gonderiliyor}>
-            Kaydet
+            {taslak ? 'Uygula' : 'Kaydet'}
           </button>
         </>
       }
@@ -287,6 +357,11 @@ export function UrunKartiDiyalogu({
                     type="button"
                     className="text-tehlike"
                     onClick={async () => {
+                      // Kaydedilmemiş üründe barkod henüz yalnız bu listededir.
+                      if (!mevcut) {
+                        setBarkodlar((liste) => liste.filter((x) => x !== b));
+                        return;
+                      }
                       try {
                         await cagir('urun.barkodKaldir', { barkod: b });
                         setBarkodlar((liste) => liste.filter((x) => x !== b));
@@ -434,30 +509,33 @@ export function UrunKartiDiyalogu({
           gerçekten stok GİREN alanı bulamıyordu. Artık tek alan var:
           yeni üründe açılış stoğu, mevcut üründe sayım düzeltmesi.
         */}
-        <Alan
-          etiket="Stok miktarı"
-          ipucu={
-            stokKilitli
-              ? 'Stok düzeltme yetkiniz yok; değiştirmek için yöneticinize başvurun.'
-              : yeniMi
-                ? 'Gelen miktarı yazın; açılış hareketi olarak kaydedilir.'
-                : 'Yazdığınız değer yeni stok olur; fark düzeltme hareketi olarak kaydedilir.'
-          }
-        >
-          <div className="flex items-center gap-2">
-            <input
-              className="alan sayi"
-              inputMode="decimal"
-              placeholder="0"
-              value={form.stok}
-              disabled={stokKilitli}
-              onChange={(e) => setForm({ ...form, stok: e.target.value })}
-            />
-            <span className="shrink-0 text-sm font-medium text-metin-2">
-              {form.birimTipi === 'ADET' ? 'adet' : form.birimTipi.toLowerCase()}
-            </span>
-          </div>
-        </Alan>
+        {/* Taslakta stok faturadan gelir; ayrı bir açılış stoğu çift sayım olurdu. */}
+        {!taslak && (
+          <Alan
+            etiket="Stok miktarı"
+            ipucu={
+              stokKilitli
+                ? 'Stok düzeltme yetkiniz yok; değiştirmek için yöneticinize başvurun.'
+                : yeniMi
+                  ? 'Gelen miktarı yazın; açılış hareketi olarak kaydedilir.'
+                  : 'Yazdığınız değer yeni stok olur; fark düzeltme hareketi olarak kaydedilir.'
+            }
+          >
+            <div className="flex items-center gap-2">
+              <input
+                className="alan sayi"
+                inputMode="decimal"
+                placeholder="0"
+                value={form.stok}
+                disabled={stokKilitli}
+                onChange={(e) => setForm({ ...form, stok: e.target.value })}
+              />
+              <span className="shrink-0 text-sm font-medium text-metin-2">
+                {form.birimTipi === 'ADET' ? 'adet' : form.birimTipi.toLowerCase()}
+              </span>
+            </div>
+          </Alan>
+        )}
 
         <div className="md:col-span-2">
           <label className="flex items-center gap-2 text-sm">
