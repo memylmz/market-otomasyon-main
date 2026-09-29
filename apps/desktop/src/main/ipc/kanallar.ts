@@ -7,7 +7,6 @@
  */
 
 import {
-  AYAR,
   bugun,
   gunBasi,
   gunEkle,
@@ -21,7 +20,7 @@ import {
   type Miktar,
   type Yetki,
 } from '@market/shared';
-import { ayarMetin, ayarYaz, tumAyarlar } from '../depo/ayar.js';
+import { ayarMetin, ayarYaz, elleYazilabilirMi, tumAyarlar } from '../depo/ayar.js';
 import { carileriListele, cariBul, ekstre } from '../depo/cari.js';
 import {
   etkinKampanyalar,
@@ -651,8 +650,9 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       const zaman = simdi();
       vt.islem(() => {
         for (const [anahtar, deger] of Object.entries(girdi.degerler)) {
-          // Cihaz kimliği ve fiş serisi değiştirilemez — senkron bütünlüğünü bozar.
-          if (anahtar === AYAR.CIHAZ_ID || anahtar === AYAR.CIHAZ_SERI) continue;
+          // Cihaz kimliği, fiş serisi ve lisans bilgileri buradan değiştirilemez —
+          // ekrandaki bayat kopya aktivasyonun yeni token'ını ezerdi.
+          if (!elleYazilabilirMi(anahtar)) continue;
           ayarYaz(vt, anahtar, deger);
 
           /*

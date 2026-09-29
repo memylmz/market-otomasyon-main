@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ayarSayi, ayarBool, ayarYaz } from '../src/main/depo/ayar.js';
+import { ayarSayi, ayarBool, ayarYaz, elleYazilabilirMi } from '../src/main/depo/ayar.js';
 import { testOrtamiKur, type TestOrtami } from './yardimci.js';
 
 let ortam: TestOrtami;
@@ -65,5 +65,33 @@ describe('ayarBool', () => {
     ayarYaz(ortam.uygulama.vt, 'test.kapali', '0');
     expect(ayarBool(ortam.uygulama.vt, 'test.acik', false)).toBe(true);
     expect(ayarBool(ortam.uygulama.vt, 'test.kapali', true)).toBe(false);
+  });
+});
+
+/*
+ * NEDEN VAR: Ayarlar ekranı tüm ayarları açılışta bir kez okuyup "Kaydet"te
+ * hepsini geri yazıyordu. Ekran açıkken cihaz aktive edilince yeni token
+ * veritabanına yazılıyor, ardından basılan "Kaydet" ekrandaki ESKİ token'ı
+ * geri yazıyordu — sunucu tanımadığı için her senkron CIHAZ_YETKISIZ ile
+ * düşüyordu. Lisans ve cihaz kimliği yalnız kendi servisleri tarafından yazılır.
+ */
+describe('elleYazilabilirMi', () => {
+  it('lisans ve cihaz kimliği anahtarları ayar ekranından yazılamaz', () => {
+    for (const anahtar of [
+      'lisans.cihaz_token',
+      'lisans.isletme_id',
+      'lisans.anahtar',
+      'lisans.bitis',
+      'cihaz.id',
+      'cihaz.seri',
+    ]) {
+      expect(elleYazilabilirMi(anahtar), anahtar).toBe(false);
+    }
+  });
+
+  it('olağan ayarlar yazılabilir', () => {
+    for (const anahtar of ['senkron.url', 'senkron.mod', 'isletme.ad', 'yazici.tur']) {
+      expect(elleYazilabilirMi(anahtar), anahtar).toBe(true);
+    }
   });
 });

@@ -5,7 +5,7 @@
  * Ayar değişiklikleri denetim loguna düşer (servis katmanında).
  */
 
-import { simdi, type ZamanDamgasi } from '@market/shared';
+import { AYAR, simdi, type ZamanDamgasi } from '@market/shared';
 import type { Vt } from '../db/surucu.js';
 
 export interface AyarKaydi {
@@ -77,6 +77,18 @@ export function ayarBoolYaz(vt: Vt, anahtar: string, deger: boolean, aciklama?: 
 
 export function ayarSayiYaz(vt: Vt, anahtar: string, deger: number, aciklama?: string): void {
   ayarYaz(vt, anahtar, String(deger), aciklama);
+}
+
+/**
+ * Ayar ekranından (`ayar.yaz`) yazılabilir mi?
+ *
+ * Lisans anahtarları yalnız lisans servisi, cihaz kimliği ve fiş serisi yalnız
+ * aktivasyon tarafından yazılır. Ekran tüm ayarları toplu geri gönderdiği için,
+ * açıkken yapılan bir aktivasyonun yeni token'ı eski değerle ezilirdi ve kasa
+ * sunucu tarafından tanınmaz hale gelirdi (CIHAZ_YETKISIZ).
+ */
+export function elleYazilabilirMi(anahtar: string): boolean {
+  return !anahtar.startsWith('lisans.') && anahtar !== AYAR.CIHAZ_ID && anahtar !== AYAR.CIHAZ_SERI;
 }
 
 /** Toplu yazma — kurulum sihirbazı ve senkron pull için. */
