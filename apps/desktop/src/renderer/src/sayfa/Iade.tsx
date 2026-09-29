@@ -1,6 +1,7 @@
 /** İade / değişim ekranı (§10.4) — fiş no ile orijinal satışı bul, tam/kısmi iade et. */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { miktarFormat, miktarParse, paraFormat, tarihSaatFormat, type Kurus, type Miktar } from '@market/shared';
 import { Alan, BosDurum, Diyalog } from '../bilesen/temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
@@ -31,7 +32,9 @@ interface SatisDetay {
 }
 
 export function IadeSayfasi() {
-  const [fisNo, setFisNo] = useState('');
+  // Satışlar'daki fiş detayından "İade Et" ile gelinirse fiş numarası hazır gelir.
+  const gelenFisNo = (useLocation().state as { fisNo?: string } | null)?.fisNo ?? '';
+  const [fisNo, setFisNo] = useState(gelenFisNo);
   const [detay, setDetay] = useState<SatisDetay | null>(null);
   const [secimler, setSecimler] = useState<Record<string, string>>({});
   const [yontem, setYontem] = useState<'NAKIT' | 'KART' | 'VERESIYE'>('NAKIT');
@@ -47,10 +50,10 @@ export function IadeSayfasi() {
     onKarakter: (karakter) => setFisNo((mevcut) => mevcut + karakter),
   });
 
-  const bul = async () => {
-    if (!fisNo.trim()) return;
+  const bul = async (aranan = fisNo) => {
+    if (!aranan.trim()) return;
     try {
-      const liste = await cagir<{ kayitlar: { id: string }[] }>('satis.listele', { filtre: { fisNo: fisNo.trim() }, limit: 1 });
+      const liste = await cagir<{ kayitlar: { id: string }[] }>('satis.listele', { filtre: { fisNo: aranan.trim() }, limit: 1 });
       const ilk = liste.kayitlar[0];
       if (!ilk) {
         bildir.uyari('Satış bulunamadı', 'Fiş numarasını kontrol edin.');
@@ -66,6 +69,12 @@ export function IadeSayfasi() {
       hatayiBildir(hata, 'Satış arama');
     }
   };
+
+  useEffect(() => {
+    if (gelenFisNo) void bul(gelenFisNo);
+    // Yalnız ilk açılışta: sonradan yazılan fiş numarası Enter/Bul ile aranır.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const secilenKalemler = () =>
     Object.entries(secimler)
@@ -131,10 +140,10 @@ export function IadeSayfasi() {
           placeholder="Fiş barkodunu okutun veya numarayı yazın (örn. A-000512)"
           value={fisNo}
           onChange={(e) => setFisNo(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && bul()}
+          onKeyDown={(e) => e.key === 'Enter' && void bul()}
           autoFocus
         />
-        <button type="button" className="tus-birincil" onClick={bul}>
+        <button type="button" className="tus-birincil" onClick={() => void bul()}>
           Bul
         </button>
       </div>

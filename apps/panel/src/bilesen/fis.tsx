@@ -10,6 +10,7 @@
 
 'use client';
 
+import Link from 'next/link';
 import { miktarFormat, paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { BosDurum, HataKutusu, Rozet, Yukleniyor } from './kabuk';
 import { uclar } from '@/lib/api';
@@ -109,6 +110,17 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
             </p>
           )}
         </div>
+      )}
+
+      {/*
+        Bu içerik SALT OKUNURDUR. İade tek yerden, Satışlar sayfasından
+        başlatılır; aynı satışa birden çok ekrandan işlem yapılabilmesi
+        karışıklık üretir.
+      */}
+      {veri.satis.iptal_mi !== 1 && (
+        <Link href={`/satislar?fis=${encodeURIComponent(satisId)}`} className="inline-block text-sm text-vurgu hover:underline">
+          İade işlemleri için Satışlar&apos;da aç →
+        </Link>
       )}
     </div>
   );

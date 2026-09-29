@@ -1,6 +1,7 @@
 /** Yerel raporlar (§10.10, §14) — özet tablolardan üretilir, hızlıdır. */
 
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { bugun, gunEkle, miktarFormat, paraFormat, tarihSaatFormat, type GunAnahtari, type Kurus } from '@market/shared';
 import { Alan, BosDurum, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
@@ -41,7 +42,22 @@ function dizi(deger: unknown): Record<string, unknown>[] {
 }
 
 export function RaporlarSayfasi() {
-  const [sekme, setSekme] = useState<Sekme>('ozet');
+  /*
+   * Cari ve Kasa ekranlarındaki fiş penceresi salt okunurdur; iptal ve iade
+   * yalnız buradan (Satışlar) yapılır. Oradan "İade / İptal" ile gelinirse
+   * Satışlar sekmesi o fişin detayı açık olarak başlar.
+   */
+  const konum = useLocation();
+  const yonlendirilenSatis = (konum.state as { satisId?: string } | null)?.satisId ?? null;
+  const [acikSatis, setAcikSatis] = useState<string | null>(yonlendirilenSatis);
+  const [sekme, setSekme] = useState<Sekme>(yonlendirilenSatis ? 'satislar' : 'ozet');
+  // Sayfa zaten açıkken (Kasa Geçmişi'ndeki fişten) gelinirse bileşen yeniden
+  // kurulmaz; başlangıç değeri işlemez, yönlendirme burada yakalanır.
+  useEffect(() => {
+    if (!yonlendirilenSatis) return;
+    setSekme('satislar');
+    setAcikSatis(yonlendirilenSatis);
+  }, [konum.key, yonlendirilenSatis]);
   const [baslangic, setBaslangic] = useState<GunAnahtari>(gunEkle(bugun(), -6));
   const [bitis, setBitis] = useState<GunAnahtari>(bugun());
   /*
@@ -218,6 +234,8 @@ export function RaporlarSayfasi() {
           <DenetimGorunumu veri={dizi(icerik)} />
         )}
       </div>
+
+      <SatisDetayDiyalogu satisId={acikSatis} onKapat={() => setAcikSatis(null)} onDegisti={() => setTazelik((t) => t + 1)} />
     </div>
   );
 }
@@ -586,6 +604,8 @@ function SatisDetayDiyalogu({
 }) {
   const [iptalAcik, setIptalAcik] = useState(false);
   const iptalYetkisi = useYetki('satis.iptal');
+  const iadeYetkisi = useYetki('satis.iade');
+  const gezin = useNavigate();
   const [detay, setDetay] = useState<SatisDetayVerisi | null>(null);
   const [yukleniyor, setYukleniyor] = useState(false);
 
@@ -645,6 +665,16 @@ function SatisDetayDiyalogu({
           >
             Fişi Tekrar Yazdır
           </button>
+          {/* İade kendi ekranında yapılır (kalem ve miktar seçimi, yöntem); fiş numarası hazır gider. */}
+          {iadeYetkisi && detay && !detay.satis.iptal_mi && !detay.satis.iade_mi && (
+            <button
+              type="button"
+              className="tus-ikincil"
+              onClick={() => gezin('/iade', { state: { fisNo: detay.satis.fis_no } })}
+            >
+              İade Et
+            </button>
+          )}
           {iptalYetkisi && detay && !detay.satis.iptal_mi && !detay.satis.iade_mi && (
             <button type="button" className="tus-tehlike" onClick={() => setIptalAcik(true)}>
               Satışı İptal Et

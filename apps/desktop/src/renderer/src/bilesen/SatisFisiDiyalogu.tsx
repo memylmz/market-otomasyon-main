@@ -1,9 +1,11 @@
 /** Satış fişi görüntüleyici — Cari ve Kasa ekranları ortak kullanır. */
 
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { miktarFormat, paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { BosDurum, Diyalog, Rozet, Yukleniyor } from './temel';
 import { hatayiBildir } from '../durum/bildirim';
+import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
 
 /**
@@ -24,6 +26,10 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
     odemeler: { odeme_tipi: string; tutar: Kurus }[];
   } | null>(null);
   const [yukleniyor, setYukleniyor] = useState(false);
+  const gezin = useNavigate();
+  const iadeYetkisi = useYetki('satis.iade');
+  const iptalYetkisi = useYetki('satis.iptal');
+  const islemYetkisi = iadeYetkisi || iptalYetkisi;
 
   useEffect(() => {
     if (!satisId) {
@@ -46,9 +52,21 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
       aciklama={detay ? tarihSaatFormat(detay.satis.tarih) : undefined}
       onKapat={onKapat}
       altBilgi={
-        <button type="button" className="tus-ikincil" onClick={onKapat}>
-          Kapat
-        </button>
+        <>
+          {/*
+            Bu pencere SALT OKUNURDUR. İptal ve iade tek yerden, Raporlar →
+            Satışlar'dan yapılır; aynı satışa birden çok ekrandan işlem
+            yapılabilmesi karışıklık üretir.
+          */}
+          {islemYetkisi && detay && !detay.satis.iptal_mi && (
+            <button type="button" className="tus-ikincil mr-auto" onClick={() => gezin('/raporlar', { state: { satisId } })}>
+              İade / İptal İşlemleri →
+            </button>
+          )}
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Kapat
+          </button>
+        </>
       }
     >
       {yukleniyor ? (

@@ -76,6 +76,14 @@ export default function SatislarSayfasi() {
   const [durum, setDurum] = useState<(typeof DURUMLAR)[number]['deger']>('tumu');
   const [seciliFis, setSeciliFis] = useState<string | null>(null);
 
+  // Cari ve Kasa Geçmişi'ndeki salt okunur fişten "Satışlar'da aç" ile gelinirse
+  // o fişin detayı (iade düğmesiyle) açık başlar. Fiş tarih aralığı dışında
+  // olsa da açılır: detay kimlikle okunur.
+  useEffect(() => {
+    const fis = new URLSearchParams(window.location.search).get('fis');
+    if (fis) setSeciliFis(fis);
+  }, []);
+
   const ozet = useVeri<GunlukRapor>(sekme === 'ozet' ? `${uclar.raporGunluk}?from=${baslangic}&to=${bitis}` : null, [
     baslangic,
     bitis,
