@@ -11,7 +11,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { bugun, gunEkle, miktarFormat, paraFormat, tarihFormat, tarihSaatFormat, type Kurus } from '@market/shared';
+import {
+  bugun,
+  gunEkle,
+  IADE_YONTEMI_ETIKETI,
+  miktarFormat,
+  paraFormat,
+  tarihFormat,
+  tarihSaatFormat,
+  varsayilanIadeYontemi,
+  type IadeYontemi,
+  type Kurus,
+} from '@market/shared';
 import { CiroTrendi } from '@/bilesen/grafik';
 import { AralikSecici, BosDurum, HataKutusu, Kabuk, Kutu, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { api, uclar } from '@/lib/api';
@@ -341,9 +352,19 @@ interface FisKalemi {
 }
 
 interface FisDetayVerisi {
-  satis: (FisSatiri & { ara_toplam: Kurus; iskonto_toplam: Kurus; kdv_toplam: Kurus }) | null;
+  satis:
+    | (FisSatiri & {
+        ara_toplam: Kurus;
+        iskonto_toplam: Kurus;
+        kdv_toplam: Kurus;
+        musteri_id: string | null;
+        kaynak_fis_no: string | null;
+      })
+    | null;
   kalemler: FisKalemi[];
   odemeler: { id: string; odeme_tipi: string; tutar: Kurus }[];
+  /** Bu satıştan yapılmış iadeler. */
+  iadeler?: { id: string; fis_no: string; tarih: string; genel_toplam: Kurus }[];
 }
 
 /** Geçmiş fişin tam dökümü — kasadaki fiş detay diyaloğunun panel karşılığı. */
@@ -389,6 +410,9 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
           satisId={satisId}
           fisNo={veri.satis.fis_no}
           kalemler={veri.kalemler}
+          odemeler={veri.odemeler}
+          musteriAdi={veri.satis.musteri_id ? (veri.satis.musteri_adi ?? 'Müşteri') : null}
+          oncekiIadeler={veri.iadeler ?? []}
           onKapat={() => setIadeAcik(false)}
           onTamam={() => {
             setIadeAcik(false);
@@ -423,6 +447,19 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
             {veri.satis.iptal_mi ? <Rozet tur="tehlike">İptal edildi</Rozet> : null}
             {veri.satis.iade_mi ? <Rozet tur="uyari">İade fişi</Rozet> : null}
           </div>
+
+          {/* İade ile orijinal satış birbirine bağlı görünür — kasadaki fiş detayıyla aynı. */}
+          {veri.satis.iade_mi ? (
+            <p className="rounded-lg border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
+              <strong>İade edilen fiş:</strong> {veri.satis.kaynak_fis_no ?? '—'}
+            </p>
+          ) : null}
+          {(veri.iadeler ?? []).length > 0 && (
+            <p className="rounded-lg border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
+              <strong>Bu satıştan iade yapıldı:</strong>{' '}
+              {veri.iadeler!.map((i) => `${i.fis_no} (${mutlak(i.genel_toplam)})`).join(', ')}
+            </p>
+          )}
 
           {veri.satis.iptal_mi && veri.satis.iptal_neden && (
             <p className="rounded-lg border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm">
@@ -496,7 +533,9 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
               ) : (
                 veri.odemeler.map((o) => (
                   <div key={o.id} className="flex justify-between text-sm">
-                    <span>{o.odeme_tipi}</span>
+                    <span>
+                      {veri.satis?.iade_mi ? (IADE_YONTEMI_ETIKETI[o.odeme_tipi as IadeYontemi] ?? o.odeme_tipi) : o.odeme_tipi}
+                    </span>
                     <span className="font-mono">{mutlak(o.tutar)}</span>
                   </div>
                 ))
@@ -528,17 +567,27 @@ function KismiIadeDiyalogu({
   satisId,
   fisNo,
   kalemler,
+  odemeler,
+  musteriAdi,
+  oncekiIadeler,
   onKapat,
   onTamam,
 }: {
   satisId: string;
   fisNo: string;
   kalemler: FisKalemi[];
+  odemeler: { odeme_tipi: string; tutar: Kurus }[];
+  /** Satış bir müşteriye bağlıysa adı; değilse null (cari hesaba iade yapılamaz). */
+  musteriAdi: string | null;
+  oncekiIadeler: { fis_no: string; genel_toplam: Kurus }[];
   onKapat: () => void;
   onTamam: () => void;
 }) {
   const [miktarlar, setMiktarlar] = useState<Record<string, string>>({});
-  const [yontem, setYontem] = useState<'NAKIT' | 'KART' | 'VERESIYE'>('NAKIT');
+  // Kasadaki iade ekranıyla aynı kural: para müşteriye geldiği yoldan döner.
+  const onerilen = varsayilanIadeYontemi(odemeler);
+  const [yontem, setYontem] = useState<IadeYontemi>(onerilen);
+  const veresiyeUyarisi = onerilen === 'VERESIYE' && yontem !== 'VERESIYE';
   const [neden, setNeden] = useState('');
   const [kasalar, setKasalar] = useState<{ id: string; cihaz_adi: string }[]>([]);
   const [hedefKasa, setHedefKasa] = useState('');
@@ -626,6 +675,18 @@ function KismiIadeDiyalogu({
           İade <strong>kasada</strong> uygulanır: iade fişi kasadan basılır, stok artar, veresiye satışta müşterinin borcundan
           düşülür. Talimat bir sonraki senkronda (kasa kapalıysa açılışında) işlenir.
         </p>
+        {musteriAdi && (
+          <p className="text-sm">
+            Müşteri: <strong>{musteriAdi}</strong> — iade fişi bu müşteriye bağlanır.
+          </p>
+        )}
+        {oncekiIadeler.length > 0 && (
+          <p className="text-xs text-uyari">
+            Bu satıştan daha önce iade yapıldı:{' '}
+            {oncekiIadeler.map((i) => `${i.fis_no} (${paraFormat(Math.abs(i.genel_toplam), { simge: false })})`).join(', ')}.
+            Satılandan fazlası kasada reddedilir.
+          </p>
+        )}
 
         <div className="tablo-sarmal">
           <table className="tablo">
@@ -662,10 +723,19 @@ function KismiIadeDiyalogu({
           <label className="block">
             <span className="etiket">İade şekli</span>
             <select className="alan" value={yontem} onChange={(e) => setYontem(e.target.value as typeof yontem)}>
-              <option value="NAKIT">Nakit (kasadan çıkar)</option>
-              <option value="KART">Kart</option>
-              <option value="VERESIYE">Veresiye (borçtan düşülür)</option>
+              <option value="NAKIT">Nakit (kasadan çıkar){onerilen === 'NAKIT' ? ' — önerilen' : ''}</option>
+              <option value="KART">Kart{onerilen === 'KART' ? ' — önerilen' : ''}</option>
+              <option value="VERESIYE" disabled={!musteriAdi}>
+                {musteriAdi
+                  ? `${musteriAdi} hesabına (borçtan düşülür)${onerilen === 'VERESIYE' ? ' — önerilen' : ''}`
+                  : 'Cari hesaba (satışta müşteri yok)'}
+              </option>
             </select>
+            {veresiyeUyarisi && (
+              <span className="mt-1 block text-xs text-uyari">
+                Satış veresiye yapılmıştı: nakit/kartla iadede müşteriye para verilir, borcu düşmez.
+              </span>
+            )}
           </label>
           <label className="block">
             <span className="etiket">İadeyi uygulayacak kasa</span>

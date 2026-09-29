@@ -2,7 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { bugun, gunEkle, miktarFormat, paraFormat, tarihSaatFormat, type GunAnahtari, type Kurus } from '@market/shared';
+import {
+  bugun,
+  gunEkle,
+  IADE_YONTEMI_ETIKETI,
+  miktarFormat,
+  paraFormat,
+  tarihSaatFormat,
+  type GunAnahtari,
+  type IadeYontemi,
+  type Kurus,
+} from '@market/shared';
 import { Alan, BosDurum, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
@@ -575,7 +585,11 @@ interface SatisDetayVerisi {
     iade_mi: boolean;
     fis_yazdirildi: boolean;
     notlar: string | null;
+    kaynak_satis_id?: string | null;
+    kaynak_fis_no?: string | null;
   };
+  /** Bu satıştan yapılmış iadeler. */
+  iadeler?: { id: string; fis_no: string; tarih: string; genel_toplam: Kurus }[];
   kalemler: {
     id: string;
     urun_adi: string;
@@ -705,6 +719,25 @@ function SatisDetayDiyalogu({
             {!detay.satis.fis_yazdirildi && !detay.satis.iptal_mi && <Rozet tur="notr">Fiş basılmadı</Rozet>}
           </div>
 
+          {/* İade ile orijinal satış birbirine bağlı görünür: hangisinin iadesi, neden. */}
+          {detay.satis.iade_mi && (
+            <p className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
+              <strong>İade edilen fiş:</strong> {detay.satis.kaynak_fis_no ?? '—'}
+              {detay.satis.notlar && detay.satis.notlar !== 'Belirtilmedi' && (
+                <>
+                  {' · '}
+                  <strong>Neden:</strong> {detay.satis.notlar}
+                </>
+              )}
+            </p>
+          )}
+          {(detay.iadeler ?? []).length > 0 && (
+            <p className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
+              <strong>Bu satıştan iade yapıldı:</strong>{' '}
+              {detay.iadeler!.map((i) => `${i.fis_no} (${paraFormat(Math.abs(i.genel_toplam), { simge: false })})`).join(', ')}
+            </p>
+          )}
+
           {detay.satis.iptal_mi && detay.satis.iptal_neden && (
             <p className="rounded border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm">
               <strong>İptal nedeni:</strong> {detay.satis.iptal_neden}
@@ -773,7 +806,9 @@ function SatisDetayDiyalogu({
               {detay.odemeler.map((o) => (
                 <div key={o.id} className="mb-1 text-sm">
                   <div className="flex justify-between">
-                    <span>{o.odeme_tipi}</span>
+                    <span>
+                      {detay.satis.iade_mi ? (IADE_YONTEMI_ETIKETI[o.odeme_tipi as IadeYontemi] ?? o.odeme_tipi) : o.odeme_tipi}
+                    </span>
                     <span className="sayi">{mutlak(o.tutar)}</span>
                   </div>
                   {o.para_ustu > 0 && (

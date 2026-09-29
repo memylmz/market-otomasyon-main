@@ -11,13 +11,21 @@
 'use client';
 
 import Link from 'next/link';
-import { miktarFormat, paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
+import { IADE_YONTEMI_ETIKETI, miktarFormat, paraFormat, tarihSaatFormat, type IadeYontemi, type Kurus } from '@market/shared';
 import { BosDurum, HataKutusu, Rozet, Yukleniyor } from './kabuk';
 import { uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
 
 export interface FisVerisi {
-  satis: { fis_no: string; tarih: string; genel_toplam: Kurus; iptal_mi?: number; musteri_adi?: string | null } | null;
+  satis: {
+    fis_no: string;
+    tarih: string;
+    genel_toplam: Kurus;
+    iptal_mi?: number;
+    iade_mi?: number;
+    kaynak_fis_no?: string | null;
+    musteri_adi?: string | null;
+  } | null;
   kalemler: { urun_adi: string; miktar: number; birim_fiyat: Kurus; satir_toplam: Kurus }[];
   odemeler: { odeme_tipi: string; tutar: Kurus }[];
 }
@@ -56,7 +64,14 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
       <div className="flex items-center gap-2">
         <p className="text-sm text-metin-3">{tarihSaatFormat(veri.satis.tarih)}</p>
         {veri.satis.iptal_mi === 1 && <Rozet tur="tehlike">İptal edilmiş</Rozet>}
+        {veri.satis.iade_mi === 1 && <Rozet tur="uyari">İade fişi</Rozet>}
       </div>
+      {veri.satis.iade_mi === 1 && (
+        <p className="text-sm text-metin-2">
+          İade edilen fiş: <strong>{veri.satis.kaynak_fis_no ?? '—'}</strong>
+          {veri.satis.musteri_adi ? ` · Müşteri: ${veri.satis.musteri_adi}` : ''}
+        </p>
+      )}
 
       <div className="tablo-sarmal">
         <table className="tablo">
@@ -96,7 +111,11 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
           <div className="space-y-1">
             {veri.odemeler.map((o, i) => (
               <div key={i} className="flex items-baseline justify-between text-sm">
-                <span className="text-metin-2">{ODEME_ETIKETI[o.odeme_tipi] ?? o.odeme_tipi}</span>
+                <span className="text-metin-2">
+                  {veri.satis?.iade_mi === 1
+                    ? (IADE_YONTEMI_ETIKETI[o.odeme_tipi as IadeYontemi] ?? o.odeme_tipi)
+                    : (ODEME_ETIKETI[o.odeme_tipi] ?? o.odeme_tipi)}
+                </span>
                 <span className={`font-mono font-semibold ${o.odeme_tipi === 'VERESIYE' ? 'text-uyari' : ''}`}>
                   {paraFormat(o.tutar, { simge: false })}
                 </span>
@@ -105,8 +124,9 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
           </div>
           {veri.odemeler.some((o) => o.odeme_tipi === 'VERESIYE') && (
             <p className="mt-2 border-t border-cizgi pt-2 text-xs text-metin-3">
-              {paraFormat(veri.odemeler.find((o) => o.odeme_tipi === 'VERESIYE')?.tutar ?? 0)}{' '}
-              <strong>{veri.satis.musteri_adi ?? 'müşteri'}</strong> hesabına borç yazıldı.
+              {paraFormat(Math.abs(veri.odemeler.find((o) => o.odeme_tipi === 'VERESIYE')?.tutar ?? 0))}{' '}
+              <strong>{veri.satis.musteri_adi ?? 'müşteri'}</strong>{' '}
+              {veri.satis.iade_mi === 1 ? 'hesabına alacak yazıldı (borcundan düşüldü).' : 'hesabına borç yazıldı.'}
             </p>
           )}
         </div>

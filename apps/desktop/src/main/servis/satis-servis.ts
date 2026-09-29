@@ -867,16 +867,41 @@ export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisS
         olay_tipi: 'IADE_YAPILDI',
         entity: 'satis',
         entity_id: satisId,
+        /*
+         * İade olayı satış olayı kadar EKSİKSİZ gider. Eskiden yalnız kimlik,
+         * miktar ve tutar gidiyordu: bulutta iade fişi müşterisiz (panel
+         * Barış'ın iadesini Barış'a bağlayamıyordu), tarihsiz (çevrimdışı
+         * yapılan iade senkron gününe yazılıyordu) ve ürün adları boş kalıyordu.
+         */
         veri: {
           id: satisId,
           fis_no: fisNo,
+          tarih: zaman,
           kaynak_satis_id: kaynak.id,
+          musteri_id: kaynak.musteri_id,
+          kasa_oturum_id: kasaOturumId,
+          ara_toplam: -toplamIade,
+          iskonto_toplam: 0,
+          kdv_toplam: -toplamKdv,
           genel_toplam: -toplamIade,
+          brut_kar: brutKar,
           iade_yontemi: girdi.iade_yontemi,
           neden: girdi.neden,
           kullanici_id: aktor.kullaniciId,
           kasiyer_adi: aktor.ad,
-          kalemler: iadeSatirlari.map((s) => ({ urun_id: s.kaynak.urun_id, miktar: -s.miktar, satir_toplam: -s.tutar })),
+          kalemler: iadeSatirlari.map((s) => ({
+            urun_id: s.kaynak.urun_id,
+            urun_adi: s.kaynak.urun_adi,
+            barkod: s.kaynak.barkod,
+            miktar: -s.miktar,
+            birim_fiyat: s.kaynak.birim_fiyat,
+            birim_maliyet: s.kaynak.birim_maliyet,
+            iskonto: 0,
+            kdv_orani: s.kaynak.kdv_orani,
+            kdv_tutar: -s.kdv,
+            satir_toplam: -s.tutar,
+          })),
+          odemeler: [{ tip: girdi.iade_yontemi, tutar: -toplamIade }],
         },
         olusturma_zamani: zaman,
       },

@@ -14,7 +14,16 @@
  * bırakılır.
  */
 
-import { miktarFormat, paraFormat, tarihFormat, tarihSaatFormat, type BirimTipi, type Kurus } from '@market/shared';
+import {
+  IADE_YONTEMI_ETIKETI,
+  miktarFormat,
+  paraFormat,
+  tarihFormat,
+  tarihSaatFormat,
+  type BirimTipi,
+  type IadeYontemi,
+  type Kurus,
+} from '@market/shared';
 import type { SatisDetayi } from '../depo/satis.js';
 import type { IsletmeBilgisi } from './fis.js';
 
@@ -91,6 +100,9 @@ export function satisBelgesi(
   ];
   if (secenekler.kasiyerAdi) meta.push({ etiket: 'KASİYER', deger: secenekler.kasiyerAdi });
   if (satis.musteri_adi) meta.push({ etiket: 'MÜŞTERİ', deger: satis.musteri_adi });
+  // İade fişi kendi başına okunabilmeli: hangi alışverişin iadesi, neden.
+  if (iadeMi && satis.kaynak_fis_no) meta.push({ etiket: 'İADE EDİLEN FİŞ', deger: satis.kaynak_fis_no });
+  if (iadeMi && satis.notlar && satis.notlar !== 'Belirtilmedi') meta.push({ etiket: 'NEDEN', deger: satis.notlar });
 
   const araSatirlar: FisSatiri[] = [];
   if (satis.iskonto_toplam > 0) {
@@ -103,7 +115,11 @@ export function satisBelgesi(
 
   const odemeSatirlari: FisSatiri[] = [];
   for (const odeme of odemeler) {
-    odemeSatirlari.push({ etiket: ODEME_ETIKETI[odeme.odeme_tipi] ?? odeme.odeme_tipi, deger: tutar(odeme.tutar) });
+    // İadede para müşteriye DÖNER: "Veresiye" değil "Cari hesaba alacak" yazmalı.
+    const etiket = iadeMi
+      ? (IADE_YONTEMI_ETIKETI[odeme.odeme_tipi as IadeYontemi] ?? odeme.odeme_tipi)
+      : (ODEME_ETIKETI[odeme.odeme_tipi] ?? odeme.odeme_tipi);
+    odemeSatirlari.push({ etiket, deger: tutar(odeme.tutar) });
     if (odeme.odeme_tipi === 'NAKIT' && odeme.para_ustu > 0) {
       odemeSatirlari.push({ etiket: 'Alınan', deger: tutar(odeme.alinan) });
       odemeSatirlari.push({ etiket: 'Para üstü', deger: tutar(odeme.para_ustu) });

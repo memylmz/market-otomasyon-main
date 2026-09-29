@@ -436,7 +436,10 @@ export function CariSayfasi() {
                     {ekstre.map((h) => {
                       // Borcun neyden doğduğu, borcun kendisi kadar önemlidir:
                       // satışa bağlı hareketten fişin kalemlerine inilebilir (§10.7).
-                      const satisaBagli = h.belge_tipi === 'SATIS' && Boolean(h.belge_id);
+                      // İade ve satış iptali de satış kimliğini taşır; iade fişi de açılabilmeli.
+                      const satisaBagli =
+                        (h.belge_tipi === 'SATIS' || h.belge_tipi === 'IADE' || h.belge_tipi === 'SATIS_IPTAL') &&
+                        Boolean(h.belge_id);
                       // Tedarikçide de aynısı: alış, ödemesi ve iptalleri faturanın kimliğini taşır.
                       const faturayaBagli = Boolean(h.belge_id) && Boolean(h.belge_tipi?.startsWith('ALIS'));
                       const belgeyeBagli = satisaBagli || faturayaBagli;

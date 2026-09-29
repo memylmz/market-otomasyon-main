@@ -26,6 +26,8 @@ export interface SatisKaydi {
   iptal_zamani: ZamanDamgasi | null;
   iade_mi: boolean;
   kaynak_satis_id: string | null;
+  /** İade fişinde iade edilen satışın fiş numarası (okunurken türetilir). */
+  kaynak_fis_no?: string | null;
   fis_yazdirildi: boolean;
   notlar: string | null;
   cihaz_id: string | null;
@@ -64,6 +66,8 @@ export interface SatisDetayi {
   satis: SatisKaydi;
   kalemler: SatisKalemiKaydi[];
   odemeler: OdemeKaydi[];
+  /** Bu satıştan yapılmış iadeler (iade fişinde ve iptalde boş). */
+  iadeler: { id: string; fis_no: string; tarih: ZamanDamgasi; genel_toplam: Kurus }[];
 }
 
 const SATIS_ALANLARI = `s.id, s.fis_no, s.tarih, s.kullanici_id, s.kasa_oturum_id, s.ara_toplam,
@@ -198,7 +202,8 @@ export function fisYazdirildiIsaretle(vt: Vt, satisId: string, yazdirildi = true
 export function satisBul(vt: Vt, id: string): SatisKaydi | null {
   const satir = vt
     .hazirla(
-      `SELECT ${SATIS_ALANLARI}, k.ad AS kullanici_adi, c.ad_unvan AS musteri_adi
+      `SELECT ${SATIS_ALANLARI}, k.ad AS kullanici_adi, c.ad_unvan AS musteri_adi,
+              (SELECT ks.fis_no FROM satislar ks WHERE ks.id = s.kaynak_satis_id) AS kaynak_fis_no
        FROM satislar s LEFT JOIN kullanicilar k ON k.id = s.kullanici_id
        LEFT JOIN cariler c ON c.id = s.musteri_id WHERE s.id = ?`,
     )
@@ -209,7 +214,8 @@ export function satisBul(vt: Vt, id: string): SatisKaydi | null {
 export function fisNoIleBul(vt: Vt, fisNo: string): SatisKaydi | null {
   const satir = vt
     .hazirla(
-      `SELECT ${SATIS_ALANLARI}, k.ad AS kullanici_adi, c.ad_unvan AS musteri_adi
+      `SELECT ${SATIS_ALANLARI}, k.ad AS kullanici_adi, c.ad_unvan AS musteri_adi,
+              (SELECT ks.fis_no FROM satislar ks WHERE ks.id = s.kaynak_satis_id) AS kaynak_fis_no
        FROM satislar s LEFT JOIN kullanicilar k ON k.id = s.kullanici_id
        LEFT JOIN cariler c ON c.id = s.musteri_id
        WHERE s.fis_no = ? ORDER BY s.tarih DESC LIMIT 1`,
@@ -242,7 +248,14 @@ export function odemeleriGetir(vt: Vt, satisId: string): OdemeKaydi[] {
 export function satisDetayi(vt: Vt, satisId: string): SatisDetayi | null {
   const satis = satisBul(vt, satisId);
   if (!satis) return null;
-  return { satis, kalemler: kalemleriGetir(vt, satisId), odemeler: odemeleriGetir(vt, satisId) };
+  // "Bu fişten neler iade edildi" — iade ekranı ve fiş detayı aynı listeyi gösterir.
+  const iadeler = vt
+    .hazirla(
+      `SELECT id, fis_no, tarih, genel_toplam FROM satislar
+       WHERE kaynak_satis_id = ? AND iade_mi = 1 ORDER BY tarih`,
+    )
+    .tumu<SatisDetayi['iadeler'][number]>(satisId);
+  return { satis, kalemler: kalemleriGetir(vt, satisId), odemeler: odemeleriGetir(vt, satisId), iadeler };
 }
 
 export interface SatisFiltresi {
@@ -300,7 +313,12 @@ export function musteriAlisverisleri(
   }
   const durum = filtre.durum ?? 'tumu';
   const sonra =
-    durum === 'odenmis' ? 'WHERE iptal_mi = 0 AND veresiye = 0' : durum === 'borc' ? 'WHERE iptal_mi = 0 AND veresiye > 0' : '';
+    // Süzgeçler SATIŞLAR içindir; iade fişi yalnız "Tümü"nde görünür.
+    durum === 'odenmis'
+      ? 'WHERE iptal_mi = 0 AND iade_mi = 0 AND veresiye = 0'
+      : durum === 'borc'
+        ? 'WHERE iptal_mi = 0 AND iade_mi = 0 AND veresiye > 0'
+        : '';
 
   const satirlar = vt
     .hazirla(
@@ -365,7 +383,8 @@ export function satislariListele(
 
   const satirlar = vt
     .hazirla(
-      `SELECT ${SATIS_ALANLARI}, k.ad AS kullanici_adi, c.ad_unvan AS musteri_adi
+      `SELECT ${SATIS_ALANLARI}, k.ad AS kullanici_adi, c.ad_unvan AS musteri_adi,
+              (SELECT ks.fis_no FROM satislar ks WHERE ks.id = s.kaynak_satis_id) AS kaynak_fis_no
        FROM satislar s LEFT JOIN kullanicilar k ON k.id = s.kullanici_id
        LEFT JOIN cariler c ON c.id = s.musteri_id
        ${nerede} ORDER BY s.tarih DESC, s.rowid DESC LIMIT ? OFFSET ?`,

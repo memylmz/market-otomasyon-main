@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { miktarFormat, paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
+import { IADE_YONTEMI_ETIKETI, miktarFormat, paraFormat, tarihSaatFormat, type IadeYontemi, type Kurus } from '@market/shared';
 import { BosDurum, Diyalog, Rozet, Yukleniyor } from './temel';
 import { hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
@@ -21,7 +21,16 @@ import { cagir } from '../kopru';
  */
 export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null; onKapat: () => void }) {
   const [detay, setDetay] = useState<{
-    satis: { fis_no: string; tarih: string; genel_toplam: Kurus; iptal_mi?: boolean; musteri_adi?: string | null };
+    satis: {
+      fis_no: string;
+      tarih: string;
+      genel_toplam: Kurus;
+      iptal_mi?: boolean;
+      iade_mi?: boolean;
+      kaynak_fis_no?: string | null;
+      notlar?: string | null;
+      musteri_adi?: string | null;
+    };
     kalemler: { urun_adi: string; miktar: number; birim_tipi?: string; birim_fiyat: Kurus; satir_toplam: Kurus }[];
     odemeler: { odeme_tipi: string; tutar: Kurus }[];
   } | null>(null);
@@ -58,7 +67,7 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
             Satışlar'dan yapılır; aynı satışa birden çok ekrandan işlem
             yapılabilmesi karışıklık üretir.
           */}
-          {islemYetkisi && detay && !detay.satis.iptal_mi && (
+          {islemYetkisi && detay && !detay.satis.iptal_mi && !detay.satis.iade_mi && (
             <button type="button" className="tus-ikincil mr-auto" onClick={() => gezin('/raporlar', { state: { satisId } })}>
               İade / İptal İşlemleri →
             </button>
@@ -76,6 +85,12 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
       ) : (
         <>
           {detay.satis.iptal_mi && <Rozet tur="tehlike">Bu satış iptal edilmiş</Rozet>}
+          {detay.satis.iade_mi && (
+            <p className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
+              <strong>İade fişi</strong> — iade edilen fiş: {detay.satis.kaynak_fis_no ?? '—'}
+              {detay.satis.notlar && detay.satis.notlar !== 'Belirtilmedi' ? ` · Neden: ${detay.satis.notlar}` : ''}
+            </p>
+          )}
           <table className="tablo mt-2">
             <thead>
               <tr>
@@ -101,7 +116,11 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
             <span className="font-mono text-xl font-bold text-vurgu">{paraFormat(detay.satis.genel_toplam)}</span>
           </div>
 
-          <OdemeDokumu odemeler={detay.odemeler} musteriAdi={detay.satis.musteri_adi ?? null} />
+          <OdemeDokumu
+            odemeler={detay.odemeler}
+            musteriAdi={detay.satis.musteri_adi ?? null}
+            iadeMi={detay.satis.iade_mi ?? false}
+          />
         </>
       )}
     </Diyalog>
@@ -125,9 +144,12 @@ const ODEME_ETIKETI: Record<string, string> = {
 export function OdemeDokumu({
   odemeler,
   musteriAdi,
+  iadeMi = false,
 }: {
   odemeler: { odeme_tipi: string; tutar: Kurus }[];
   musteriAdi: string | null;
+  /** İadede para müşteriye döner: etiketler ve açıklama tersine çevrilir. */
+  iadeMi?: boolean;
 }) {
   if (odemeler.length === 0) return null;
   const veresiye = odemeler.find((o) => o.odeme_tipi === 'VERESIYE');
@@ -138,16 +160,21 @@ export function OdemeDokumu({
       <div className="space-y-1">
         {odemeler.map((o, i) => (
           <div key={i} className="flex items-baseline justify-between text-sm">
-            <span className="text-metin-2">{ODEME_ETIKETI[o.odeme_tipi] ?? o.odeme_tipi}</span>
+            <span className="text-metin-2">
+              {iadeMi
+                ? (IADE_YONTEMI_ETIKETI[o.odeme_tipi as IadeYontemi] ?? o.odeme_tipi)
+                : (ODEME_ETIKETI[o.odeme_tipi] ?? o.odeme_tipi)}
+            </span>
             <span className={`font-mono font-semibold ${o.odeme_tipi === 'VERESIYE' ? 'text-uyari' : ''}`}>
-              {paraFormat(o.tutar, { simge: false })}
+              {paraFormat(Math.abs(o.tutar), { simge: false })}
             </span>
           </div>
         ))}
       </div>
       {veresiye && (
         <p className="mt-2 border-t border-cizgi pt-2 text-xs text-metin-3">
-          {paraFormat(veresiye.tutar)} <strong>{musteriAdi ?? 'müşteri'}</strong> hesabına borç yazıldı.
+          {paraFormat(Math.abs(veresiye.tutar))} <strong>{musteriAdi ?? 'müşteri'}</strong>{' '}
+          {iadeMi ? 'hesabına alacak yazıldı (borcundan düşüldü).' : 'hesabına borç yazıldı.'}
         </p>
       )}
     </div>

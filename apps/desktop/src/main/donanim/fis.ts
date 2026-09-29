@@ -6,7 +6,16 @@
  * düzenlenir. Bu uyarı fişin altına basılır ve ayarlardan kaldırılamaz.
  */
 
-import { fisNoSadelestir, miktarFormat, paraFormat, tarihSaatFormat, type BirimTipi, type Kurus } from '@market/shared';
+import {
+  fisNoSadelestir,
+  IADE_YONTEMI_ETIKETI,
+  miktarFormat,
+  paraFormat,
+  tarihSaatFormat,
+  type BirimTipi,
+  type IadeYontemi,
+  type Kurus,
+} from '@market/shared';
 import type { KasaOzeti } from '../depo/kasa.js';
 import type { OdemeKaydi, SatisDetayi } from '../depo/satis.js';
 import { EscPosYazici } from './escpos.js';
@@ -59,6 +68,8 @@ export function satisFisi(
   y.ikiSutun('Fiş No: ' + satis.fis_no, tarihSaatFormat(satis.tarih));
   if (secenekler.kasiyerAdi) y.satir('Kasiyer: ' + secenekler.kasiyerAdi);
   if (satis.musteri_adi) y.satir('Müşteri: ' + satis.musteri_adi);
+  if (iadeMi && satis.kaynak_fis_no) y.satir('İade edilen fiş: ' + satis.kaynak_fis_no);
+  if (iadeMi && satis.notlar && satis.notlar !== 'Belirtilmedi') y.satir('Neden: ' + satis.notlar);
   y.ayirici();
 
   for (const kalem of kalemler) {
@@ -100,7 +111,10 @@ export function satisFisi(
 
   y.ayirici();
   for (const odeme of odemeler) {
-    y.ikiSutun(ODEME_ETIKETI[odeme.odeme_tipi], mutlak(odeme.tutar));
+    y.ikiSutun(
+      iadeMi ? IADE_YONTEMI_ETIKETI[odeme.odeme_tipi as IadeYontemi] : ODEME_ETIKETI[odeme.odeme_tipi],
+      mutlak(odeme.tutar),
+    );
     if (odeme.odeme_tipi === 'NAKIT' && odeme.para_ustu > 0) {
       y.ikiSutun('  Alınan', paraFormat(odeme.alinan, { simge: false }));
       y.ikiSutun('  Para Üstü', paraFormat(odeme.para_ustu, { simge: false }));

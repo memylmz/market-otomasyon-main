@@ -2,11 +2,23 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { miktarFormat, miktarParse, paraFormat, tarihSaatFormat, type Kurus, type Miktar } from '@market/shared';
+import {
+  IADE_YONTEMI_ETIKETI,
+  miktarFormat,
+  miktarParse,
+  paraFormat,
+  tarihSaatFormat,
+  varsayilanIadeYontemi,
+  type Kurus,
+  type Miktar,
+} from '@market/shared';
 import { Alan, BosDurum, Diyalog } from '../bilesen/temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useBarkodOdakYakalayici } from '../kanca/useKisayol';
 import { cagir } from '../kopru';
+
+/** Orijinal satışın ödeme adları (iade değil, satış dili). */
+const IADE_ODEME_ADI: Record<string, string> = { NAKIT: 'Nakit', KART: 'Kart', VERESIYE: 'Veresiye' };
 
 interface Kalem {
   id: string;
@@ -27,8 +39,12 @@ interface SatisDetay {
     iptal_mi: boolean;
     iade_mi: boolean;
     musteri_adi?: string | null;
+    musteri_id?: string | null;
   };
   kalemler: Kalem[];
+  odemeler: { odeme_tipi: string; tutar: Kurus }[];
+  /** Bu satıştan daha önce yapılmış iadeler. */
+  iadeler: { id: string; fis_no: string; tarih: string; genel_toplam: Kurus }[];
 }
 
 export function IadeSayfasi() {
@@ -63,6 +79,8 @@ export function IadeSayfasi() {
       const d = await cagir<SatisDetay>('satis.detay', { satisId: ilk.id });
       setDetay(d);
       setSecimler({});
+      // Para müşteriye geldiği yoldan döner: veresiye satışın iadesi borçtan düşülür.
+      setYontem(varsayilanIadeYontemi(d.odemeler ?? []));
       if (d.satis.iptal_mi) bildir.uyari('Bu satış iptal edilmiş, iade edilemez.');
       if (d.satis.iade_mi) bildir.uyari('Bu bir iade fişidir, tekrar iade edilemez.');
     } catch (hata) {
@@ -108,7 +126,15 @@ export function IadeSayfasi() {
         // sabit bir metin yazılır (alan hiç boş kalmasın).
         neden: neden.trim() || 'Belirtilmedi',
       });
-      bildir.basari(`İade tamamlandı — ${sonuc.fisNo}`, paraFormat(Math.abs(sonuc.genelToplam)));
+      bildir.basari(
+        `İade tamamlandı — ${sonuc.fisNo}`,
+        [
+          `${IADE_YONTEMI_ETIKETI[yontem]}: ${paraFormat(Math.abs(sonuc.genelToplam))}`,
+          detay.satis.musteri_adi ? `Müşteri: ${detay.satis.musteri_adi}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      );
       setDetay(null);
       setSecimler({});
       setNeden('');
@@ -128,6 +154,14 @@ export function IadeSayfasi() {
     : 0;
 
   const iadeEdilebilir = detay && !detay.satis.iptal_mi && !detay.satis.iade_mi;
+  const musteriVar = Boolean(detay?.satis.musteri_id);
+  const onerilenYontem = detay ? varsayilanIadeYontemi(detay.odemeler ?? []) : 'NAKIT';
+  /*
+   * Veresiye alınmış mal nakit/kartla iade edilirse müşteri ödemediği malın
+   * parasını alır ve borcu olduğu gibi kalır. Engellenmez (müşteri borcunu
+   * sonradan ödemiş olabilir) ama açıkça uyarılır.
+   */
+  const veresiyeUyarisi = onerilenYontem === 'VERESIYE' && yontem !== 'VERESIYE';
 
   return (
     <div className="flex h-full flex-col p-4">
@@ -167,8 +201,25 @@ export function IadeSayfasi() {
                 </div>
                 <div className="text-right">
                   <p className="font-mono text-lg font-bold">{paraFormat(detay.satis.genel_toplam)}</p>
+                  <p className="text-xs text-metin-3">
+                    {(detay.odemeler ?? [])
+                      .map((o) => `${IADE_ODEME_ADI[o.odeme_tipi] ?? o.odeme_tipi} ${paraFormat(o.tutar, { simge: false })}`)
+                      .join(' · ')}
+                  </p>
                 </div>
               </div>
+              {/* İade hangi müşteriye yazılacak — kasiyer bunu işlemden önce görmeli. */}
+              {detay.satis.musteri_adi && (
+                <p className="mt-2 rounded bg-bilgi-yumusak px-3 py-2 text-sm">
+                  Müşteri: <strong>{detay.satis.musteri_adi}</strong> — iade fişi bu müşteriye bağlanır.
+                </p>
+              )}
+              {(detay.iadeler ?? []).length > 0 && (
+                <p className="mt-2 text-xs text-uyari">
+                  Bu satıştan daha önce iade yapıldı:{' '}
+                  {detay.iadeler.map((i) => `${i.fis_no} (${paraFormat(Math.abs(i.genel_toplam), { simge: false })})`).join(', ')}
+                </p>
+              )}
             </header>
 
             {/* İade edilemeyecek fişler küçük bir rozetle geçiştirilmemeli:
@@ -258,11 +309,21 @@ export function IadeSayfasi() {
                   onChange={(e) => setYontem(e.target.value as typeof yontem)}
                   disabled={!iadeEdilebilir}
                 >
-                  <option value="NAKIT">Nakit iade (kasadan)</option>
-                  <option value="KART">Karta iade (manuel)</option>
-                  <option value="VERESIYE">Cari alacağa işle</option>
+                  <option value="NAKIT">Nakit iade (kasadan){onerilenYontem === 'NAKIT' ? ' — önerilen' : ''}</option>
+                  <option value="KART">Karta iade (manuel){onerilenYontem === 'KART' ? ' — önerilen' : ''}</option>
+                  <option value="VERESIYE" disabled={!musteriVar}>
+                    {musteriVar
+                      ? `${detay?.satis.musteri_adi ?? 'Müşteri'} hesabına (borcundan düş)${onerilenYontem === 'VERESIYE' ? ' — önerilen' : ''}`
+                      : 'Cari hesaba (satışta müşteri yok)'}
+                  </option>
                 </select>
               </Alan>
+              {veresiyeUyarisi && (
+                <p className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-xs text-metin-2">
+                  Bu satış <strong>veresiye</strong> yapılmıştı. Nakit ya da kartla iade ederseniz müşteriye para verilir ve borcu{' '}
+                  <strong>düşmez</strong>. Borcunu zaten ödediyse devam edebilirsiniz.
+                </p>
+              )}
 
               <Alan etiket="İade nedeni" ipucu="İsteğe bağlı. Girilirse fişe ve denetim kaydına yazılır.">
                 <textarea
@@ -332,6 +393,11 @@ export function IadeSayfasi() {
               ))}
           </ul>
 
+          {detay?.satis.musteri_adi && (
+            <p className="text-metin-2">
+              Müşteri: <strong>{detay.satis.musteri_adi}</strong>
+            </p>
+          )}
           <p className="text-metin-2">
             İade şekli:{' '}
             <strong>
@@ -339,7 +405,7 @@ export function IadeSayfasi() {
                 ? 'Nakit (kasadan çıkacak)'
                 : yontem === 'KART'
                   ? 'Karta iade (manuel)'
-                  : 'Cari alacağa işlenecek'}
+                  : `${detay?.satis.musteri_adi ?? 'Müşterinin'} hesabına alacak — borcundan düşülecek`}
             </strong>
           </p>
 

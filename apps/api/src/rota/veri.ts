@@ -65,9 +65,11 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
   /** Fiş detayı: kalemler + ödemeler + KDV kırılımı (kasadaki fiş detay diyaloğu). */
   uygulama.get<{ Params: { id: string } }>(`${UCLAR.satislar}/:id`, korumali, async (istek) => {
     const isletmeId = istek.kullanici?.isletmeId;
-    const [satis, kalemler, odemeler] = await Promise.all([
+    const [satis, kalemler, odemeler, iadeler] = await Promise.all([
       uygulama.vt.tek<Record<string, unknown>>(
-        `SELECT s.*, COALESCE(k.ad, s.kasiyer_adi, '—') kullanici_adi, c.ad_unvan musteri_adi
+        `SELECT s.*, COALESCE(k.ad, s.kasiyer_adi, '—') kullanici_adi, c.ad_unvan musteri_adi,
+                (SELECT ks.fis_no FROM satislar ks
+                  WHERE ks.isletme_id = s.isletme_id AND ks.id = s.kaynak_satis_id) kaynak_fis_no
          FROM satislar s
          LEFT JOIN kullanicilar k ON k.isletme_id = s.isletme_id AND k.id = s.kullanici_id
          LEFT JOIN cariler c ON c.isletme_id = s.isletme_id AND c.id = s.musteri_id
@@ -84,11 +86,17 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
         isletmeId,
         istek.params.id,
       ]),
+      // Bu satıştan yapılmış iadeler — kasadaki fiş detayıyla aynı liste.
+      uygulama.vt.tumu(
+        `SELECT id, fis_no, tarih, genel_toplam FROM satislar
+          WHERE isletme_id = ? AND kaynak_satis_id = ? AND iade_mi = 1 ORDER BY tarih`,
+        [isletmeId, istek.params.id],
+      ),
     ]);
 
     // Bulunamayan fiş 404 değil boş gövde döner; panel "senkron edilmemiş
     // olabilir" mesajını gösterir (kasada var, buluta henüz gelmemiş olabilir).
-    return { satis, kalemler, odemeler, uretim_zamani: simdi() };
+    return { satis, kalemler, odemeler, iadeler, uretim_zamani: simdi() };
   });
 
   // -------------------------------------------------------- STOK HAREKETLERİ

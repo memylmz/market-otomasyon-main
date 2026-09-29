@@ -806,3 +806,46 @@ describe('satışı yapan kasiyer (§10.7)', () => {
     expect(detay.satis.kullanici_adi).toBe('—');
   });
 });
+
+describe('iade fişi — müşteri ve kaynak fiş (§10.4)', () => {
+  it('iade müşteriye bağlı gelir; detay kaynak fişi, orijinal fiş de iadelerini söyler', async () => {
+    const musteriId = uuid();
+    const satis = satisOlayi({ tutar: 40_000 });
+    Object.assign(satis.veri, { fis_no: 'A-000002', musteri_id: musteriId });
+    const iadeId = uuid();
+    const iade = {
+      uuid: uuid(),
+      tip: 'IADE_YAPILDI' as const,
+      entity: 'satis',
+      entity_id: iadeId,
+      olusturma_zamani: simdi(),
+      veri: {
+        id: iadeId,
+        fis_no: 'A-000005',
+        tarih: `${bugun()}T11:00:00.000Z`,
+        kaynak_satis_id: satis.veri.id,
+        musteri_id: musteriId,
+        genel_toplam: -20_000,
+        kdv_toplam: 0,
+        iade_yontemi: 'VERESIYE',
+        kalemler: [{ urun_id: URUN_ID, urun_adi: 'Defter', miktar: -2000, birim_fiyat: 10_000, satir_toplam: -20_000 }],
+        odemeler: [{ tip: 'VERESIYE', tutar: -20_000 }],
+      },
+    };
+    expect((await push([satis, iade])).statusCode).toBe(200);
+
+    const iadeDetay = (await panelGet(`${UCLAR.satislar}/${iadeId}`)).json() as {
+      satis: { musteri_id: string; kaynak_fis_no: string; iade_mi: number };
+      kalemler: { urun_adi: string }[];
+      odemeler: { odeme_tipi: string; tutar: number }[];
+    };
+    expect(iadeDetay.satis).toMatchObject({ musteri_id: musteriId, kaynak_fis_no: 'A-000002', iade_mi: 1 });
+    expect(iadeDetay.kalemler[0]?.urun_adi).toBe('Defter');
+    expect(iadeDetay.odemeler).toEqual([expect.objectContaining({ odeme_tipi: 'VERESIYE', tutar: -20_000 })]);
+
+    const orijinal = (await panelGet(`${UCLAR.satislar}/${satis.veri.id}`)).json() as {
+      iadeler: { id: string; fis_no: string; genel_toplam: number }[];
+    };
+    expect(orijinal.iadeler).toEqual([expect.objectContaining({ id: iadeId, fis_no: 'A-000005', genel_toplam: -20_000 })]);
+  });
+});

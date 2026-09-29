@@ -13,9 +13,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { adet } from '@market/shared';
 import { oturumOzeti } from '../src/main/depo/kasa.js';
-import { musteriAlisverisleri } from '../src/main/depo/satis.js';
+import { kalemleriGetir, musteriAlisverisleri } from '../src/main/depo/satis.js';
 import { kasaDurumu } from '../src/main/servis/kasa-servis.js';
-import { satisIptal, satisKesinlestir } from '../src/main/servis/satis-servis.js';
+import { iadeYap, satisIptal, satisKesinlestir } from '../src/main/servis/satis-servis.js';
 import { musteriEkle, testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
 
 let ortam: TestOrtami;
@@ -70,6 +70,24 @@ describe('müşteri alışverişleri', () => {
     expect(ids('odenmis')).toEqual([nakit]);
     expect(ids('borc')).toEqual([veresiye]);
     expect(ids('tumu')).toContain(iptal);
+  });
+});
+
+describe('müşteri alışverişlerinde iade', () => {
+  it('iade fişi yalnız "Tümü"nde görünür, ödenmiş/borç süzgeçlerine girmez', () => {
+    const satisId = sat([{ tip: 'NAKIT', tutar: 2000 }]);
+    const kalem = kalemleriGetir(ortam.uygulama.vt, satisId)[0]!;
+    const iade = iadeYap(ortam.uygulama.baglam, ortam.admin, {
+      kaynak_satis_id: satisId,
+      kalemler: [{ satis_kalemi_id: kalem.id, miktar: adet(1) }],
+      iade_yontemi: 'NAKIT',
+      neden: 'test',
+    });
+    const ids = (durum: 'tumu' | 'odenmis' | 'borc') =>
+      musteriAlisverisleri(ortam.uygulama.vt, musteriId, { durum }).map((s) => s.id);
+    expect(ids('tumu')).toContain(iade.satisId);
+    expect(ids('odenmis')).toEqual([satisId]);
+    expect(ids('borc')).toEqual([]);
   });
 });
 
