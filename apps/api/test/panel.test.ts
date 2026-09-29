@@ -580,7 +580,7 @@ describe('panel girişi — kasa yöneticisi (§9.2)', () => {
    */
   async function kasaKullanicisiEkle(
     kullaniciAdi: string,
-    rol: 'ADMIN' | 'KASIYER',
+    rol: 'ADMIN' | 'MUDUR' | 'KASIYER',
     sifre: string | null,
     ekstra: { aktif?: number; silindi?: number; pin?: string } = {},
   ): Promise<void> {
@@ -620,7 +620,33 @@ describe('panel girişi — kasa yöneticisi (§9.2)', () => {
 
   it('kasadaki KASİYER panele giremez', async () => {
     await kasaKullanicisiEkle('kasiyer1', 'KASIYER', 'KasaSifre1234');
-    expect((await girisDene('kasiyer1', 'KasaSifre1234')).statusCode).toBe(401);
+    const yanit = await girisDene('kasiyer1', 'KasaSifre1234');
+    expect(yanit.statusCode).toBe(403);
+    expect(yanit.json()).not.toHaveProperty('access_token');
+  });
+
+  /*
+   * Şifresi DOĞRU ama rolü panele yetmeyen hesap "kullanıcı adı veya şifre
+   * hatalı" alıyordu; kullanıcı bilgilerini yanlış sanıp tekrar tekrar
+   * deniyordu. Doğru şifreyi bilen kişiye sebebi söylemek bir şey sızdırmaz.
+   */
+  it('doğru şifreli MÜDÜR panel yetkisi olmadığını açıkça öğrenir', async () => {
+    await kasaKullanicisiEkle('mudur1', 'MUDUR', 'KasaSifre1234');
+    const yanit = await girisDene('mudur1', 'KasaSifre1234');
+    expect(yanit.statusCode).toBe(403);
+    expect(JSON.stringify(yanit.json())).toMatch(/yalnız kasada/i);
+  });
+
+  it('yanlış şifreli MÜDÜR genel kimlik hatası alır — hesabın varlığı sızmaz', async () => {
+    await kasaKullanicisiEkle('mudur2', 'MUDUR', 'KasaSifre1234');
+    const yanit = await girisDene('mudur2', 'YanlisSifre999');
+    expect(yanit.statusCode).toBe(401);
+    expect(JSON.stringify(yanit.json())).not.toMatch(/yalnız kasada/i);
+  });
+
+  it('pasif MÜDÜR doğru şifreyle de genel kimlik hatası alır', async () => {
+    await kasaKullanicisiEkle('mudur3', 'MUDUR', 'KasaSifre1234', { aktif: 0 });
+    expect((await girisDene('mudur3', 'KasaSifre1234')).statusCode).toBe(401);
   });
 
   /**

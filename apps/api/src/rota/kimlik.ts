@@ -68,6 +68,24 @@ async function girisKullanicisiniBul(
 }
 
 /**
+ * Panel yetkisi olmayan, ŞİFRELİ bir kasa hesabının şifre hash'i.
+ *
+ * Giriş reddedilirken sebep ayırt edilir: şifresi doğru olan MÜDÜR/KASİYER
+ * "kullanıcı adı veya şifre hatalı" görünce bilgilerini yanlış sanıyordu.
+ * Yalnız ŞİFRE denenir, PIN değil — aksi halde internetten 4 haneli PIN'lerin
+ * doğruluğu sınanabilirdi.
+ */
+async function panelYetkisizKasaHesabi(uygulama: FastifyInstance, kullaniciAdi: string): Promise<string | null> {
+  const satir = await uygulama.vt.tek<{ sifre_hash: string }>(
+    `SELECT sifre_hash FROM kullanicilar
+      WHERE kullanici_adi = ? AND rol <> 'ADMIN' AND aktif_mi = 1 AND silindi_mi = 0
+        AND sifre_hash IS NOT NULL AND sifre_hash <> ''`,
+    [kullaniciAdi],
+  );
+  return satir ? String(satir.sifre_hash) : null;
+}
+
+/**
  * Bir isletmede kullanilmamis ilk fis serisini dondurur (§10.2).
  *
  * NEDEN MERKEZDEN: seri eskiden cihaz kimliginden hash'lenip 26 harfe
@@ -101,8 +119,16 @@ export async function kimlikRotalari(uygulama: FastifyInstance): Promise<void> {
     const kullanici = await girisKullanicisiniBul(uygulama, 'kullanici_adi', girdi.kullanici_adi.trim());
 
     if (!kullanici || Number(kullanici.aktif_mi) !== 1) {
-      // Kullanıcı numaralandırmasını zorlaştırmak için burada da hash hesaplanır.
-      parolaDogrula(girdi.sifre, SAHTE_HASH);
+      // Kullanıcı numaralandırmasını zorlaştırmak için burada da hash hesaplanır:
+      // yetkisiz kasa hesabının gerçek hash'i, yoksa sahtesi — süre aynı kalır.
+      const yetkisizHash = kullanici ? null : await panelYetkisizKasaHesabi(uygulama, girdi.kullanici_adi.trim());
+      if (parolaDogrula(girdi.sifre, yetkisizHash ?? SAHTE_HASH) && yetkisizHash) {
+        istek.log.warn({ kullanici_adi: girdi.kullanici_adi, ip: istek.ip }, 'Panel yetkisi olmayan hesapla giriş');
+        throw new UygulamaHatasi(
+          HATA_KODU.YETKI,
+          'Bu hesap yalnız kasada kullanılabilir. Panele girebilmesi için rolünün Yönetici olması gerekir.',
+        );
+      }
       istek.log.warn({ kullanici_adi: girdi.kullanici_adi, ip: istek.ip }, 'Başarısız panel girişi');
       throw hatalar.kimlik();
     }
