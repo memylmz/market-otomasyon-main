@@ -227,8 +227,8 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       await islem.calistir(
         `INSERT INTO satislar (id, isletme_id, cihaz_id, fis_no, tarih, kullanici_id, kasa_oturum_id,
                                ara_toplam, iskonto_toplam, kdv_toplam, genel_toplam, odeme_ozeti,
-                               musteri_id, brut_kar, iade_mi, kaynak_satis_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               musteri_id, brut_kar, iade_mi, kaynak_satis_id, created_at, kasiyer_adi)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(isletme_id, id) DO NOTHING`,
         [
           satisId,
@@ -248,6 +248,8 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
           iadeMi ? 1 : 0,
           veri.kaynak_satis_id ?? null,
           baglam.zaman,
+          // Eski kasa sürümleri adı göndermez; boş dize de "yok" sayılır.
+          metin(veri.kasiyer_adi) || null,
         ],
       );
 

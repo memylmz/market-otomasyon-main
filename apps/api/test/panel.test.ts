@@ -777,3 +777,32 @@ describe('fiş serisi dağıtımı (§10.2)', () => {
     expect((yanit.json() as { seri: string }).seri).toBe('AA');
   });
 });
+
+describe('satışı yapan kasiyer (§10.7)', () => {
+  /*
+   * Kasa kullanıcıları buluta yalnız kurulum sihirbazında ya da panelden
+   * açılınca girer. Kasa başka bir buluta bağlanınca (ya da kullanıcı eski bir
+   * kurulumdan geldiyse) satıştaki kullanici_id bulutta karşılıksız kalıyor,
+   * fişte "Kasiyer: —" görünüyordu. Kasa adı satışla birlikte gönderir.
+   */
+  it('bulutta karşılığı olmayan kullanıcının adı satışla gelen addan gösterilir', async () => {
+    const olay = satisOlayi();
+    Object.assign(olay.veri, { kullanici_id: uuid(), kasiyer_adi: 'Mehmet YILMAZ' });
+    expect((await push([olay])).statusCode).toBe(200);
+
+    const detay = (await panelGet(`${UCLAR.satislar}/${olay.veri.id}`)).json() as { satis: { kullanici_adi: string } };
+    expect(detay.satis.kullanici_adi).toBe('Mehmet YILMAZ');
+
+    const liste = (await panelGet(`${UCLAR.satislar}?from=${bugun()}&to=${bugun()}`)).json() as {
+      data: { id: string; kullanici_adi: string }[];
+    };
+    expect(liste.data.find((s) => s.id === olay.veri.id)?.kullanici_adi).toBe('Mehmet YILMAZ');
+  });
+
+  it('ad bilgisi olmayan eski olayda da yanıt bozulmaz', async () => {
+    const olay = satisOlayi();
+    expect((await push([olay])).statusCode).toBe(200);
+    const detay = (await panelGet(`${UCLAR.satislar}/${olay.veri.id}`)).json() as { satis: { kullanici_adi: string } };
+    expect(detay.satis.kullanici_adi).toBe('—');
+  });
+});

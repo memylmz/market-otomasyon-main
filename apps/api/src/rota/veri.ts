@@ -50,7 +50,7 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
     const data = await uygulama.vt.tumu(
       `SELECT s.id, s.fis_no, s.tarih, s.cihaz_id, s.genel_toplam, s.ara_toplam, s.kdv_toplam,
               s.iskonto_toplam, s.brut_kar, s.odeme_ozeti, s.iptal_mi, s.iptal_neden, s.iade_mi,
-              COALESCE(k.ad, '—') kullanici_adi, c.ad_unvan musteri_adi
+              COALESCE(k.ad, s.kasiyer_adi, '—') kullanici_adi, c.ad_unvan musteri_adi
        FROM satislar s
        LEFT JOIN kullanicilar k ON k.isletme_id = s.isletme_id AND k.id = s.kullanici_id
        LEFT JOIN cariler c ON c.isletme_id = s.isletme_id AND c.id = s.musteri_id
@@ -67,7 +67,7 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
     const isletmeId = istek.kullanici?.isletmeId;
     const [satis, kalemler, odemeler] = await Promise.all([
       uygulama.vt.tek<Record<string, unknown>>(
-        `SELECT s.*, COALESCE(k.ad, '—') kullanici_adi, c.ad_unvan musteri_adi
+        `SELECT s.*, COALESCE(k.ad, s.kasiyer_adi, '—') kullanici_adi, c.ad_unvan musteri_adi
          FROM satislar s
          LEFT JOIN kullanicilar k ON k.isletme_id = s.isletme_id AND k.id = s.kullanici_id
          LEFT JOIN cariler c ON c.isletme_id = s.isletme_id AND c.id = s.musteri_id

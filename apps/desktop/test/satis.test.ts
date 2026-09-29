@@ -543,3 +543,32 @@ describe('muhtelif kalem (§10.3)', () => {
     expect(kalemler[0]?.birim_fiyat).toBe(1500);
   });
 });
+
+/*
+ * Satışı yapanın ADI olayla buluta gider (§10.7). Kasa kullanıcısı bulutta her
+ * zaman bulunmaz; yalnız kimlik gönderilince panelde "Kasiyer: —" görünüyordu.
+ */
+describe('satış olayında kasiyer adı', () => {
+  const olayVerisi = (tip: string, entityId: string) =>
+    JSON.parse(
+      bekleyenOlaylar(ortam.uygulama.vt, 500).find((o) => o.olay_tipi === tip && o.entity_id === entityId)?.veri ?? '{}',
+    ) as { kasiyer_adi?: string };
+
+  it('satış ve iade olayı oturumdaki kişinin adını taşır', () => {
+    const urunId = urunEkle(ortam, { satisFiyati: 1000, stok: adet(5) });
+    const satis = satisKesinlestir(ortam.uygulama.baglam, ortam.admin, {
+      kalemler: [{ urun_id: urunId, miktar: adet(1), birim_fiyat: 1000 }],
+      odemeler: [{ tip: 'NAKIT', tutar: 1000 }],
+    });
+    expect(olayVerisi('SATIS_YAPILDI', satis.satisId).kasiyer_adi).toBe('Test Yönetici');
+
+    const kalem = kalemleriGetir(ortam.uygulama.vt, satis.satisId)[0];
+    const iade = iadeYap(ortam.uygulama.baglam, ortam.admin, {
+      kaynak_satis_id: satis.satisId,
+      kalemler: [{ satis_kalemi_id: kalem?.id as string, miktar: adet(1) }],
+      iade_yontemi: 'NAKIT',
+      neden: 'Müşteri beğenmedi',
+    });
+    expect(olayVerisi('IADE_YAPILDI', iade.satisId).kasiyer_adi).toBe('Test Yönetici');
+  });
+});

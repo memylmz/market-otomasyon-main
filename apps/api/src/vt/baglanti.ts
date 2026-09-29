@@ -489,6 +489,15 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'cari_hareketler', 'belge_tipi TEXT');
 
   /*
+   * Satışı yapanın adı, satış anındaki hâliyle (§10.7).
+   *
+   * Kasa kullanıcısı buluta her zaman ulaşmaz (eski kurulumdan gelen ya da
+   * başka buluta bağlıyken açılmış hesap); o zaman kullanici_id karşılıksız
+   * kalır ve fişte "Kasiyer: —" görünür. Ad satışla birlikte gelir.
+   */
+  await sutunEkle(vt, 'satislar', 'kasiyer_adi TEXT');
+
+  /*
    * ALIŞ FATURASI — belgenin tamamı merkeze taşınır (§11.8).
    *
    * Eskiden yalnız tedarikçi, tarih ve genel toplam geliyordu. Panelden

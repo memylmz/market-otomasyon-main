@@ -430,7 +430,7 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
         [isletmeId, from, to],
       ),
       uygulama.vt.tumu<Record<string, unknown>>(
-        `SELECT s.kullanici_id, COALESCE(k.ad, 'Bilinmeyen') kullanici_adi,
+        `SELECT s.kullanici_id, COALESCE(k.ad, MAX(s.kasiyer_adi), 'Bilinmeyen') kullanici_adi,
                 SUM(CASE WHEN s.iade_mi = 0 AND s.iptal_mi = 0 THEN 1 ELSE 0 END) satis,
                 SUM(CASE WHEN s.iade_mi = 1 THEN 1 ELSE 0 END) iade,
                 SUM(CASE WHEN s.iptal_mi = 1 THEN 1 ELSE 0 END) iptal,

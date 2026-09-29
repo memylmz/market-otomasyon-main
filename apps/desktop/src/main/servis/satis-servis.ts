@@ -446,6 +446,8 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
           odeme_ozeti: baskinOdemeTipi(odemeler),
           musteri_id: girdi.musteri_id ?? null,
           kullanici_id: aktor.kullaniciId,
+          // Kullanıcı bulutta bulunmayabilir; fişte satışı yapan yine görünsün (§10.7).
+          kasiyer_adi: aktor.ad,
           kasa_oturum_id: kasaOturumId,
           brut_kar: brutKar,
           kalemler: hesap.satirlar.map((satir, i) => ({
@@ -873,6 +875,7 @@ export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisS
           iade_yontemi: girdi.iade_yontemi,
           neden: girdi.neden,
           kullanici_id: aktor.kullaniciId,
+          kasiyer_adi: aktor.ad,
           kalemler: iadeSatirlari.map((s) => ({ urun_id: s.kaynak.urun_id, miktar: -s.miktar, satir_toplam: -s.tutar })),
         },
         olusturma_zamani: zaman,
