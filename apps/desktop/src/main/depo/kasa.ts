@@ -177,6 +177,29 @@ export function oturumHareketleri(vt: Vt, oturumId: string, limit = 1000): KasaH
     .tumu<KasaHareketiKaydi>(oturumId, limit);
 }
 
+/**
+ * Oturumdaki veresiye satışlar, hareket listesinde gösterilmek üzere (§10.8).
+ *
+ * Veresiye kasadan para geçirmediği için `kasa_hareketleri`ne YAZILMAZ; yazılsa
+ * beklenen nakit ve gün sonu bozulurdu. Kasiyer yine de "şu saatte kime
+ * veresiye verdim" sorusunu bu ekrandan cevaplayabilmeli — satır yalnız
+ * okunurken üretilir, `id` satışın kimliğidir.
+ */
+export function oturumVeresiyeSatislari(vt: Vt, oturumId: string): Omit<KasaHareketiKaydi, 'tip'>[] {
+  return vt
+    .hazirla(
+      `SELECT s.id, s.kasa_oturum_id, SUM(o.tutar) AS tutar,
+              'Veresiye — ' || COALESCE(c.ad_unvan, 'müşteri') || ' (' || s.fis_no || ')' AS aciklama,
+              s.id AS belge_id, s.kullanici_id, s.tarih AS created_at
+       FROM satislar s
+       JOIN odemeler o ON o.satis_id = s.id AND o.odeme_tipi = 'VERESIYE'
+       LEFT JOIN cariler c ON c.id = s.musteri_id
+       WHERE s.kasa_oturum_id = ? AND s.iptal_mi = 0
+       GROUP BY s.id`,
+    )
+    .tumu<Omit<KasaHareketiKaydi, 'tip'>>(oturumId);
+}
+
 export interface KasaOzeti {
   acilis_bakiye: Kurus;
   /** Yalnız fiziksel nakdi etkileyen hareketlerin toplamı (kart hariç). */

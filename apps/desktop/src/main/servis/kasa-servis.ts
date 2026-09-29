@@ -14,6 +14,8 @@ import {
   oturumKapat,
   oturumOzeti,
   oturumBul,
+  oturumVeresiyeSatislari,
+  type KasaHareketiKaydi,
   type KasaOzeti,
 } from '../depo/kasa.js';
 import { denetimYaz, gunlukOzetEkle } from '../depo/ozet.js';
@@ -200,7 +202,8 @@ export function kasaHareketi(baglam: Baglam, aktor: Aktor, tip: KasaEkHareketTip
 export interface KasaDurumu {
   oturum: ReturnType<typeof acikOturum>;
   ozet: KasaOzeti | null;
-  hareketler: ReturnType<typeof oturumHareketleri>;
+  /** Kasa hareketleri + yalnız gösterim için eklenen veresiye satışlar (`SATIS_VERESIYE`). */
+  hareketler: (Omit<KasaHareketiKaydi, 'tip'> & { tip: KasaHareketiKaydi['tip'] | 'SATIS_VERESIYE' })[];
   /** Açık oturum, isteği yapan kullanıcıya mı ait? Değilse o kullanıcı satış yapamaz. */
   bana_ait_mi: boolean;
   /** Oturumu açan kişinin adı — ekranda "X'in kasası" demek için. */
@@ -222,7 +225,10 @@ export function kasaDurumu(baglam: Baglam, aktor?: Aktor): KasaDurumu {
   return {
     oturum,
     ozet: oturumOzeti(baglam.vt, oturum.id),
-    hareketler: oturumHareketleri(baglam.vt, oturum.id),
+    hareketler: [
+      ...oturumHareketleri(baglam.vt, oturum.id),
+      ...oturumVeresiyeSatislari(baglam.vt, oturum.id).map((v) => ({ ...v, tip: 'SATIS_VERESIYE' as const })),
+    ].sort((x, y) => (x.created_at < y.created_at ? -1 : x.created_at > y.created_at ? 1 : 0)),
     bana_ait_mi: aktor ? oturum.kullanici_id === aktor.kullaniciId : true,
     sahip_adi: sahip?.ad ?? null,
   };

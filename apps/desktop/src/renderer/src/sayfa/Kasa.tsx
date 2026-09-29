@@ -24,7 +24,14 @@ interface KasaOzeti {
 }
 
 /** Fişi olan hareket tipleri — yalnız bunlar tıklanabilir. */
-const SATIS_TIPLERI = new Set(['SATIS_NAKIT', 'SATIS_KART', 'IADE_NAKIT']);
+const SATIS_TIPLERI = new Set(['SATIS_NAKIT', 'SATIS_KART', 'SATIS_VERESIYE', 'IADE_NAKIT']);
+
+/**
+ * Veresiye satır yalnız GÖSTERİM içindir: kasadan para geçmez, kasa hareketi
+ * olarak yazılmaz ve beklenen nakde girmez. Tutarı nötr renkte gösterilir ki
+ * kasaya giren parayla karıştırılmasın.
+ */
+const NAKIT_DISI_TIPLER = new Set(['SATIS_VERESIYE']);
 
 interface KasaHareketi {
   id: string;
@@ -48,6 +55,7 @@ interface KasaDurumu {
 const HAREKET_ETIKETI: Record<string, string> = {
   SATIS_NAKIT: 'Nakit satış',
   SATIS_KART: 'Kart satış',
+  SATIS_VERESIYE: 'Veresiye satış',
   TAHSILAT: 'Tahsilat',
   ODEME: 'Tedarikçi ödemesi',
   GIDER: 'Gider',
@@ -219,7 +227,11 @@ export function KasaSayfasi() {
                             {h.aciklama ?? '—'}
                             {fisVar && <span className="ml-2 whitespace-nowrap text-xs text-vurgu">fişi gör →</span>}
                           </td>
-                          <td className={`sayi ${h.tutar < 0 ? 'text-tehlike' : 'text-vurgu'}`}>
+                          <td
+                            className={`sayi ${
+                              NAKIT_DISI_TIPLER.has(h.tip) ? 'text-uyari' : h.tutar < 0 ? 'text-tehlike' : 'text-vurgu'
+                            }`}
+                          >
                             {paraFormat(h.tutar, { simge: false, isaret: true })}
                           </td>
                         </tr>
