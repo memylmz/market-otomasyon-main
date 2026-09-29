@@ -257,6 +257,71 @@ export interface SatisFiltresi {
   iptalleriGizle?: boolean;
 }
 
+export interface MusteriAlisverisi {
+  id: string;
+  fis_no: string;
+  tarih: ZamanDamgasi;
+  genel_toplam: Kurus;
+  iptal_mi: boolean;
+  iade_mi: boolean;
+  kullanici_adi: string | null;
+  nakit: Kurus;
+  kart: Kurus;
+  veresiye: Kurus;
+}
+
+/**
+ * Müşterinin bütün alışverişleri, ödeme türü dökümüyle (§10.7).
+ *
+ * Cari ekstresi yalnız veresiyeyi, yani BORCU gösterir; nakit ya da kartla
+ * ödenmiş alışveriş deftere düşmez. "Bu müşteri neler aldı" bu listededir.
+ *
+ * Süzgeç satışın VERESİYE PAYINA bakar: `odenmis` peşin kapanmış, `borc`
+ * bir kısmı veresiyeye yazılmış satışlardır. Sonradan yapılan tahsilat belirli
+ * bir fişe değil genel bakiyeye düştüğü için "borç" satışın hâlâ ödenmediği
+ * anlamına gelmez. İptal edilen satış yalnız `tumu`da görünür.
+ */
+export function musteriAlisverisleri(
+  vt: Vt,
+  musteriId: string,
+  filtre: { durum?: 'tumu' | 'odenmis' | 'borc'; baslangic?: ZamanDamgasi; bitis?: ZamanDamgasi } = {},
+  limit = 500,
+): MusteriAlisverisi[] {
+  const kosullar = ['s.musteri_id = ?'];
+  const parametreler: unknown[] = [musteriId];
+  if (filtre.baslangic) {
+    kosullar.push('s.tarih >= ?');
+    parametreler.push(filtre.baslangic);
+  }
+  if (filtre.bitis) {
+    // Bitiş ertesi günün başlangıcıdır (`gunSonu`); o an dahil değil.
+    kosullar.push('s.tarih < ?');
+    parametreler.push(filtre.bitis);
+  }
+  const durum = filtre.durum ?? 'tumu';
+  const sonra =
+    durum === 'odenmis' ? 'WHERE iptal_mi = 0 AND veresiye = 0' : durum === 'borc' ? 'WHERE iptal_mi = 0 AND veresiye > 0' : '';
+
+  const satirlar = vt
+    .hazirla(
+      `SELECT * FROM (
+         SELECT s.id, s.fis_no, s.tarih, s.genel_toplam, s.iptal_mi, s.iade_mi, k.ad AS kullanici_adi,
+                COALESCE(SUM(CASE WHEN o.odeme_tipi = 'NAKIT' THEN o.tutar END), 0) AS nakit,
+                COALESCE(SUM(CASE WHEN o.odeme_tipi = 'KART' THEN o.tutar END), 0) AS kart,
+                COALESCE(SUM(CASE WHEN o.odeme_tipi = 'VERESIYE' THEN o.tutar END), 0) AS veresiye
+         FROM satislar s
+         LEFT JOIN odemeler o ON o.satis_id = s.id
+         LEFT JOIN kullanicilar k ON k.id = s.kullanici_id
+         WHERE ${kosullar.join(' AND ')}
+         GROUP BY s.id
+       ) ${sonra}
+       ORDER BY tarih DESC LIMIT ?`,
+    )
+    .tumu<Omit<MusteriAlisverisi, 'iptal_mi' | 'iade_mi'> & { iptal_mi: number; iade_mi: number }>(...parametreler, limit);
+
+  return satirlar.map((r) => ({ ...r, iptal_mi: sayiToBool(r.iptal_mi), iade_mi: sayiToBool(r.iade_mi) }));
+}
+
 export function satislariListele(
   vt: Vt,
   filtre: SatisFiltresi = {},

@@ -5,6 +5,7 @@ import { paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
 import { AlisFaturasiDiyalogu } from '../bilesen/AlisFaturasiDiyalogu';
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
+import { MusteriAlisverisleri } from './cari/Alisverisler';
 import { TahsilatDiyalogu } from '../bilesen/TahsilatDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { oturumDurumu, useYetki } from '../durum/oturum';
@@ -81,6 +82,8 @@ export function CariSayfasi() {
   const [rapor, setRapor] = useState<CariRaporu | null>(null);
   const [satisDetayi, setSatisDetayi] = useState<string | null>(null);
   const [alisFaturasi, setAlisFaturasi] = useState<string | null>(null);
+  /** Müşteride ekstrenin yanında nakit/kart dahil bütün alışverişler de görülebilir. */
+  const [gorunum, setGorunum] = useState<'hareketler' | 'alisverisler'>('hareketler');
   const [yukleniyor, setYukleniyor] = useState(true);
   const [kartAcik, setKartAcik] = useState<Cari | 'yeni' | null>(null);
   const [tahsilatAcik, setTahsilatAcik] = useState(false);
@@ -185,6 +188,7 @@ export function CariSayfasi() {
                 onClick={() => {
                   setTip(t);
                   setSeciliId(null);
+                  setGorunum('hareketler');
                 }}
                 className={`px-3 py-1.5 text-sm ${tip === t ? 'bg-vurgu text-vurgu-uzeri' : 'text-metin-2'}`}
               >
@@ -372,6 +376,28 @@ export function CariSayfasi() {
               </div>
             </header>
 
+            {secili.tip === 'MUSTERI' && (
+              <div className="mb-3 flex border-b border-cizgi">
+                {(
+                  [
+                    ['hareketler', 'Hesap Hareketleri'],
+                    ['alisverisler', 'Alışverişler'],
+                  ] as const
+                ).map(([anahtar, etiket]) => (
+                  <button
+                    key={anahtar}
+                    type="button"
+                    onClick={() => setGorunum(anahtar)}
+                    className={`px-3 py-2 text-sm ${
+                      gorunum === anahtar ? 'border-b-2 border-vurgu font-medium text-vurgu' : 'text-metin-3 hover:text-metin'
+                    }`}
+                  >
+                    {etiket}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="mb-3 flex items-end gap-2">
               <Alan etiket="Başlangıç">
                 <input type="date" className="alan" value={ekstreBas} onChange={(e) => setEkstreBas(e.target.value)} />
@@ -393,80 +419,84 @@ export function CariSayfasi() {
               )}
             </div>
 
-            <div className="kart min-h-0 flex-1 overflow-auto">
-              <table className="tablo">
-                <thead className="sticky top-0 bg-yuzey">
-                  <tr>
-                    <th>Tarih</th>
-                    <th>İşlem</th>
-                    <th className="text-right">Tutar</th>
-                    <th className="text-right">Yürüyen bakiye</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ekstre.map((h) => {
-                    // Borcun neyden doğduğu, borcun kendisi kadar önemlidir:
-                    // satışa bağlı hareketten fişin kalemlerine inilebilir (§10.7).
-                    const satisaBagli = h.belge_tipi === 'SATIS' && Boolean(h.belge_id);
-                    // Tedarikçide de aynısı: alış, ödemesi ve iptalleri faturanın kimliğini taşır.
-                    const faturayaBagli = Boolean(h.belge_id) && Boolean(h.belge_tipi?.startsWith('ALIS'));
-                    const belgeyeBagli = satisaBagli || faturayaBagli;
-                    /*
-                     * Yanlış girilen tahsilat düzeltilebilmeli. Defter
-                     * değiştirilemez olduğu için düzeltme SİLME değil ters
-                     * kayıttır; buradaki düğme onu başlatır.
-                     */
-                    const iptalEdilebilir =
-                      (h.hareket_tipi === 'TAHSILAT' || h.hareket_tipi === 'ODEME') && !iptalEdilenler.has(h.id);
-                    return (
-                      <tr
-                        key={h.id}
-                        className={belgeyeBagli ? 'cursor-pointer hover:bg-yuzey-2' : ''}
-                        onClick={() => {
-                          if (!h.belge_id) return;
-                          if (satisaBagli) setSatisDetayi(h.belge_id);
-                          else if (faturayaBagli) setAlisFaturasi(h.belge_id);
-                        }}
-                      >
-                        <td className="text-metin-3">{tarihSaatFormat(h.tarih)}</td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <span>{h.hareket_tipi}</span>
-                            {satisaBagli && <span className="text-xs text-vurgu">fişi gör →</span>}
-                            {faturayaBagli && <span className="text-xs text-vurgu">faturayı gör →</span>}
-                            {iptalEdilenler.has(h.id) && <Rozet tur="notr">İptal edildi</Rozet>}
-                            {iptalEdilebilir && tahsilatYetkisi && (
-                              <button
-                                type="button"
-                                className="text-xs text-tehlike hover:underline"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setIptalEdilecek(h);
-                                }}
-                              >
-                                iptal et
-                              </button>
-                            )}
-                          </div>
-                          {h.aciklama && <div className="text-xs text-metin-4">{h.aciklama}</div>}
-                        </td>
-                        <td className={`sayi ${h.tutar > 0 ? 'text-uyari' : 'text-vurgu'}`}>
-                          {paraFormat(h.tutar, { simge: false, isaret: true })}
-                        </td>
-                        <td className="sayi font-semibold">{paraFormat(h.yuruyen_bakiye, { simge: false })}</td>
-                      </tr>
-                    );
-                  })}
-                  {ekstre.length === 0 && (
+            {secili.tip === 'MUSTERI' && gorunum === 'alisverisler' ? (
+              <MusteriAlisverisleri cariId={secili.id} from={ekstreBas} to={ekstreBit} onFisAc={setSatisDetayi} />
+            ) : (
+              <div className="kart min-h-0 flex-1 overflow-auto">
+                <table className="tablo">
+                  <thead className="sticky top-0 bg-yuzey">
                     <tr>
-                      <td colSpan={4}>
-                        <BosDurum baslik="Hareket yok" />
-                      </td>
+                      <th>Tarih</th>
+                      <th>İşlem</th>
+                      <th className="text-right">Tutar</th>
+                      <th className="text-right">Yürüyen bakiye</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {ekstre.map((h) => {
+                      // Borcun neyden doğduğu, borcun kendisi kadar önemlidir:
+                      // satışa bağlı hareketten fişin kalemlerine inilebilir (§10.7).
+                      const satisaBagli = h.belge_tipi === 'SATIS' && Boolean(h.belge_id);
+                      // Tedarikçide de aynısı: alış, ödemesi ve iptalleri faturanın kimliğini taşır.
+                      const faturayaBagli = Boolean(h.belge_id) && Boolean(h.belge_tipi?.startsWith('ALIS'));
+                      const belgeyeBagli = satisaBagli || faturayaBagli;
+                      /*
+                       * Yanlış girilen tahsilat düzeltilebilmeli. Defter
+                       * değiştirilemez olduğu için düzeltme SİLME değil ters
+                       * kayıttır; buradaki düğme onu başlatır.
+                       */
+                      const iptalEdilebilir =
+                        (h.hareket_tipi === 'TAHSILAT' || h.hareket_tipi === 'ODEME') && !iptalEdilenler.has(h.id);
+                      return (
+                        <tr
+                          key={h.id}
+                          className={belgeyeBagli ? 'cursor-pointer hover:bg-yuzey-2' : ''}
+                          onClick={() => {
+                            if (!h.belge_id) return;
+                            if (satisaBagli) setSatisDetayi(h.belge_id);
+                            else if (faturayaBagli) setAlisFaturasi(h.belge_id);
+                          }}
+                        >
+                          <td className="text-metin-3">{tarihSaatFormat(h.tarih)}</td>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <span>{h.hareket_tipi}</span>
+                              {satisaBagli && <span className="text-xs text-vurgu">fişi gör →</span>}
+                              {faturayaBagli && <span className="text-xs text-vurgu">faturayı gör →</span>}
+                              {iptalEdilenler.has(h.id) && <Rozet tur="notr">İptal edildi</Rozet>}
+                              {iptalEdilebilir && tahsilatYetkisi && (
+                                <button
+                                  type="button"
+                                  className="text-xs text-tehlike hover:underline"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIptalEdilecek(h);
+                                  }}
+                                >
+                                  iptal et
+                                </button>
+                              )}
+                            </div>
+                            {h.aciklama && <div className="text-xs text-metin-4">{h.aciklama}</div>}
+                          </td>
+                          <td className={`sayi ${h.tutar > 0 ? 'text-uyari' : 'text-vurgu'}`}>
+                            {paraFormat(h.tutar, { simge: false, isaret: true })}
+                          </td>
+                          <td className="sayi font-semibold">{paraFormat(h.yuruyen_bakiye, { simge: false })}</td>
+                        </tr>
+                      );
+                    })}
+                    {ekstre.length === 0 && (
+                      <tr>
+                        <td colSpan={4}>
+                          <BosDurum baslik="Hareket yok" />
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </section>

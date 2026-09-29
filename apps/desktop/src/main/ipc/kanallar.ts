@@ -44,6 +44,7 @@ import {
   alisFaturasiBul,
   alisFaturalariniListele,
   alisKalemleriniGetir,
+  musteriAlisverisleri,
 } from '../depo/satis.js';
 import { cakismalariListele, kaliciHataliOlaylar, olayYaz } from '../depo/senkron.js';
 import { acikSayim, hareketleriListele, sayimFarklari } from '../depo/stok.js';
@@ -503,6 +504,20 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       const baslangic = girdi.from ? gunBasi(girdi.from) : undefined;
       const bitis = girdi.to ? gunSonuDamgasi(girdi.to) : undefined;
       return ekstre(b().vt, girdi.cariId, baslangic, bitis);
+    },
+    /** Müşterinin nakit/kart/veresiye bütün alışverişleri — ekstre yalnız borcu gösterir. */
+    'cari.alisverisler': (girdi: {
+      cariId: string;
+      durum?: 'tumu' | 'odenmis' | 'borc';
+      from?: GunAnahtari;
+      to?: GunAnahtari;
+    }) => {
+      a();
+      return musteriAlisverisleri(b().vt, girdi.cariId, {
+        durum: girdi.durum,
+        baslangic: girdi.from ? gunBasi(girdi.from) : undefined,
+        bitis: girdi.to ? gunSonuDamgasi(girdi.to) : undefined,
+      });
     },
     'cari.ekstreYazdir': (girdi: { cariId: string; from?: GunAnahtari; to?: GunAnahtari }) =>
       cariEkstresiYazdir(
