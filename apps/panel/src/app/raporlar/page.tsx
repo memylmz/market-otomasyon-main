@@ -7,8 +7,7 @@
 
 'use client';
 
-import Link from 'next/link';
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import { bugun, gunEkle, miktarFormat, paraDuz, paraFormat, type Kurus } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Kabuk, Kutu, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { CiroOzetiSekmesi, DenetimSekmesi, KasaSekmesi } from '@/bilesen/rapor-sekmeleri';
@@ -96,14 +95,6 @@ const SEKMELER: { anahtar: Sekme; etiket: string }[] = [
   { anahtar: 'suistimal', etiket: 'İade / İptal' },
   { anahtar: 'denetim', etiket: 'Denetim Logu' },
 ];
-
-/*
- * Kasada Raporlar'ın içinde bir "Satışlar" sekmesi vardır; panelde aynı liste
- * kendi sayfasında (menüdeki Satış) durur. İkinci bir kopya yazmak yerine
- * sekme çubuğunda AYNI ADLA ve AYNI SIRADA bir bağlantı duruyor: kasada
- * oradan bakmaya alışmış kişi panelde de aynı yerde bulur.
- */
-const SATISLAR_SIRASI = 3;
 
 /** Kendi tarih aralığını taşıyan sekmeler; üstteki ortak çubuk onlarda gizlenir. */
 const KENDI_ARALIGI = new Set<Sekme>(['ozet', 'kasa', 'denetim']);
@@ -242,6 +233,27 @@ export default function RaporlarSayfasi() {
   return (
     <Kabuk baslik="Raporlar" tazelik={veri?.icerik.uretim_zamani}>
       <div className="space-y-4">
+        {/*
+          Sekme çubuğu EN ÜSTTE durur: tarih çubuğu yalnız bazı sekmelerde
+          göründüğü için üstündeyken sekme değiştikçe çubuğu aşağı yukarı
+          itiyordu. Satışlar menüde kendi sayfasında olduğu için burada yok.
+        */}
+        <nav className="grid grid-cols-3 gap-1 border-b border-cizgi sm:flex" aria-label="Rapor türü">
+          {SEKMELER.map((s) => (
+            <button
+              key={s.anahtar}
+              type="button"
+              onClick={() => setSekme(s.anahtar)}
+              aria-current={sekme === s.anahtar ? 'page' : undefined}
+              className={`px-2 py-2 text-xs leading-tight sm:px-3 sm:text-sm ${
+                sekme === s.anahtar ? 'border-b-2 border-vurgu font-medium text-vurgu' : 'text-metin-3 hover:text-metin'
+              }`}
+            >
+              {s.etiket}
+            </button>
+          ))}
+        </nav>
+
         {/* Ortak tarih çubuğu yalnız aralık alan sekmelerde; diğerleri kendi seçicisini taşır. */}
         {!KENDI_ARALIGI.has(sekme) && (
           <section className="kart space-y-3 p-4">
@@ -275,31 +287,6 @@ export default function RaporlarSayfasi() {
             </div>
           </section>
         )}
-
-        <nav className="grid grid-cols-3 gap-1 border-b border-cizgi sm:flex" aria-label="Rapor türü">
-          {SEKMELER.map((s, i) => (
-            <Fragment key={s.anahtar}>
-              {i === SATISLAR_SIRASI && (
-                <Link
-                  href="/satislar"
-                  className="px-2 py-2 text-xs leading-tight text-metin-3 hover:text-metin sm:px-3 sm:text-sm"
-                >
-                  Satışlar →
-                </Link>
-              )}
-              <button
-                type="button"
-                onClick={() => setSekme(s.anahtar)}
-                aria-current={sekme === s.anahtar ? 'page' : undefined}
-                className={`px-2 py-2 text-xs leading-tight sm:px-3 sm:text-sm ${
-                  sekme === s.anahtar ? 'border-b-2 border-vurgu font-medium text-vurgu' : 'text-metin-3 hover:text-metin'
-                }`}
-              >
-                {s.etiket}
-              </button>
-            </Fragment>
-          ))}
-        </nav>
 
         {sekme === 'ozet' ? (
           <CiroOzetiSekmesi />
