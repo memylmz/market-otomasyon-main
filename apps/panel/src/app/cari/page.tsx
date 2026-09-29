@@ -20,6 +20,7 @@ import { useState } from 'react';
 import { goreliZaman, paraFormat, paraParse, tarihSaatFormat, type Kurus } from '@market/shared';
 import { YaslandirmaGrafigi } from '@/bilesen/grafik';
 import { BosDurum, HataKutusu, Kabuk, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
+import { FaturaDetayi } from '@/bilesen/alis-sekmesi';
 import { FisIcerigi, fisBasligi, useFis } from '@/bilesen/fis';
 import { api, kullaniciyiOku, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
@@ -343,6 +344,7 @@ function HesapPaneli({
   const [bas, setBas] = useState('');
   const [bit, setBit] = useState('');
   const [fisId, setFisId] = useState<string | null>(null);
+  const [faturaId, setFaturaId] = useState<string | null>(null);
   const [bakiyeKipi, setBakiyeKipi] = useState<'acilis' | 'duzeltme' | null>(null);
   const [iptalEdilecek, setIptalEdilecek] = useState<EkstreHareketi | null>(null);
 
@@ -525,7 +527,13 @@ function HesapPaneli({
                 {hareketler.map((h) => {
                   // Borcun neyden doğduğu, borcun kendisi kadar önemlidir:
                   // satışa bağlı hareketten fişin kalemlerine inilebilir (§10.7).
-                  const satisaBagli = Boolean(h.belge_id) && h.belge_tipi !== 'TAHSILAT_IPTAL';
+                  //
+                  // Hangi belgeye bağlı olduğu belge tipinden anlaşılır: önceden
+                  // belgesi olan HER satır fiş sayılıyordu, tedarikçi alışında
+                  // fatura kimliğiyle fiş aranıp "bulunamadı" çıkıyordu.
+                  const satisaBagli = Boolean(h.belge_id) && SATIS_BELGELERI.has(h.belge_tipi ?? '');
+                  const faturayaBagli = Boolean(h.belge_id) && Boolean(h.belge_tipi?.startsWith('ALIS'));
+                  const belgeyeBagli = satisaBagli || faturayaBagli;
                   /*
                    * Yanlış girilen tahsilat düzeltilebilmeli. Defter
                    * değiştirilemez olduğu için düzeltme SİLME değil ters
@@ -538,14 +546,19 @@ function HesapPaneli({
                   return (
                     <tr
                       key={h.id}
-                      className={satisaBagli ? 'cursor-pointer hover:bg-yuzey-2' : ''}
-                      onClick={() => satisaBagli && h.belge_id && setFisId(h.belge_id)}
+                      className={belgeyeBagli ? 'cursor-pointer hover:bg-yuzey-2' : ''}
+                      onClick={() => {
+                        if (!h.belge_id) return;
+                        if (satisaBagli) setFisId(h.belge_id);
+                        else if (faturayaBagli) setFaturaId(h.belge_id);
+                      }}
                     >
                       <td className="whitespace-nowrap text-left text-metin-3">{tarihSaatFormat(h.tarih)}</td>
                       <td>
                         <div className="flex flex-wrap items-center gap-2">
                           <span>{HAREKET_ETIKETI[h.hareket_tipi] ?? h.hareket_tipi}</span>
                           {satisaBagli && <span className="text-xs text-vurgu">fişi gör →</span>}
+                          {faturayaBagli && <span className="text-xs text-vurgu">faturayı gör →</span>}
                           {iptalEdilenler.has(h.id) && <Rozet tur="notr">İptal edildi</Rozet>}
                           {bekleyenIptaller.has(h.id) && <Rozet tur="uyari">İptal bekliyor</Rozet>}
                           {iptalEdilebilir && yoneticiMi && (
@@ -605,9 +618,13 @@ function HesapPaneli({
       )}
 
       <FisDiyalogu satisId={fisId} onKapat={() => setFisId(null)} />
+      {faturaId && <FaturaDetayi faturaId={faturaId} onKapat={() => setFaturaId(null)} onDegisti={tazele} />}
     </div>
   );
 }
+
+/** Kimliği bir satışı gösteren cari belge tipleri — fişi açılabilenler. */
+const SATIS_BELGELERI = new Set(['SATIS', 'SATIS_IPTAL', 'IADE']);
 
 /** Tarayıcıda dosya indirir — CSV ve KVKK dışa aktarımı ortak kullanır. */
 function dosyaIndir(ad: string, icerik: string, tur: string): void {

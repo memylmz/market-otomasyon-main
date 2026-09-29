@@ -415,6 +415,10 @@ export interface AlisFaturasiKaydi {
   vade_tarihi: string | null;
   notlar: string | null;
   kullanici_id: string | null;
+  /** Yalnız detay okumasında dolar. */
+  kullanici_adi?: string | null;
+  /** Faturaya karşılık yapılan net ödeme (iptal edilen ödemeler düşülmüş); yalnız detayda dolar. */
+  odenen?: Kurus;
 }
 
 export function alisFaturasiEkle(vt: Vt, fatura: AlisFaturasiKaydi, cihazId: string, zaman = simdi()): void {
@@ -495,9 +499,19 @@ export function alisFaturasiBul(vt: Vt, id: string): AlisFaturasiKaydi | null {
   return (
     vt
       .hazirla(
+        /*
+         * Ödenen tutar faturada tutulmaz; cari defterindeki ödeme hareketlerinden
+         * türetilir. ALIS_ODEME eksi, ALIS_ODEME_IPTAL artı yazıldığı için
+         * toplamın tersi net ödemedir.
+         */
         `SELECT f.id, f.tedarikci_id, f.fatura_no, f.tarih, f.ara_toplam, f.kdv_toplam, f.genel_toplam,
-                f.durum, f.vade_tarihi, f.notlar, f.kullanici_id, c.ad_unvan AS tedarikci_adi
-         FROM alis_faturalari f JOIN cariler c ON c.id = f.tedarikci_id WHERE f.id = ?`,
+                f.durum, f.vade_tarihi, f.notlar, f.kullanici_id, c.ad_unvan AS tedarikci_adi,
+                k.ad AS kullanici_adi,
+                COALESCE((SELECT -SUM(h.tutar) FROM cari_hareketler h
+                          WHERE h.belge_id = f.id AND h.belge_tipi IN ('ALIS_ODEME', 'ALIS_ODEME_IPTAL')), 0) AS odenen
+         FROM alis_faturalari f JOIN cariler c ON c.id = f.tedarikci_id
+         LEFT JOIN kullanicilar k ON k.id = f.kullanici_id
+         WHERE f.id = ?`,
       )
       .tek<AlisFaturasiKaydi>(id) ?? null
   );

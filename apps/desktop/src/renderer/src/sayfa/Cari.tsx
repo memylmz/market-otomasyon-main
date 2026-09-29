@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
+import { AlisFaturasiDiyalogu } from '../bilesen/AlisFaturasiDiyalogu';
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
 import { TahsilatDiyalogu } from '../bilesen/TahsilatDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
@@ -79,6 +80,7 @@ export function CariSayfasi() {
   const [ekstreBit, setEkstreBit] = useState('');
   const [rapor, setRapor] = useState<CariRaporu | null>(null);
   const [satisDetayi, setSatisDetayi] = useState<string | null>(null);
+  const [alisFaturasi, setAlisFaturasi] = useState<string | null>(null);
   const [yukleniyor, setYukleniyor] = useState(true);
   const [kartAcik, setKartAcik] = useState<Cari | 'yeni' | null>(null);
   const [tahsilatAcik, setTahsilatAcik] = useState(false);
@@ -406,6 +408,9 @@ export function CariSayfasi() {
                     // Borcun neyden doğduğu, borcun kendisi kadar önemlidir:
                     // satışa bağlı hareketten fişin kalemlerine inilebilir (§10.7).
                     const satisaBagli = h.belge_tipi === 'SATIS' && Boolean(h.belge_id);
+                    // Tedarikçide de aynısı: alış, ödemesi ve iptalleri faturanın kimliğini taşır.
+                    const faturayaBagli = Boolean(h.belge_id) && Boolean(h.belge_tipi?.startsWith('ALIS'));
+                    const belgeyeBagli = satisaBagli || faturayaBagli;
                     /*
                      * Yanlış girilen tahsilat düzeltilebilmeli. Defter
                      * değiştirilemez olduğu için düzeltme SİLME değil ters
@@ -416,14 +421,19 @@ export function CariSayfasi() {
                     return (
                       <tr
                         key={h.id}
-                        className={satisaBagli ? 'cursor-pointer hover:bg-yuzey-2' : ''}
-                        onClick={() => satisaBagli && h.belge_id && setSatisDetayi(h.belge_id)}
+                        className={belgeyeBagli ? 'cursor-pointer hover:bg-yuzey-2' : ''}
+                        onClick={() => {
+                          if (!h.belge_id) return;
+                          if (satisaBagli) setSatisDetayi(h.belge_id);
+                          else if (faturayaBagli) setAlisFaturasi(h.belge_id);
+                        }}
                       >
                         <td className="text-metin-3">{tarihSaatFormat(h.tarih)}</td>
                         <td>
                           <div className="flex items-center gap-2">
                             <span>{h.hareket_tipi}</span>
                             {satisaBagli && <span className="text-xs text-vurgu">fişi gör →</span>}
+                            {faturayaBagli && <span className="text-xs text-vurgu">faturayı gör →</span>}
                             {iptalEdilenler.has(h.id) && <Rozet tur="notr">İptal edildi</Rozet>}
                             {iptalEdilebilir && tahsilatYetkisi && (
                               <button
@@ -509,6 +519,7 @@ export function CariSayfasi() {
       />
 
       <SatisFisiDiyalogu satisId={satisDetayi} onKapat={() => setSatisDetayi(null)} />
+      <AlisFaturasiDiyalogu faturaId={alisFaturasi} onKapat={() => setAlisFaturasi(null)} />
     </div>
   );
 }

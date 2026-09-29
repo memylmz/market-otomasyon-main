@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { miktarFormat, miktarParse, paraFormat, tarihSaatFormat, type Kurus, type Miktar } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
+import { AlisFaturasiIcerigi, type AlisFaturasiDetayi, type AlisFaturasiKalemi } from '../bilesen/AlisFaturasiDiyalogu';
 import { UrunSecici, type SecilenUrun } from '../bilesen/UrunSecici';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
@@ -990,17 +991,6 @@ interface AlisFaturasi {
   notlar: string | null;
 }
 
-interface AlisKalemi {
-  id: string;
-  urun_adi: string;
-  miktar: Miktar;
-  birim_fiyat: Kurus;
-  kdv_orani: number;
-  satir_toplam: Kurus;
-  skt: string | null;
-  lot_no: string | null;
-}
-
 /**
  * Girilmiş alış faturaları — panelle AYNI liste, aynı işlemler.
  *
@@ -1011,7 +1001,9 @@ interface AlisKalemi {
 function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
   const [faturalar, setFaturalar] = useState<AlisFaturasi[]>([]);
   const [secili, setSecili] = useState<AlisFaturasi | null>(null);
-  const [kalemler, setKalemler] = useState<AlisKalemi[]>([]);
+  const [kalemler, setKalemler] = useState<AlisFaturasiKalemi[]>([]);
+  // Listedeki satırda ödenen tutar ve faturayı giren yok; detay okumasıyla gelir.
+  const [detay, setDetay] = useState<AlisFaturasiDetayi | null>(null);
   const [iptalAcik, setIptalAcik] = useState(false);
   const [neden, setNeden] = useState('');
   const [yukleniyor, setYukleniyor] = useState(true);
@@ -1035,8 +1027,13 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
 
   const detayAc = async (fatura: AlisFaturasi) => {
     setSecili(fatura);
+    setDetay(null);
+    setKalemler([]);
     try {
-      const veri = await cagir<{ kalemler: AlisKalemi[] }>('stok.alisFaturasi', { faturaId: fatura.id });
+      const veri = await cagir<{ fatura: AlisFaturasiDetayi | null; kalemler: AlisFaturasiKalemi[] }>('stok.alisFaturasi', {
+        faturaId: fatura.id,
+      });
+      setDetay(veri.fatura);
       setKalemler(veri.kalemler);
     } catch (hata) {
       hatayiBildir(hata, 'Fatura detayı');
@@ -1142,6 +1139,7 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
         acik={Boolean(secili) && !iptalAcik}
         baslik={secili ? `Fatura — ${secili.tedarikci_adi ?? ''}` : ''}
         aciklama={secili ? `${secili.fatura_no ?? 'Numarasız'} · ${tarihSaatFormat(secili.tarih)}` : ''}
+        genislik="genis"
         onKapat={() => setSecili(null)}
         altBilgi={
           <>
@@ -1166,29 +1164,7 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
           </>
         }
       >
-        <table className="tablo">
-          <thead>
-            <tr>
-              <th>Ürün</th>
-              <th className="text-right">Miktar</th>
-              <th className="text-right">Birim fiyat</th>
-              <th className="text-right">KDV</th>
-              <th className="text-right">Satır toplamı</th>
-            </tr>
-          </thead>
-          <tbody>
-            {kalemler.map((k) => (
-              <tr key={k.id}>
-                <td>{k.urun_adi}</td>
-                <td className="sayi">{miktarFormat(k.miktar)}</td>
-                <td className="sayi">{paraFormat(k.birim_fiyat, { simge: false })}</td>
-                <td className="sayi text-metin-3">%{k.kdv_orani}</td>
-                <td className="sayi font-semibold">{paraFormat(k.satir_toplam, { simge: false })}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {secili?.notlar && <p className="mt-3 whitespace-pre-line text-xs text-metin-4">{secili.notlar}</p>}
+        {secili && <AlisFaturasiIcerigi fatura={detay ?? secili} kalemler={kalemler} />}
       </Diyalog>
 
       <Diyalog

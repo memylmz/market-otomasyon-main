@@ -306,7 +306,7 @@ interface DetayVerisi {
   bekleyen_talimatlar: { id: string; tip: string; hata: string | null; created_at: string }[];
 }
 
-function FaturaDetayi({ faturaId, onKapat, onDegisti }: { faturaId: string; onKapat: () => void; onDegisti: () => void }) {
+export function FaturaDetayi({ faturaId, onKapat, onDegisti }: { faturaId: string; onKapat: () => void; onDegisti: () => void }) {
   const { veri, yukleniyor, hata, tazele } = useVeri<DetayVerisi>(`${uclar.alisFaturalari}/${faturaId}`);
   const [kip, setKip] = useState<'goruntule' | 'duzenle' | 'iptal'>('goruntule');
 
