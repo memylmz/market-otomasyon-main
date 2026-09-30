@@ -303,6 +303,17 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
   if ((girdi.odenen_tutar ?? 0) > genelToplam) {
     throw hatalar.dogrulama('Ödenen tutar fatura toplamından fazla olamaz.');
   }
+  /*
+   * Kasadan NAKİT ödeme açık kasa ister. Eskiden kasa kapalıyken ödeme cariye
+   * yazılıyor ama kasadan hiç düşülmüyordu: para çıktı, kayıtta görünmedi ve
+   * gün sonunda kasa fazla çıktı. Kart/havale ödemesi kasa istemez.
+   */
+  if (odenen > 0 && girdi.odeme_tipi === 'NAKIT' && !aktor.kasaOturumId) {
+    throw hatalar.isKurali(
+      HATA_KODU.KASA_ACIK_DEGIL,
+      'Kasadan nakit ödeme için açık bir kasa oturumu gerekir. Kasayı açın ya da ödemeyi "kart/havale" olarak girin.',
+    );
+  }
 
   const faturaId = uuid();
 
@@ -944,12 +955,25 @@ export function alisFaturasiIptal(
 
   // Peşin ödeme yapılmışsa cari ekstresinde ayrı bir ODEME satırı vardır;
   // iptalde o da geri alınmalıdır, yoksa tedarikçi alacaklı görünür.
-  const odeme = vt
+  const odemeKaydi = vt
     .hazirla("SELECT id, tutar FROM cari_hareketler WHERE belge_id = ? AND belge_tipi = 'ALIS_ODEME'")
     .tek<{ id: string; tutar: number }>(faturaId);
-  const kasaHareketi = vt
-    .hazirla('SELECT tip, tutar FROM kasa_hareketleri WHERE belge_id = ?')
-    .tek<{ tip: string; tutar: number }>(faturaId);
+  /*
+   * Ödeme cari ekranından ZATEN iptal edildiyse (TAHSILAT_IPTAL) hem cari hem
+   * kasa tarafı orada geri alınmıştır; burada ikinci kez alınırsa tedarikçi
+   * borçlu, kasa da fazla görünür.
+   */
+  const odemeIptalEdilmis = odemeKaydi
+    ? Boolean(
+        vt
+          .hazirla("SELECT 1 AS var FROM cari_hareketler WHERE belge_id = ? AND belge_tipi = 'TAHSILAT_IPTAL'")
+          .tek<{ var: number }>(odemeKaydi.id),
+      )
+    : false;
+  const odeme = odemeIptalEdilmis ? undefined : odemeKaydi;
+  const kasaHareketi = odemeIptalEdilmis
+    ? undefined
+    : vt.hazirla('SELECT tip, tutar FROM kasa_hareketleri WHERE belge_id = ?').tek<{ tip: string; tutar: number }>(faturaId);
 
   vt.islem(() => {
     for (const kalem of kalemler) {

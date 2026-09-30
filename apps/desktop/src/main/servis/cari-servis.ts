@@ -48,8 +48,15 @@ export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, n
   const zaman = simdi();
 
   const orijinal = vt
-    .hazirla('SELECT id, cari_id, hareket_tipi, tutar, belge_tipi FROM cari_hareketler WHERE id = ?')
-    .tek<{ id: string; cari_id: string; hareket_tipi: string; tutar: number; belge_tipi: string | null }>(hareketId);
+    .hazirla('SELECT id, cari_id, hareket_tipi, tutar, belge_id, belge_tipi FROM cari_hareketler WHERE id = ?')
+    .tek<{
+      id: string;
+      cari_id: string;
+      hareket_tipi: string;
+      tutar: number;
+      belge_id: string | null;
+      belge_tipi: string | null;
+    }>(hareketId);
   if (!orijinal) throw hatalar.bulunamadi('Cari hareketi');
   if (orijinal.hareket_tipi !== 'TAHSILAT' && orijinal.hareket_tipi !== 'ODEME') {
     throw hatalar.dogrulama('Yalnız tahsilat ve tedarikçi ödemesi iptal edilebilir.');
@@ -64,10 +71,20 @@ export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, n
   const cari = cariBul(vt, orijinal.cari_id);
   if (!cari) throw hatalar.bulunamadi('Cari hesap');
 
-  // Orijinale bağlı kasa hareketi varsa tahsilat NAKİTTİ; para geri çıkmalı.
-  const kasaHareketi = vt
-    .hazirla('SELECT tip, tutar FROM kasa_hareketleri WHERE belge_id = ?')
-    .tek<{ tip: string; tutar: number }>(hareketId);
+  /*
+   * Orijinale bağlı kasa hareketi varsa ödeme NAKİTTİ; para kasaya geri dönmeli.
+   *
+   * Mal kabuldeki peşin ödemenin (ALIS_ODEME) kasa hareketi cari harekete
+   * değil FATURAYA bağlıdır. Yalnız hareket kimliğiyle aranınca bulunamıyor,
+   * iptal cariyi düzeltip kasayı olduğu gibi bırakıyordu.
+   */
+  const faturaOdemesi = orijinal.belge_tipi === 'ALIS_ODEME' && Boolean(orijinal.belge_id);
+  const kasaHareketi = faturaOdemesi
+    ? vt
+        .hazirla("SELECT tip, tutar FROM kasa_hareketleri WHERE belge_id = ? AND tip = 'ODEME'")
+        .tek<{ tip: string; tutar: number }>(orijinal.belge_id)
+    : vt.hazirla('SELECT tip, tutar FROM kasa_hareketleri WHERE belge_id = ?').tek<{ tip: string; tutar: number }>(hareketId);
+  const odemeMi = orijinal.hareket_tipi === 'ODEME';
 
   vt.islem(() => {
     const tersId = cariHareketEkle(
@@ -93,14 +110,22 @@ export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, n
           kasa_oturum_id: kasaOturumId,
           tip: kasaHareketi.tip as 'TAHSILAT' | 'ODEME',
           tutar: -kasaHareketi.tutar,
-          aciklama: `${cari.ad_unvan} — tahsilat iptali`,
+          aciklama: `${cari.ad_unvan} — ${odemeMi ? 'ödeme iptali' : 'tahsilat iptali'}`,
           belge_id: tersId,
           kullanici_id: aktor.kullaniciId,
         },
         cihazId,
         zaman,
       );
-      gunlukOzetEkle(vt, gunAnahtari(zaman), cihazId, { tahsilat: -kasaHareketi.tutar, nakit: -kasaHareketi.tutar }, zaman);
+      // Günlük özet, orijinalin yazdığının tersini yazar: mal kabul ödemesi yalnız nakdi,
+      // cari ekranındaki tahsilat/ödeme nakit + tahsilat alanını etkilemişti.
+      gunlukOzetEkle(
+        vt,
+        gunAnahtari(zaman),
+        cihazId,
+        faturaOdemesi ? { nakit: -kasaHareketi.tutar } : { tahsilat: -kasaHareketi.tutar, nakit: -kasaHareketi.tutar },
+        zaman,
+      );
     }
 
     olayYaz(
