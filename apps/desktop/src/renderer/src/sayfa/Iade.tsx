@@ -16,6 +16,7 @@ import { Alan, BosDurum, Diyalog } from '../bilesen/temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useBarkodOdakYakalayici } from '../kanca/useKisayol';
 import { cagir } from '../kopru';
+import { MusteriSecDiyalogu } from './satis/MusteriSecDiyalogu';
 
 /** Orijinal satışın ödeme adları (iade değil, satış dili). */
 const IADE_ODEME_ADI: Record<string, string> = { NAKIT: 'Nakit', KART: 'Kart', VERESIYE: 'Veresiye' };
@@ -57,6 +58,12 @@ export function IadeSayfasi() {
   const [neden, setNeden] = useState('');
   const [calisiyor, setCalisiyor] = useState(false);
   const [onayAcik, setOnayAcik] = useState(false);
+  /**
+   * Borçtan düşülecek müşteri ve güncel borcu. Satışın müşterisi varsa odur;
+   * perakende satışta kasiyer iade sırasında seçer.
+   */
+  const [hesap, setHesap] = useState<{ id: string; ad: string; bakiye: Kurus } | null>(null);
+  const [musteriSecAcik, setMusteriSecAcik] = useState(false);
   const fisAlani = useRef<HTMLInputElement>(null);
 
   // Fiş barkodu okutulduğunda alan odakta olmasa da yakalanır.
@@ -79,12 +86,24 @@ export function IadeSayfasi() {
       const d = await cagir<SatisDetay>('satis.detay', { satisId: ilk.id });
       setDetay(d);
       setSecimler({});
+      setHesap(null);
+      if (d.satis.musteri_id) void hesabiYukle(d.satis.musteri_id);
       // Para müşteriye geldiği yoldan döner: veresiye satışın iadesi borçtan düşülür.
       setYontem(varsayilanIadeYontemi(d.odemeler ?? []));
       if (d.satis.iptal_mi) bildir.uyari('Bu satış iptal edilmiş, iade edilemez.');
       if (d.satis.iade_mi) bildir.uyari('Bu bir iade fişidir, tekrar iade edilemez.');
     } catch (hata) {
       hatayiBildir(hata, 'Satış arama');
+    }
+  };
+
+  /** Müşterinin güncel borcu — "borç 400 → 200" gösterebilmek için. */
+  const hesabiYukle = async (cariId: string) => {
+    try {
+      const c = await cagir<{ id: string; ad_unvan: string; bakiye: Kurus }>('cari.detay', { cariId });
+      setHesap({ id: c.id, ad: c.ad_unvan, bakiye: c.bakiye });
+    } catch (hata) {
+      hatayiBildir(hata, 'Müşteri hesabı');
     }
   };
 
@@ -122,6 +141,8 @@ export function IadeSayfasi() {
         kaynak_satis_id: detay.satis.id,
         kalemler,
         iade_yontemi: yontem,
+        // Perakende satışta borçtan düşülecek müşteri iade sırasında seçilir.
+        musteri_id: yontem === 'VERESIYE' && !detay.satis.musteri_id ? hesap?.id : undefined,
         // Neden opsiyoneldir; boş bırakılırsa denetim kaydında ayırt edilebilir
         // sabit bir metin yazılır (alan hiç boş kalmasın).
         neden: neden.trim() || 'Belirtilmedi',
@@ -130,7 +151,9 @@ export function IadeSayfasi() {
         `İade tamamlandı — ${sonuc.fisNo}`,
         [
           `${IADE_YONTEMI_ETIKETI[yontem]}: ${paraFormat(Math.abs(sonuc.genelToplam))}`,
-          detay.satis.musteri_adi ? `Müşteri: ${detay.satis.musteri_adi}` : null,
+          (yontem === 'VERESIYE' ? hesap?.ad : detay.satis.musteri_adi)
+            ? `Müşteri: ${yontem === 'VERESIYE' ? hesap?.ad : detay.satis.musteri_adi}`
+            : null,
         ]
           .filter(Boolean)
           .join(' · '),
@@ -154,7 +177,7 @@ export function IadeSayfasi() {
     : 0;
 
   const iadeEdilebilir = detay && !detay.satis.iptal_mi && !detay.satis.iade_mi;
-  const musteriVar = Boolean(detay?.satis.musteri_id);
+  const perakende = !detay?.satis.musteri_id;
   const onerilenYontem = detay ? varsayilanIadeYontemi(detay.odemeler ?? []) : 'NAKIT';
   /*
    * Veresiye alınmış mal nakit/kartla iade edilirse müşteri ödemediği malın
@@ -162,6 +185,9 @@ export function IadeSayfasi() {
    * sonradan ödemiş olabilir) ama açıkça uyarılır.
    */
   const veresiyeUyarisi = onerilenYontem === 'VERESIYE' && yontem !== 'VERESIYE';
+  /** Borçtan düş seçildi ama kimin borcu belli değil — onay verilemez. */
+  const hesapEksik = yontem === 'VERESIYE' && !hesap;
+  const sonrakiBakiye = hesap ? hesap.bakiye - toplamIade : 0;
 
   return (
     <div className="flex h-full flex-col p-4">
@@ -302,22 +328,75 @@ export function IadeSayfasi() {
                 <p className="font-mono text-3xl font-bold text-uyari">{paraFormat(toplamIade)}</p>
               </div>
 
-              <Alan etiket="İade şekli" ipucu="Karttan iade manuel yapılır; sistem yalnız kayıt tutar.">
-                <select
-                  className="alan"
-                  value={yontem}
-                  onChange={(e) => setYontem(e.target.value as typeof yontem)}
-                  disabled={!iadeEdilebilir}
-                >
-                  <option value="NAKIT">Nakit iade (kasadan){onerilenYontem === 'NAKIT' ? ' — önerilen' : ''}</option>
-                  <option value="KART">Karta iade (manuel){onerilenYontem === 'KART' ? ' — önerilen' : ''}</option>
-                  <option value="VERESIYE" disabled={!musteriVar}>
-                    {musteriVar
-                      ? `${detay?.satis.musteri_adi ?? 'Müşteri'} hesabına (borcundan düş)${onerilenYontem === 'VERESIYE' ? ' — önerilen' : ''}`
-                      : 'Cari hesaba (satışta müşteri yok)'}
-                  </option>
-                </select>
-              </Alan>
+              {/*
+                Para iadesinin türü — üç seçenek açıkça yan yana: müşteriye
+                nakit mi verilecek, karta mı iade edilecek, borcundan mı düşülecek.
+              */}
+              <div className="space-y-2" role="radiogroup" aria-label="Para iadesi">
+                <span className="etiket">Para nasıl iade edilecek?</span>
+                {(
+                  [
+                    { deger: 'NAKIT', baslik: '💵 Nakit ver', alt: 'Tutar kasadan çıkar.' },
+                    { deger: 'KART', baslik: '💳 Karta iade', alt: 'POS cihazından iade yapın; kasa etkilenmez.' },
+                    { deger: 'VERESIYE', baslik: '📒 Borcundan düş', alt: 'Müşterinin cari hesabına alacak yazılır.' },
+                  ] as const
+                ).map((s) => (
+                  <button
+                    key={s.deger}
+                    type="button"
+                    role="radio"
+                    aria-checked={yontem === s.deger}
+                    disabled={!iadeEdilebilir}
+                    onClick={() => {
+                      setYontem(s.deger);
+                      if (s.deger === 'VERESIYE' && !hesap) setMusteriSecAcik(true);
+                    }}
+                    className={`w-full rounded border px-3 py-2 text-left text-sm ${
+                      yontem === s.deger ? 'border-vurgu bg-vurgu-yumusak' : 'border-cizgi hover:bg-yuzey-2'
+                    }`}
+                  >
+                    <span className="flex items-center justify-between gap-2 font-medium">
+                      {s.baslik}
+                      {onerilenYontem === s.deger && <span className="text-xs font-normal text-vurgu">önerilen</span>}
+                    </span>
+                    <span className="block text-xs text-metin-3">{s.alt}</span>
+                  </button>
+                ))}
+              </div>
+
+              {yontem === 'VERESIYE' && (
+                <div className="rounded border border-cizgi px-3 py-2 text-sm">
+                  {hesap ? (
+                    <>
+                      <p className="font-medium">{hesap.ad}</p>
+                      <p className="text-xs text-metin-3">
+                        Borç {paraFormat(hesap.bakiye)} → <strong>{paraFormat(sonrakiBakiye)}</strong>
+                      </p>
+                      {sonrakiBakiye < 0 && (
+                        <p className="mt-1 text-xs text-uyari">
+                          İade borçtan fazla: müşteri {paraFormat(-sonrakiBakiye)} alacaklı olur (sonraki alışverişinden düşülür).
+                        </p>
+                      )}
+                      {perakende && (
+                        <button
+                          type="button"
+                          className="mt-1 text-xs text-vurgu hover:underline"
+                          onClick={() => setMusteriSecAcik(true)}
+                        >
+                          Başka müşteri seç
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-metin-3">Satış perakende yapılmış; borcundan düşülecek müşteriyi seçin.</p>
+                      <button type="button" className="tus-ikincil mt-2 w-full" onClick={() => setMusteriSecAcik(true)}>
+                        Müşteri Seç
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
               {veresiyeUyarisi && (
                 <p className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-xs text-metin-2">
                   Bu satış <strong>veresiye</strong> yapılmıştı. Nakit ya da kartla iade ederseniz müşteriye para verilir ve borcu{' '}
@@ -340,7 +419,7 @@ export function IadeSayfasi() {
                 type="button"
                 className="tus-tehlike w-full"
                 onClick={onayIste}
-                disabled={!iadeEdilebilir || calisiyor || toplamIade <= 0}
+                disabled={!iadeEdilebilir || calisiyor || toplamIade <= 0 || hesapEksik}
               >
                 {calisiyor ? 'İşleniyor…' : 'İadeyi Onayla'}
               </button>
@@ -393,9 +472,9 @@ export function IadeSayfasi() {
               ))}
           </ul>
 
-          {detay?.satis.musteri_adi && (
+          {(yontem === 'VERESIYE' ? hesap?.ad : detay?.satis.musteri_adi) && (
             <p className="text-metin-2">
-              Müşteri: <strong>{detay.satis.musteri_adi}</strong>
+              Müşteri: <strong>{yontem === 'VERESIYE' ? hesap?.ad : detay?.satis.musteri_adi}</strong>
             </p>
           )}
           <p className="text-metin-2">
@@ -405,7 +484,7 @@ export function IadeSayfasi() {
                 ? 'Nakit (kasadan çıkacak)'
                 : yontem === 'KART'
                   ? 'Karta iade (manuel)'
-                  : `${detay?.satis.musteri_adi ?? 'Müşterinin'} hesabına alacak — borcundan düşülecek`}
+                  : `${hesap?.ad ?? 'Müşterinin'} hesabına alacak — borcundan düşülecek`}
             </strong>
           </p>
 
@@ -414,6 +493,15 @@ export function IadeSayfasi() {
           </p>
         </div>
       </Diyalog>
+
+      <MusteriSecDiyalogu
+        acik={musteriSecAcik}
+        onKapat={() => setMusteriSecAcik(false)}
+        onSec={(id) => {
+          setMusteriSecAcik(false);
+          if (id) void hesabiYukle(id);
+        }}
+      />
     </div>
   );
 }

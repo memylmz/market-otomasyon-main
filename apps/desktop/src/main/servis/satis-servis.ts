@@ -722,8 +722,29 @@ export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisS
   const toplamKdv = iadeSatirlari.reduce((t, s) => t + s.kdv, 0);
   if (toplamIade <= 0) throw hatalar.dogrulama('İade tutarı sıfır olamaz.');
 
-  if (girdi.iade_yontemi === 'VERESIYE' && !kaynak.musteri_id) {
-    throw hatalar.isKurali(HATA_KODU.VERESIYE_MUSTERI_GEREKLI, 'Cari alacağa iade için orijinal satışta müşteri olmalıdır.');
+  /*
+   * İadenin bağlanacağı müşteri: satışın müşterisi; satış perakendeyse iade
+   * sırasında seçilen müşteri. Satışın müşterisi varken başkasına yazmak,
+   * birinin alışverişini başkasının borcundan düşmek olurdu.
+   */
+  if (kaynak.musteri_id && girdi.musteri_id && girdi.musteri_id !== kaynak.musteri_id) {
+    throw hatalar.isKurali(
+      HATA_KODU.VERESIYE_MUSTERI_GEREKLI,
+      `Bu satış ${kaynak.musteri_adi ?? 'başka bir müşteri'} adına yapılmış; iadesi başka bir müşteriye yazılamaz.`,
+    );
+  }
+  const musteriId = kaynak.musteri_id ?? girdi.musteri_id ?? null;
+  if (musteriId && !kaynak.musteri_id) {
+    const musteri = cariBul(vt, musteriId);
+    if (!musteri || musteri.tip !== 'MUSTERI') {
+      throw hatalar.isKurali(HATA_KODU.VERESIYE_MUSTERI_GEREKLI, 'İade yalnız bir müşteri hesabına yazılabilir.');
+    }
+  }
+  if (girdi.iade_yontemi === 'VERESIYE' && !musteriId) {
+    throw hatalar.isKurali(
+      HATA_KODU.VERESIYE_MUSTERI_GEREKLI,
+      'Borçtan düşmek için müşteri seçin; satış müşterisiz (perakende) yapılmış.',
+    );
   }
 
   const satisId = uuid();
@@ -746,7 +767,7 @@ export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisS
         kdv_toplam: -toplamKdv,
         genel_toplam: -toplamIade,
         odeme_ozeti: girdi.iade_yontemi,
-        musteri_id: kaynak.musteri_id,
+        musteri_id: musteriId,
         iade_mi: true,
         kaynak_satis_id: kaynak.id,
         notlar: girdi.neden,
@@ -845,7 +866,7 @@ export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisS
       cariHareketEkle(
         vt,
         {
-          cari_id: kaynak.musteri_id as string,
+          cari_id: musteriId as string,
           hareket_tipi: 'IADE',
           tutar: -toplamIade,
           aciklama: `İade ${fisNo}: ${girdi.neden}`,
@@ -878,7 +899,7 @@ export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisS
           fis_no: fisNo,
           tarih: zaman,
           kaynak_satis_id: kaynak.id,
-          musteri_id: kaynak.musteri_id,
+          musteri_id: musteriId,
           kasa_oturum_id: kasaOturumId,
           ara_toplam: -toplamIade,
           iskonto_toplam: 0,

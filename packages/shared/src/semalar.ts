@@ -282,6 +282,12 @@ export const zIadeGirdi = z.object({
     .min(1, 'En az bir kalem seçilmelidir'),
   /** İade bedelinin nasıl geri verildiği. */
   iade_yontemi: z.enum(ODEME_TIPI),
+  /**
+   * Cari hesaba iadede müşteri — yalnız orijinal satış MÜŞTERİSİZ ise
+   * kullanılır (perakende alışverişin iadesi borçtan düşülebilsin). Satışın
+   * müşterisi varsa iade yalnız ona yazılır.
+   */
+  musteri_id: zUuid.optional(),
   neden: zMetin(300),
 });
 export type IadeGirdi = z.infer<typeof zIadeGirdi>;

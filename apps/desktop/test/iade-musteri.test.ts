@@ -13,7 +13,7 @@ import { bekleyenOlaylar } from '../src/main/depo/senkron.js';
 import { kalemleriGetir, satisDetayi } from '../src/main/depo/satis.js';
 import { satisBelgesi } from '../src/main/donanim/fis-belge.js';
 import { iadeYap, satisKesinlestir } from '../src/main/servis/satis-servis.js';
-import { musteriEkle, testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
+import { musteriEkle, tedarikciEkle, testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
 
 let ortam: TestOrtami;
 let musteriId: string;
@@ -101,5 +101,75 @@ describe('müşteriye bağlı iade', () => {
     expect(veri.kalemler[0]).toHaveProperty('kdv_tutar');
     expect(veri).toHaveProperty('kdv_toplam');
     expect(veri).toHaveProperty('brut_kar');
+  });
+});
+
+/*
+ * Perakende (müşterisiz) yapılmış satışın iadesi de müşterinin borcundan
+ * düşülebilmeli: Barış bazen müşteri seçilmeden alışveriş yapar, iade ederken
+ * "borcumdan düşün" der. Satışın zaten bir müşterisi varsa başkasına yazılamaz.
+ */
+describe('iadede müşteri seçimi', () => {
+  function perakendeSat(): { satisId: string; kalemId: string } {
+    const urunId = urunEkle(ortam, { ad: 'Silgi', satisFiyati: 1000, stok: adet(10) });
+    const id = satisKesinlestir(ortam.uygulama.baglam, ortam.admin, {
+      kalemler: [{ urun_id: urunId, miktar: adet(2), birim_fiyat: 1000 }],
+      odemeler: [{ tip: 'NAKIT', tutar: 2000 }],
+    }).satisId;
+    return { satisId: id, kalemId: kalemleriGetir(ortam.uygulama.vt, id)[0]!.id };
+  }
+
+  it('müşterisiz satışın iadesi seçilen müşterinin borcundan düşülür', () => {
+    const { satisId: pSatis, kalemId } = perakendeSat();
+    const once = bakiyeOku(ortam.uygulama.vt, musteriId);
+    const iade = iadeYap(ortam.uygulama.baglam, ortam.admin, {
+      kaynak_satis_id: pSatis,
+      kalemler: [{ satis_kalemi_id: kalemId, miktar: adet(1) }],
+      iade_yontemi: 'VERESIYE',
+      musteri_id: musteriId,
+      neden: 'borcundan düş',
+    });
+    expect(bakiyeOku(ortam.uygulama.vt, musteriId)).toBe(once - 1000);
+    expect(iade.detay.satis.musteri_adi).toBe('Barış Köse');
+  });
+
+  it('müşteri seçilmeden müşterisiz satış cari hesaba iade edilemez', () => {
+    const { satisId: pSatis, kalemId } = perakendeSat();
+    expect(() =>
+      iadeYap(ortam.uygulama.baglam, ortam.admin, {
+        kaynak_satis_id: pSatis,
+        kalemler: [{ satis_kalemi_id: kalemId, miktar: adet(1) }],
+        iade_yontemi: 'VERESIYE',
+        neden: 'x',
+      }),
+    ).toThrow(/müşteri/i);
+  });
+
+  it('satışın müşterisi varken iade başka müşteriye yazılamaz', () => {
+    const baskasi = musteriEkle(ortam, 'Başka Müşteri', 1_000_000);
+    const kalem = kalemleriGetir(ortam.uygulama.vt, satisId)[0]!;
+    expect(() =>
+      iadeYap(ortam.uygulama.baglam, ortam.admin, {
+        kaynak_satis_id: satisId,
+        kalemler: [{ satis_kalemi_id: kalem.id, miktar: adet(1) }],
+        iade_yontemi: 'VERESIYE',
+        musteri_id: baskasi,
+        neden: 'x',
+      }),
+    ).toThrow(/Barış Köse/);
+  });
+
+  it('tedarikçi hesabına iade yazılamaz', () => {
+    const { satisId: pSatis, kalemId } = perakendeSat();
+    const tedarikci = tedarikciEkle(ortam, 'Toptancı');
+    expect(() =>
+      iadeYap(ortam.uygulama.baglam, ortam.admin, {
+        kaynak_satis_id: pSatis,
+        kalemler: [{ satis_kalemi_id: kalemId, miktar: adet(1) }],
+        iade_yontemi: 'VERESIYE',
+        musteri_id: tedarikci,
+        neden: 'x',
+      }),
+    ).toThrow(/müşteri/i);
   });
 });
