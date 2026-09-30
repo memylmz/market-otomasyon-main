@@ -17,7 +17,7 @@
 'use client';
 
 import { useState } from 'react';
-import { goreliZaman, paraFormat, paraParse, tarihSaatFormat, type Kurus } from '@market/shared';
+import { goreliZaman, iptalParaYollari, paraFormat, paraParse, tarihSaatFormat, type Kurus, type ParaYolu } from '@market/shared';
 import { YaslandirmaGrafigi } from '@/bilesen/grafik';
 import { BosDurum, HataKutusu, Kabuk, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { FaturaDetayi } from '@/bilesen/alis-sekmesi';
@@ -299,6 +299,8 @@ interface EkstreHareketi {
   vade_tarihi: string | null;
   belge_id: string | null;
   belge_tipi: string | null;
+  /** Tahsilat/ödeme nakit (kasadan) mı yapıldı — iptal penceresi varsayılanı. */
+  nakit_mi?: number | boolean | null;
   yuruyen_bakiye: Kurus;
 }
 
@@ -794,6 +796,10 @@ function TahsilatIptalDiyalogu({
   const [neden, setNeden] = useState('');
   const [gonderiliyor, setGonderiliyor] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
+  // Varsayılan: para geldiği yoldan döner. Kullanıcı farklı yol seçebilir.
+  const [paraYolu, setParaYolu] = useState<ParaYolu>(Number(hareket.nakit_mi) === 1 ? 'NAKIT' : 'KART');
+  const yollar = iptalParaYollari(hareket.hareket_tipi);
+  const odemeMi = hareket.hareket_tipi === 'ODEME';
 
   const gecerli = neden.trim().length >= 3 && !gonderiliyor;
 
@@ -809,6 +815,7 @@ function TahsilatIptalDiyalogu({
           tip: 'TAHSILAT_IPTAL',
           hedef_hareket_id: hareket.id,
           neden: neden.trim(),
+          para_yolu: paraYolu,
         }),
       });
       onTamam();
@@ -821,7 +828,7 @@ function TahsilatIptalDiyalogu({
 
   return (
     <Modal
-      baslik="Tahsilatı İptal Et"
+      baslik={odemeMi ? 'Ödemeyi İptal Et' : 'Tahsilatı İptal Et'}
       onKapat={onKapat}
       altBilgi={
         <>
@@ -841,7 +848,30 @@ function TahsilatIptalDiyalogu({
 
         <div className="rounded-lg border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
           Kayıt silinmez; aynı tutar <strong>ters kayıt</strong> olarak yazılır. Borç geri yüklenir.
-          {hareket.hareket_tipi === 'TAHSILAT' && ' Nakit alındıysa kasadan geri çıkar — bu yüzden açık kasa gerekir.'}
+        </div>
+
+        <div className="space-y-2" role="radiogroup" aria-label="Para nasıl geri döndü">
+          <span className="etiket">Para nasıl geri döndü?</span>
+          {(['NAKIT', 'KART'] as const).map((y) => (
+            <button
+              key={y}
+              type="button"
+              role="radio"
+              aria-checked={paraYolu === y}
+              onClick={() => setParaYolu(y)}
+              className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
+                paraYolu === y ? 'border-vurgu bg-vurgu-yumusak' : 'border-cizgi'
+              }`}
+            >
+              <span className="flex items-center justify-between gap-2 font-medium">
+                {yollar[y].baslik}
+                {(Number(hareket.nakit_mi) === 1) === (y === 'NAKIT') && (
+                  <span className="text-xs font-normal text-metin-3">orijinal ödeme</span>
+                )}
+              </span>
+              <span className="block text-xs text-metin-3">{yollar[y].alt}</span>
+            </button>
+          ))}
         </div>
 
         <label className="block">

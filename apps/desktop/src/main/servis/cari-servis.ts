@@ -40,7 +40,22 @@ export interface TahsilatSonucu {
  * para fiziksel olarak geri verilir. Orijinalin nakit olup olmadığı, ona bağlı
  * bir kasa hareketi bulunup bulunmadığından anlaşılır.
  */
-export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, neden: string): { yeniBakiye: Kurus } {
+/**
+ * Tahsilat / tedarikçi ödemesi iptali.
+ *
+ * `paraYolu` paranın NASIL geri döndüğüdür; verilmezse orijinal yol kullanılır
+ * (nakit → kasa, kart/havale → kasa etkilenmez). Kullanıcı farklı yol seçebilir:
+ * nakit ödenen tutarı tedarikçi hesaba iade edebilir, kartla alınan tahsilat
+ * müşteriye nakit geri verilebilir. NAKİT seçilirse kasa hareketi yazılır:
+ * tedarikçi iadesi kasaya GİRER, müşteriye geri ödeme kasadan ÇIKAR.
+ */
+export function tahsilatIptal(
+  baglam: Baglam,
+  aktor: Aktor,
+  hareketId: string,
+  neden: string,
+  paraYolu?: 'NAKIT' | 'KART',
+): { yeniBakiye: Kurus } {
   yetkiIste(aktor, 'cari.tahsilat');
   if (!neden.trim()) throw hatalar.dogrulama('İptal nedeni zorunludur.');
 
@@ -85,6 +100,14 @@ export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, n
         .tek<{ tip: string; tutar: number }>(orijinal.belge_id)
     : vt.hazirla('SELECT tip, tutar FROM kasa_hareketleri WHERE belge_id = ?').tek<{ tip: string; tutar: number }>(hareketId);
   const odemeMi = orijinal.hareket_tipi === 'ODEME';
+  const yol = paraYolu ?? (kasaHareketi ? 'NAKIT' : 'KART');
+  /*
+   * Kasaya yazılacak tutar: orijinal kasa hareketi varsa onun tersi; yoksa
+   * (orijinal kart/havaleydi) yönden türetilir — tedarikçi ödemesinin iadesi
+   * kasaya girer (+), müşteri tahsilatının iadesi kasadan çıkar (-).
+   */
+  const kasaTutari = kasaHareketi ? -kasaHareketi.tutar : odemeMi ? Math.abs(orijinal.tutar) : -Math.abs(orijinal.tutar);
+  const kasaTipi = (kasaHareketi?.tip ?? (odemeMi ? 'ODEME' : 'TAHSILAT')) as 'TAHSILAT' | 'ODEME';
 
   vt.islem(() => {
     const tersId = cariHareketEkle(
@@ -93,7 +116,7 @@ export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, n
         cari_id: orijinal.cari_id,
         hareket_tipi: 'DUZELTME',
         tutar: -orijinal.tutar,
-        aciklama: `Tahsilat iptali: ${neden.trim()}`,
+        aciklama: `${odemeMi ? 'Ödeme' : 'Tahsilat'} iptali (${yol === 'NAKIT' ? 'nakit' : 'kart/havale'}): ${neden.trim()}`,
         belge_id: hareketId,
         belge_tipi: 'TAHSILAT_IPTAL',
         kullanici_id: aktor.kullaniciId,
@@ -102,14 +125,14 @@ export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, n
       zaman,
     );
 
-    if (kasaHareketi) {
+    if (yol === 'NAKIT') {
       const kasaOturumId = kasaOturumuIste(aktor);
       kasaHareketEkle(
         vt,
         {
           kasa_oturum_id: kasaOturumId,
-          tip: kasaHareketi.tip as 'TAHSILAT' | 'ODEME',
-          tutar: -kasaHareketi.tutar,
+          tip: kasaTipi,
+          tutar: kasaTutari,
           aciklama: `${cari.ad_unvan} — ${odemeMi ? 'ödeme iptali' : 'tahsilat iptali'}`,
           belge_id: tersId,
           kullanici_id: aktor.kullaniciId,
@@ -123,7 +146,7 @@ export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, n
         vt,
         gunAnahtari(zaman),
         cihazId,
-        faturaOdemesi ? { nakit: -kasaHareketi.tutar } : { tahsilat: -kasaHareketi.tutar, nakit: -kasaHareketi.tutar },
+        faturaOdemesi ? { nakit: kasaTutari } : { tahsilat: kasaTutari, nakit: kasaTutari },
         zaman,
       );
     }
@@ -158,7 +181,7 @@ export function tahsilatIptal(baglam: Baglam, aktor: Aktor, hareketId: string, n
         entity: 'cari_hareketi',
         entity_id: hareketId,
         eski_deger: { tutar: orijinal.tutar, hareket_tipi: orijinal.hareket_tipi },
-        yeni_deger: { neden: neden.trim(), ters_hareket: tersId, nakit_iade: Boolean(kasaHareketi) },
+        yeni_deger: { neden: neden.trim(), ters_hareket: tersId, para_yolu: yol, orijinal_nakit: Boolean(kasaHareketi) },
       },
       cihazId,
       zaman,

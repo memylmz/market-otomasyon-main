@@ -834,6 +834,17 @@ export const GOCLER: readonly Goc[] = [
     yukari: `ALTER TABLE alis_talimatlari ADD COLUMN sonuc_bildirildi_mi INTEGER NOT NULL DEFAULT 0;`,
     asagi: ``,
   },
+  {
+    surum: 10,
+    ad: 'cari_talimat_para_yolu',
+    /*
+     * Panelden verilen tahsilat/ödeme iptalinde paranın geri dönüş yolu
+     * (NAKIT | KART). Boşsa kasa orijinal yolu kullanır — eski talimatlar
+     * eskisi gibi davranır.
+     */
+    yukari: `ALTER TABLE cari_talimatlari ADD COLUMN para_yolu TEXT;`,
+    asagi: ``,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

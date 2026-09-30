@@ -1041,3 +1041,54 @@ describe('eski cari satırlarının belge türü onarımı', () => {
     expect(harita[`${satisId}-veresiye-iptal`]).toBe('SATIS_IPTAL');
   });
 });
+
+describe('panelden ödeme iptali — para yolu', () => {
+  it('talimat seçilen para yolunu saklar ve kasaya iner', async () => {
+    const tedarikci = uuid();
+    const odemeId = uuid();
+    const faturaId = uuid();
+    await push([
+      {
+        uuid: uuid(),
+        tip: 'CARI_KAYDEDILDI',
+        entity: 'cari',
+        entity_id: tedarikci,
+        olusturma_zamani: simdi(),
+        veri: { id: tedarikci, tip: 'TEDARIKCI', ad_unvan: 'Enis', created_at: simdi(), updated_at: simdi() },
+      },
+      {
+        uuid: uuid(),
+        tip: 'ALIS_FATURASI_ONAYLANDI',
+        entity: 'alis_faturasi',
+        entity_id: faturaId,
+        olusturma_zamani: simdi(),
+        veri: {
+          id: faturaId,
+          tedarikci_id: tedarikci,
+          tarih: simdi(),
+          genel_toplam: 1000,
+          odenen_tutar: 1000,
+          odeme_hareket_id: odemeId,
+          kalemler: [],
+        },
+      },
+    ]);
+
+    const yanit = await panelPost(UCLAR.cariTalimatlari, {
+      cari_id: tedarikci,
+      tip: 'TAHSILAT_IPTAL',
+      hedef_hareket_id: odemeId,
+      neden: 'hesaba iade edildi',
+      para_yolu: 'KART',
+    });
+    expect(yanit.statusCode).toBe(200);
+
+    const pull = await uygulama.inject({
+      method: 'GET',
+      url: `${UCLAR.senkronPull}?since=0&limit=500`,
+      headers: { 'x-device-token': CIHAZ_TOKEN },
+    });
+    const govde = JSON.stringify(pull.json());
+    expect(govde).toContain('"para_yolu":"KART"');
+  });
+});

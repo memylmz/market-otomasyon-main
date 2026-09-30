@@ -1,7 +1,7 @@
 /** Cari hesap / veresiye defteri (§10.7, §11.6). */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
+import { iptalParaYollari, paraFormat, tarihSaatFormat, type Kurus, type ParaYolu } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
 import { AlisFaturasiDiyalogu } from '../bilesen/AlisFaturasiDiyalogu';
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
@@ -38,6 +38,8 @@ interface EkstreSatiri {
   /** Hareketi doğuran belge — SATIS ise kalemleri açılabilir. */
   belge_id: string | null;
   belge_tipi: string | null;
+  /** Tahsilat/ödeme nakit (kasadan) mı yapıldı — iptal penceresi varsayılanı. */
+  nakit_mi: boolean | null;
   yuruyen_bakiye: Kurus;
 }
 
@@ -836,12 +838,18 @@ function TahsilatIptalDiyalogu({
 }) {
   const [neden, setNeden] = useState('');
   const [calisiyor, setCalisiyor] = useState(false);
+  const [paraYolu, setParaYolu] = useState<ParaYolu>('KART');
 
   useEffect(() => {
-    if (hareket) setNeden('');
+    if (!hareket) return;
+    setNeden('');
+    // Varsayılan: para geldiği yoldan döner. Kullanıcı farklı yol seçebilir.
+    setParaYolu(hareket.nakit_mi ? 'NAKIT' : 'KART');
   }, [hareket]);
 
   if (!hareket) return null;
+  const odemeMi = hareket.hareket_tipi === 'ODEME';
+  const yollar = iptalParaYollari(hareket.hareket_tipi);
 
   const tutar = Math.abs(hareket.tutar);
   const gecerli = neden.trim().length >= 3 && !calisiyor;
@@ -853,8 +861,9 @@ function TahsilatIptalDiyalogu({
       const sonuc = await cagir<{ yeniBakiye: Kurus }>('cari.tahsilatIptal', {
         hareketId: hareket.id,
         neden: neden.trim(),
+        paraYolu,
       });
-      bildir.basari('Tahsilat iptal edildi', `Yeni bakiye: ${paraFormat(sonuc.yeniBakiye)}`);
+      bildir.basari(odemeMi ? 'Ödeme iptal edildi' : 'Tahsilat iptal edildi', `Yeni bakiye: ${paraFormat(sonuc.yeniBakiye)}`);
       onTamam();
     } catch (hata) {
       hatayiBildir(hata, 'Tahsilat iptali');
@@ -866,7 +875,7 @@ function TahsilatIptalDiyalogu({
   return (
     <Diyalog
       acik
-      baslik="Tahsilatı İptal Et"
+      baslik={odemeMi ? 'Ödemeyi İptal Et' : 'Tahsilatı İptal Et'}
       aciklama={`${tarihSaatFormat(hareket.tarih)} · ${paraFormat(tutar)}`}
       genislik="dar"
       onKapat={onKapat}
@@ -884,7 +893,29 @@ function TahsilatIptalDiyalogu({
       <div className="space-y-3">
         <div className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
           Kayıt silinmez; aynı tutar <strong>ters kayıt</strong> olarak yazılır. Borç geri yüklenir.
-          {hareket.hareket_tipi === 'TAHSILAT' ? ' Nakit alındıysa kasadan geri çıkar.' : ''}
+        </div>
+        <div className="space-y-2" role="radiogroup" aria-label="Para nasıl geri döndü">
+          <span className="etiket">Para nasıl geri döndü?</span>
+          {(['NAKIT', 'KART'] as const).map((y) => (
+            <button
+              key={y}
+              type="button"
+              role="radio"
+              aria-checked={paraYolu === y}
+              onClick={() => setParaYolu(y)}
+              className={`w-full rounded border px-3 py-2 text-left text-sm ${
+                paraYolu === y ? 'border-vurgu bg-vurgu-yumusak' : 'border-cizgi hover:bg-yuzey-2'
+              }`}
+            >
+              <span className="flex items-center justify-between gap-2 font-medium">
+                {yollar[y].baslik}
+                {Boolean(hareket.nakit_mi) === (y === 'NAKIT') && (
+                  <span className="text-xs font-normal text-metin-3">orijinal ödeme</span>
+                )}
+              </span>
+              <span className="block text-xs text-metin-3">{yollar[y].alt}</span>
+            </button>
+          ))}
         </div>
         <Alan etiket="İptal nedeni *" ipucu="En az 3 karakter. Ekstrede ve denetim kaydında görünür.">
           <input

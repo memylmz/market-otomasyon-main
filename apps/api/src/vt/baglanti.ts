@@ -496,6 +496,8 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
    * kalır ve fişte "Kasiyer: —" görünür. Ad satışla birlikte gelir.
    */
   await sutunEkle(vt, 'satislar', 'kasiyer_adi TEXT');
+  // Tahsilat/ödeme iptalinde paranın geri dönüş yolu (NAKIT | KART); boşsa kasa orijinal yolu kullanır.
+  await sutunEkle(vt, 'cari_talimatlari', 'para_yolu TEXT');
 
   /*
    * ONARIM — olaydan türetilen cari satırlarına belge türü (§11.6).

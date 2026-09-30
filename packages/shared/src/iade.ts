@@ -27,3 +27,22 @@ export const IADE_YONTEMI_ETIKETI: Record<IadeYontemi, string> = {
   KART: 'Karta iade',
   VERESIYE: 'Cari hesaba alacak',
 };
+
+export type ParaYolu = 'NAKIT' | 'KART';
+
+/**
+ * Tahsilat / tedarikçi ödemesi iptalinde "para nasıl geri döndü" seçenekleri
+ * (kasa ve panel aynı metni gösterir). Yön harekete göre değişir: müşteriye
+ * geri ödeme kasadan ÇIKAR, tedarikçinin iadesi kasaya GİRER.
+ */
+export function iptalParaYollari(hareketTipi: string): Record<ParaYolu, { baslik: string; alt: string }> {
+  const odeme = hareketTipi === 'ODEME';
+  return {
+    NAKIT: odeme
+      ? { baslik: 'Tedarikçi nakit iade etti', alt: 'Tutar kasaya girer (açık kasa gerekir).' }
+      : { baslik: 'Müşteriye nakit geri verildi', alt: 'Tutar kasadan çıkar (açık kasa gerekir).' },
+    KART: odeme
+      ? { baslik: 'Karta / hesaba iade edildi', alt: 'Kasa etkilenmez; yalnız tedarikçi borcu geri yüklenir.' }
+      : { baslik: 'Karta iade edildi', alt: 'Kasa etkilenmez; yalnız müşteri borcu geri yüklenir.' },
+  };
+}

@@ -240,7 +240,16 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
          * Tarih aralığı kasadaki ekstre ile aynı: gün başı / gün sonu
          * yerel saate göre sınırlanır, yoksa günün ilk saatleri düşer.
          */
-        `SELECT id, hareket_tipi, tutar, aciklama, belge_id, belge_tipi, tarih, vade_tarihi, cihaz_id
+        // nakit_mi: iptal penceresi paranın geri dönüş yolunu buna göre önerir (kasadaki kuralın aynısı).
+        `SELECT id, hareket_tipi, tutar, aciklama, belge_id, belge_tipi, tarih, vade_tarihi, cihaz_id,
+                CASE WHEN hareket_tipi IN ('TAHSILAT', 'ODEME') THEN
+                  EXISTS (SELECT 1 FROM kasa_hareketleri k
+                           WHERE k.isletme_id = cari_hareketler.isletme_id AND k.belge_id = cari_hareketler.id)
+                  OR (belge_tipi = 'ALIS_ODEME' AND EXISTS (
+                    SELECT 1 FROM kasa_hareketleri k
+                     WHERE k.isletme_id = cari_hareketler.isletme_id AND k.belge_id = cari_hareketler.belge_id
+                       AND k.tip = 'ODEME'))
+                END AS nakit_mi
          FROM cari_hareketler
          WHERE isletme_id = ? AND cari_id = ?
            AND (? IS NULL OR tarih >= ?) AND (? IS NULL OR tarih <= ?)

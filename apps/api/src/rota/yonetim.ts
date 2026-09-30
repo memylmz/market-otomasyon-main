@@ -766,6 +766,12 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     /** TAHSILAT_IPTAL'de iptal edilecek hareket. Kimlikler uuid olmayabilir. */
     hedef_hareket_id: z.string().min(1).max(120).optional(),
     neden: z.string().trim().max(300).default(''),
+    /**
+     * TAHSILAT_IPTAL'de paranın geri dönüş yolu. NAKIT → kasa hareketi yazılır
+     * (tedarikçi iadesi kasaya girer, müşteriye geri ödeme kasadan çıkar);
+     * KART → kasa etkilenmez. Verilmezse kasa orijinal ödeme yolunu kullanır.
+     */
+    para_yolu: z.enum(['NAKIT', 'KART']).optional(),
   });
 
   /**
@@ -1024,8 +1030,9 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
       const versiyon = await sonrakiVersiyon(islem, isletmeId);
       await islem.calistir(
         `INSERT INTO cari_talimatlari (id, isletme_id, cari_id, tip, tutar, hedef_hareket_id, neden,
-                                       hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id, versiyon, silindi_mi)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?, 0)`,
+                                       hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id, versiyon, silindi_mi,
+                                       para_yolu)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?, 0, ?)`,
         [
           id,
           isletmeId,
@@ -1039,6 +1046,7 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
           zaman,
           zaman,
           versiyon,
+          govde.tip === 'TAHSILAT_IPTAL' ? (govde.para_yolu ?? null) : null,
         ],
       );
       await denetle(islem, isletmeId, istek.kullanici?.id as string, 'CARI_TALIMATI', 'cari', govde.cari_id, {

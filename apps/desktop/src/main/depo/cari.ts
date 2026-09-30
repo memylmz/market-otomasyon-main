@@ -246,6 +246,8 @@ export interface EkstreSatiri {
   belge_id: string | null;
   belge_tipi: string | null;
   vade_tarihi: string | null;
+  /** Tahsilat/ödeme nakit (kasadan) mı yapıldı; diğer hareketlerde null. İptal penceresi varsayılanı buradan alır. */
+  nakit_mi: boolean | null;
   /** Yürüyen bakiye — hareketler eskiden yeniye toplanarak hesaplanır. */
   yuruyen_bakiye: Kurus;
 }
@@ -274,16 +276,25 @@ export function ekstre(vt: Vt, cariId: string, baslangic?: ZamanDamgasi, bitis?:
 
   const satirlar = vt
     .hazirla(
-      `SELECT id, tarih, hareket_tipi, tutar, aciklama, belge_id, belge_tipi, vade_tarihi
+      /*
+       * Nakit mi: kasa hareketi tahsilat/ödemenin kendisine, mal kabul
+       * ödemesinde (ALIS_ODEME) ise faturaya bağlıdır.
+       */
+      `SELECT id, tarih, hareket_tipi, tutar, aciklama, belge_id, belge_tipi, vade_tarihi,
+              CASE WHEN hareket_tipi IN ('TAHSILAT', 'ODEME') THEN
+                EXISTS (SELECT 1 FROM kasa_hareketleri k WHERE k.belge_id = cari_hareketler.id)
+                OR (belge_tipi = 'ALIS_ODEME' AND EXISTS (
+                  SELECT 1 FROM kasa_hareketleri k WHERE k.belge_id = cari_hareketler.belge_id AND k.tip = 'ODEME'))
+              END AS nakit_mi
        FROM cari_hareketler WHERE ${kosullar.join(' AND ')}
        ORDER BY tarih, rowid LIMIT ?`,
     )
-    .tumu<Omit<EkstreSatiri, 'yuruyen_bakiye'>>(...parametreler, limit);
+    .tumu<Omit<EkstreSatiri, 'yuruyen_bakiye' | 'nakit_mi'> & { nakit_mi: number | null }>(...parametreler, limit);
 
   let yuruyen = devir;
   return satirlar.map((s) => {
     yuruyen += s.tutar;
-    return { ...s, yuruyen_bakiye: yuruyen };
+    return { ...s, nakit_mi: s.nakit_mi === null ? null : Boolean(s.nakit_mi), yuruyen_bakiye: yuruyen };
   });
 }
 

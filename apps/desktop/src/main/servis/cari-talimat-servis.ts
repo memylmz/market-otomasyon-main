@@ -28,6 +28,8 @@ export interface CariTalimati {
   hedef_hareket_id: string | null;
   neden: string;
   hedef_cihaz_id: string;
+  /** TAHSILAT_IPTAL'de paranın geri dönüş yolu; boşsa orijinal yol. */
+  para_yolu?: 'NAKIT' | 'KART' | null;
 }
 
 /** Pull'da gelen talimatı yerele yazar. Aynı id tekrar inerse üzerine yazılmaz. */
@@ -36,8 +38,8 @@ export function cariTalimatiniSakla(vt: Vt, veri: Record<string, unknown>, zaman
   if (!id) return;
   vt.hazirla(
     `INSERT INTO cari_talimatlari (id, cari_id, tip, tutar, hedef_hareket_id, neden, hedef_cihaz_id,
-                                   kullanici_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   kullanici_id, created_at, updated_at, para_yolu)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO NOTHING`,
   ).calistir(
     id,
@@ -50,6 +52,7 @@ export function cariTalimatiniSakla(vt: Vt, veri: Record<string, unknown>, zaman
     (veri.kullanici_id as string | null) ?? null,
     String(veri.created_at ?? zaman),
     zaman,
+    veri.para_yolu === 'NAKIT' || veri.para_yolu === 'KART' ? veri.para_yolu : null,
   );
 }
 
@@ -71,7 +74,7 @@ export function bekleyenCariTalimatlariniIsle(baglam: Baglam, aktor: Aktor): Isl
   const { vt, cihazId } = baglam;
   const bekleyenler = vt
     .hazirla(
-      `SELECT id, cari_id, tip, tutar, hedef_hareket_id, neden, hedef_cihaz_id
+      `SELECT id, cari_id, tip, tutar, hedef_hareket_id, neden, hedef_cihaz_id, para_yolu
        FROM cari_talimatlari WHERE uygulandi_mi = 0 ORDER BY created_at`,
     )
     .tumu<CariTalimati>();
@@ -126,12 +129,23 @@ export function bekleyenCariTalimatlariniIsle(baglam: Baglam, aktor: Aktor): Isl
 function uygulanabilirMi(baglam: Baglam, aktor: Aktor, talimat: CariTalimati): boolean {
   if (talimat.tip === 'TAHSILAT_IPTAL') {
     if (!yetkisiVarMi(aktor, 'cari.tahsilat')) return false;
-    // Orijinale bağlı kasa hareketi varsa tahsilat NAKİTTİ: ters kayıt açık
-    // bir çekmece ister. Kasa kapalıyken talimat bekler.
-    const nakitMi = baglam.vt
-      .hazirla('SELECT 1 AS v FROM kasa_hareketleri WHERE belge_id = ?')
+    /*
+     * Para NAKİT dönecekse ters kayıt açık bir çekmece ister; kasa kapalıyken
+     * talimat bekler. Yol seçilmemişse orijinal ödemenin yolu geçerlidir —
+     * mal kabul ödemesinde kasa hareketi faturaya bağlı olduğu için ekstre
+     * sorgusundaki aynı kuralla bakılır.
+     */
+    const orijinalNakit = baglam.vt
+      .hazirla(
+        `SELECT 1 AS v FROM cari_hareketler h
+          WHERE h.id = ? AND (
+            EXISTS (SELECT 1 FROM kasa_hareketleri k WHERE k.belge_id = h.id)
+            OR (h.belge_tipi = 'ALIS_ODEME' AND EXISTS (
+              SELECT 1 FROM kasa_hareketleri k WHERE k.belge_id = h.belge_id AND k.tip = 'ODEME')))`,
+      )
       .tek<{ v: number }>(talimat.hedef_hareket_id ?? '');
-    return !nakitMi || Boolean(aktor.kasaOturumId);
+    const yol = talimat.para_yolu ?? (orijinalNakit ? 'NAKIT' : 'KART');
+    return yol !== 'NAKIT' || Boolean(aktor.kasaOturumId);
   }
   return yetkisiVarMi(aktor, 'cari.duzenle');
 }
@@ -143,7 +157,7 @@ function uygula(baglam: Baglam, aktor: Aktor, talimat: CariTalimati): string {
 
     case 'TAHSILAT_IPTAL':
       if (!talimat.hedef_hareket_id) throw new Error('İptal edilecek hareket belirtilmemiş.');
-      tahsilatIptal(baglam, aktor, talimat.hedef_hareket_id, talimat.neden);
+      tahsilatIptal(baglam, aktor, talimat.hedef_hareket_id, talimat.neden, talimat.para_yolu ?? undefined);
       return talimat.hedef_hareket_id;
 
     default: {

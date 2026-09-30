@@ -492,7 +492,8 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     'cari.kaydet': (girdi: Parameters<typeof cariKaydet>[2]) => ({ id: cariKaydet(b(), a(), girdi) }),
     'cari.tahsilat': (girdi: Record<string, unknown>) => tahsilatYap(b(), a(), girdi),
     // Yanlış girilen tahsilat SİLİNMEZ, ters kayıtla geri alınır (§10.7).
-    'cari.tahsilatIptal': (girdi: { hareketId: string; neden: string }) => tahsilatIptal(b(), a(), girdi.hareketId, girdi.neden),
+    'cari.tahsilatIptal': (girdi: { hareketId: string; neden: string; paraYolu?: 'NAKIT' | 'KART' }) =>
+      tahsilatIptal(b(), a(), girdi.hareketId, girdi.neden, girdi.paraYolu),
     'cari.acilisBakiyesi': (girdi: { cariId: string; tutar: Kurus }) => ({
       hareketId: acilisBakiyesi(b(), a(), girdi.cariId, girdi.tutar),
     }),

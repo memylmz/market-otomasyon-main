@@ -62,7 +62,7 @@ const PULL_TABLOLARI: Record<PullVarligi, { tablo: string; sutunlar: string }> =
   cari_talimatlari: {
     tablo: 'cari_talimatlari',
     sutunlar: `id, cari_id, tip, tutar, hedef_hareket_id, neden, hedef_cihaz_id, kullanici_id,
-               created_at, updated_at, cihaz_id`,
+               created_at, updated_at, cihaz_id, para_yolu`,
   },
   alis_talimatlari: {
     tablo: 'alis_talimatlari',
