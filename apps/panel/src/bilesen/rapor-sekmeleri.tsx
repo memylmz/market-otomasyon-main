@@ -280,7 +280,15 @@ const FISLI_TIPLER = new Set(['SATIS_NAKIT', 'SATIS_KART', 'IADE_NAKIT']);
 export function VardiyaDokumuDiyalogu({ oturumId, onKapat }: { oturumId: string | null; onKapat: () => void }) {
   const { veri, yukleniyor, hata } = useVeri<{
     oturum: KasaOturumu | null;
-    hareketler: { id: string; tip: string; tutar: Kurus; aciklama: string | null; belge_id: string | null; created_at: string }[];
+    hareketler: {
+      id: string;
+      tip: string;
+      tutar: Kurus;
+      aciklama: string | null;
+      belge_id: string | null;
+      created_at: string;
+      musteri_adi?: string | null;
+    }[];
   }>(oturumId ? `${uclar.raporKasa}/${oturumId}` : null);
   const [fisId, setFisId] = useState<string | null>(null);
   const { veri: fis } = useFis(fisId);
@@ -348,6 +356,7 @@ export function VardiyaDokumuDiyalogu({ oturumId, onKapat }: { oturumId: string 
                       <td className="text-left text-metin-3">
                         {h.aciklama ?? '—'}
                         {fisVar && <span className="ml-2 whitespace-nowrap text-xs text-vurgu">fişi gör →</span>}
+                        {fisVar && <div className="text-xs text-metin-4">Müşteri: {h.musteri_adi ?? 'Perakende'}</div>}
                       </td>
                       <td className={`sayi ${h.tutar < 0 ? 'text-tehlike' : 'text-vurgu'}`}>
                         {paraFormat(h.tutar, { simge: false, isaret: true })}

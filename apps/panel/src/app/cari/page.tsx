@@ -21,6 +21,7 @@ import { goreliZaman, iptalParaYollari, paraFormat, paraParse, tarihSaatFormat, 
 import { YaslandirmaGrafigi } from '@/bilesen/grafik';
 import { BosDurum, HataKutusu, Kabuk, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { FaturaDetayi } from '@/bilesen/alis-sekmesi';
+import { MusteriAlisverisleri } from '@/bilesen/musteri-alisverisler';
 import { FisIcerigi, fisBasligi, useFis } from '@/bilesen/fis';
 import { api, kullaniciyiOku, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
@@ -347,6 +348,8 @@ function HesapPaneli({
   const [bit, setBit] = useState('');
   const [fisId, setFisId] = useState<string | null>(null);
   const [faturaId, setFaturaId] = useState<string | null>(null);
+  /** Müşteride ekstrenin yanında nakit/kart dahil bütün alışverişler — kasadaki görünümün aynısı. */
+  const [gorunum, setGorunum] = useState<'hareketler' | 'alisverisler'>('hareketler');
   const [bakiyeKipi, setBakiyeKipi] = useState<'acilis' | 'duzeltme' | null>(null);
   const [iptalEdilecek, setIptalEdilecek] = useState<EkstreHareketi | null>(null);
 
@@ -485,6 +488,27 @@ function HesapPaneli({
       )}
 
       <div className="kart p-4">
+        {cari.tip === 'MUSTERI' && (
+          <div className="mb-3 flex border-b border-cizgi">
+            {(
+              [
+                ['hareketler', 'Hesap Hareketleri'],
+                ['alisverisler', 'Alışverişler'],
+              ] as const
+            ).map(([anahtar, etiket]) => (
+              <button
+                key={anahtar}
+                type="button"
+                onClick={() => setGorunum(anahtar)}
+                className={`px-3 py-2 text-sm ${
+                  gorunum === anahtar ? 'border-b-2 border-vurgu font-medium text-vurgu' : 'text-metin-3'
+                }`}
+              >
+                {etiket}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mb-3 flex flex-wrap items-end gap-2">
           <label className="block">
             <span className="etiket">Başlangıç</span>
@@ -508,7 +532,9 @@ function HesapPaneli({
           )}
         </div>
 
-        {ekstre.yukleniyor && !ekstre.veri ? (
+        {cari.tip === 'MUSTERI' && gorunum === 'alisverisler' ? (
+          <MusteriAlisverisleri cariId={cari.id} from={bas} to={bit} onFisAc={setFisId} />
+        ) : ekstre.yukleniyor && !ekstre.veri ? (
           <Yukleniyor />
         ) : ekstre.hata ? (
           <HataKutusu mesaj={ekstre.hata} tekrarDene={ekstre.tazele} />

@@ -62,14 +62,15 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <p className="text-sm text-metin-3">{tarihSaatFormat(veri.satis.tarih)}</p>
+        <p className="text-sm text-metin-3">
+          {tarihSaatFormat(veri.satis.tarih)} · Müşteri: {veri.satis.musteri_adi ?? 'Perakende'}
+        </p>
         {veri.satis.iptal_mi === 1 && <Rozet tur="tehlike">İptal edilmiş</Rozet>}
         {veri.satis.iade_mi === 1 && <Rozet tur="uyari">İade fişi</Rozet>}
       </div>
       {veri.satis.iade_mi === 1 && (
         <p className="text-sm text-metin-2">
           İade edilen fiş: <strong>{veri.satis.kaynak_fis_no ?? '—'}</strong>
-          {veri.satis.musteri_adi ? ` · Müşteri: ${veri.satis.musteri_adi}` : ''}
         </p>
       )}
 

@@ -1092,3 +1092,46 @@ describe('panelden ödeme iptali — para yolu', () => {
     expect(govde).toContain('"para_yolu":"KART"');
   });
 });
+
+describe('müşteri alışverişleri — panel (kasayla aynı kural)', () => {
+  it('nakit/kart/veresiye dökümüyle listeler; ödenmiş/borç süzgeci veresiye payına bakar, iade yalnız tümünde', async () => {
+    const musteri = uuid();
+    const satis = (tutar: number, odemeler: { tip: string; tutar: number }[]) => {
+      const o = satisOlayi({ tutar });
+      Object.assign(o.veri, { musteri_id: musteri, odemeler });
+      return o;
+    };
+    const nakit = satis(1000, [{ tip: 'NAKIT', tutar: 1000 }]);
+    const karma = satis(3000, [
+      { tip: 'KART', tutar: 1000 },
+      { tip: 'VERESIYE', tutar: 2000 },
+    ]);
+    const baskasi = satisOlayi({ tutar: 5000 });
+    await push([
+      {
+        uuid: uuid(),
+        tip: 'CARI_KAYDEDILDI',
+        entity: 'cari',
+        entity_id: musteri,
+        olusturma_zamani: simdi(),
+        veri: { id: musteri, tip: 'MUSTERI', ad_unvan: 'Barış', created_at: simdi(), updated_at: simdi() },
+      },
+      nakit,
+      karma,
+      baskasi,
+    ]);
+
+    const liste = async (durum: string) =>
+      (
+        (await panelGet(`${UCLAR.cariler}/${musteri}/alisverisler?durum=${durum}`)).json() as {
+          data: { id: string; nakit: number; kart: number; veresiye: number }[];
+        }
+      ).data;
+
+    const tumu = await liste('tumu');
+    expect(tumu.map((s) => s.id).sort()).toEqual([nakit.veri.id, karma.veri.id].sort());
+    expect(tumu.find((s) => s.id === karma.veri.id)).toMatchObject({ nakit: 0, kart: 1000, veresiye: 2000 });
+    expect((await liste('odenmis')).map((s) => s.id)).toEqual([nakit.veri.id]);
+    expect((await liste('borc')).map((s) => s.id)).toEqual([karma.veri.id]);
+  });
+});

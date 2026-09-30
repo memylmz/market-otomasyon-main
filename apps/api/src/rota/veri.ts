@@ -217,6 +217,52 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
   });
 
   // ----------------------------------------------------------- CARİ EKSTRE
+  /**
+   * Müşterinin bütün alışverişleri, ödeme dökümüyle — kasadaki Cari →
+   * Alışverişler görünümünün karşılığı; süzgeç kuralları aynıdır: `odenmis`
+   * veresiye payı olmayan, `borc` veresiye payı olan satışlar; iptal ve iade
+   * yalnız `tumu`da görünür.
+   */
+  uygulama.get<{ Params: { id: string } }>(`${UCLAR.cariler}/:id/alisverisler`, korumali, async (istek) => {
+    // Aralık verilmezse sınır yok (müşterinin bütün geçmişi).
+    const aralik = zTarihAraligi.partial().parse(istek.query);
+    const durum = z
+      .enum(['tumu', 'odenmis', 'borc'])
+      .default('tumu')
+      .parse((istek.query as { durum?: string }).durum ?? 'tumu');
+    const sonra =
+      durum === 'odenmis'
+        ? 'WHERE iptal_mi = 0 AND iade_mi = 0 AND veresiye = 0'
+        : durum === 'borc'
+          ? 'WHERE iptal_mi = 0 AND iade_mi = 0 AND veresiye > 0'
+          : '';
+    const data = await uygulama.vt.tumu(
+      `SELECT * FROM (
+         SELECT s.id, s.fis_no, s.tarih, s.genel_toplam, s.iptal_mi, s.iade_mi,
+                COALESCE(k.ad, s.kasiyer_adi) kullanici_adi,
+                COALESCE(SUM(CASE WHEN o.odeme_tipi = 'NAKIT' THEN o.tutar END), 0) nakit,
+                COALESCE(SUM(CASE WHEN o.odeme_tipi = 'KART' THEN o.tutar END), 0) kart,
+                COALESCE(SUM(CASE WHEN o.odeme_tipi = 'VERESIYE' THEN o.tutar END), 0) veresiye
+         FROM satislar s
+         LEFT JOIN odemeler o ON o.isletme_id = s.isletme_id AND o.satis_id = s.id
+         LEFT JOIN kullanicilar k ON k.isletme_id = s.isletme_id AND k.id = s.kullanici_id
+         WHERE s.isletme_id = ? AND s.musteri_id = ?
+           AND (? IS NULL OR s.tarih >= ?) AND (? IS NULL OR s.tarih < ?)
+         GROUP BY s.id
+       ) ${sonra}
+       ORDER BY tarih DESC LIMIT 500`,
+      [
+        istek.kullanici?.isletmeId,
+        istek.params.id,
+        aralik.from ? gunBasi(aralik.from) : null,
+        aralik.from ? gunBasi(aralik.from) : null,
+        aralik.to ? gunSonu(aralik.to) : null,
+        aralik.to ? gunSonu(aralik.to) : null,
+      ],
+    );
+    return { data, uretim_zamani: simdi() };
+  });
+
   /** Tek carinin hareket dökümü ve yürüyen bakiyesi (kasadaki cari ekstresi). */
   uygulama.get<{ Params: { id: string } }>(`${UCLAR.cariler}/:id/ekstre`, korumali, async (istek) => {
     const isletmeId = istek.kullanici?.isletmeId;

@@ -313,9 +313,13 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
         [isletmeId, istek.params.id],
       ),
       uygulama.vt.tumu(
-        `SELECT id, tip, tutar, aciklama, belge_id, created_at
-         FROM kasa_hareketleri WHERE isletme_id = ? AND kasa_oturum_id = ?
-         ORDER BY created_at LIMIT 1000`,
+        // Satıştan doğan harekette müşteri — kasadaki Kasa Geçmişi'yle aynı bilgi.
+        `SELECT h.id, h.tip, h.tutar, h.aciklama, h.belge_id, h.created_at, c.ad_unvan AS musteri_adi
+         FROM kasa_hareketleri h
+         LEFT JOIN satislar s ON s.isletme_id = h.isletme_id AND s.id = h.belge_id
+         LEFT JOIN cariler c ON c.isletme_id = h.isletme_id AND c.id = s.musteri_id
+         WHERE h.isletme_id = ? AND h.kasa_oturum_id = ?
+         ORDER BY h.created_at LIMIT 1000`,
         [isletmeId, istek.params.id],
       ),
     ]);
