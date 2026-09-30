@@ -158,7 +158,7 @@ export function StokSayfasi() {
                     {rapor.negatifler.map((n) => (
                       <tr key={n.urun_id}>
                         <td>{n.ad}</td>
-                        <td className="sayi text-tehlike">{miktarFormat(n.stok)}</td>
+                        <td className="sayi text-tehlike text-right">{miktarFormat(n.stok)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -183,10 +183,10 @@ export function StokSayfasi() {
               {(rapor?.kritikler ?? []).map((k) => (
                 <tr key={k.urun_id}>
                   <td className="font-medium">{k.ad}</td>
-                  <td className="sayi text-uyari">{miktarFormat(k.stok)}</td>
-                  <td className="sayi text-metin-3">{miktarFormat(k.kritik_stok)}</td>
-                  <td className="sayi text-metin-3">{miktarFormat(k.ideal_stok)}</td>
-                  <td className="sayi font-semibold text-vurgu">{miktarFormat(k.onerilen_siparis)}</td>
+                  <td className="sayi text-uyari text-right">{miktarFormat(k.stok)}</td>
+                  <td className="sayi text-metin-3 text-right">{miktarFormat(k.kritik_stok)}</td>
+                  <td className="sayi text-metin-3 text-right">{miktarFormat(k.ideal_stok)}</td>
+                  <td className="sayi font-semibold text-vurgu text-right">{miktarFormat(k.onerilen_siparis)}</td>
                 </tr>
               ))}
               {(rapor?.kritikler.length ?? 0) === 0 && (
@@ -217,7 +217,7 @@ export function StokSayfasi() {
                   <td className="font-medium">{s.ad}</td>
                   <td className="text-metin-3">{s.lot_no ?? '—'}</td>
                   <td>{s.skt}</td>
-                  <td className="sayi">{miktarFormat(s.kalan_miktar)}</td>
+                  <td className="sayi text-right">{miktarFormat(s.kalan_miktar)}</td>
                   <td>
                     {s.kalan_gun < 0 ? (
                       <Rozet tur="tehlike">{-s.kalan_gun} gün geçti</Rozet>
@@ -952,14 +952,16 @@ function SayimSekmesi({ onDegisti }: { onDegisti: () => void }) {
                 return (
                   <tr key={f.urun_id}>
                     <td className="font-medium">{f.ad}</td>
-                    <td className="sayi text-metin-3">{miktarFormat(f.sistem_miktari, f.birim_tipi as never)}</td>
-                    <td className="sayi">{miktarFormat(f.sayilan_miktar, f.birim_tipi as never)}</td>
+                    <td className="sayi text-metin-3 text-right">{miktarFormat(f.sistem_miktari, f.birim_tipi as never)}</td>
+                    <td className="sayi text-right">{miktarFormat(f.sayilan_miktar, f.birim_tipi as never)}</td>
                     <td
-                      className={`sayi font-semibold ${f.fark === 0 ? 'text-metin-4' : f.fark < 0 ? 'text-tehlike' : 'text-basari'}`}
+                      className={`text-right sayi font-semibold ${f.fark === 0 ? 'text-metin-4' : f.fark < 0 ? 'text-tehlike' : 'text-basari'}`}
                     >
                       {f.fark === 0 ? '—' : miktarFormat(f.fark, f.birim_tipi as never, true)}
                     </td>
-                    <td className={`sayi ${maliyet === 0 ? 'text-metin-4' : maliyet < 0 ? 'text-tehlike' : 'text-basari'}`}>
+                    <td
+                      className={`text-right sayi ${maliyet === 0 ? 'text-metin-4' : maliyet < 0 ? 'text-tehlike' : 'text-basari'}`}
+                    >
                       {maliyet === 0 ? '—' : paraFormat(maliyet, { simge: false, isaret: true })}
                     </td>
                   </tr>
@@ -1113,9 +1115,9 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
                 <td className="text-metin-3">{tarihSaatFormat(f.tarih)}</td>
                 <td>{f.fatura_no ?? '—'}</td>
                 <td>{f.tedarikci_adi ?? '—'}</td>
-                <td className="sayi">{paraFormat(f.ara_toplam, { simge: false })}</td>
-                <td className="sayi text-metin-3">{paraFormat(f.kdv_toplam, { simge: false })}</td>
-                <td className="sayi font-semibold">{paraFormat(f.genel_toplam, { simge: false })}</td>
+                <td className="sayi text-right">{paraFormat(f.ara_toplam, { simge: false })}</td>
+                <td className="sayi text-metin-3 text-right">{paraFormat(f.kdv_toplam, { simge: false })}</td>
+                <td className="sayi font-semibold text-right">{paraFormat(f.genel_toplam, { simge: false })}</td>
                 <td>
                   <Rozet tur={f.durum === 'IPTAL' ? 'tehlike' : f.durum === 'ONAYLANDI' ? 'basari' : 'notr'}>{f.durum}</Rozet>
                 </td>

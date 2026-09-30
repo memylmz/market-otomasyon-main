@@ -58,7 +58,7 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
     <Diyalog
       acik
       baslik={detay ? `Fiş ${detay.satis.fis_no}` : 'Fiş'}
-      aciklama={detay ? tarihSaatFormat(detay.satis.tarih) : undefined}
+      aciklama={detay ? `${tarihSaatFormat(detay.satis.tarih)} · Müşteri: ${detay.satis.musteri_adi ?? 'Perakende'}` : undefined}
       onKapat={onKapat}
       altBilgi={
         <>
@@ -104,9 +104,9 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
               {detay.kalemler.map((k, i) => (
                 <tr key={i}>
                   <td>{k.urun_adi}</td>
-                  <td className="sayi">{miktarFormat(k.miktar, k.birim_tipi as never)}</td>
-                  <td className="sayi text-metin-3">{paraFormat(k.birim_fiyat, { simge: false })}</td>
-                  <td className="sayi font-semibold">{paraFormat(k.satir_toplam, { simge: false })}</td>
+                  <td className="sayi text-right">{miktarFormat(k.miktar, k.birim_tipi as never)}</td>
+                  <td className="sayi text-metin-3 text-right">{paraFormat(k.birim_fiyat, { simge: false })}</td>
+                  <td className="sayi font-semibold text-right">{paraFormat(k.satir_toplam, { simge: false })}</td>
                 </tr>
               ))}
             </tbody>

@@ -322,14 +322,14 @@ function CiroOzetiGorunumu({ veri, karGorebilir }: { veri: Record<string, unknow
           {gunler.map((g) => (
             <tr key={String(g.tarih)}>
               <td>{String(g.tarih)}</td>
-              <td className="sayi">{paraFormat(Number(g.ciro), { simge: false })}</td>
-              <td className="sayi text-uyari">{paraFormat(Number(g.iade_toplam), { simge: false })}</td>
-              <td className="sayi">{String(g.islem_sayisi)}</td>
-              <td className="sayi">{paraFormat(Number(g.ortalama_sepet), { simge: false })}</td>
-              <td className="sayi">{paraFormat(Number(g.nakit), { simge: false })}</td>
-              <td className="sayi">{paraFormat(Number(g.kart), { simge: false })}</td>
-              <td className="sayi">{paraFormat(Number(g.veresiye), { simge: false })}</td>
-              {karGorebilir && <td className="sayi text-vurgu">{paraFormat(Number(g.brut_kar), { simge: false })}</td>}
+              <td className="sayi text-right">{paraFormat(Number(g.ciro), { simge: false })}</td>
+              <td className="sayi text-uyari text-right">{paraFormat(Number(g.iade_toplam), { simge: false })}</td>
+              <td className="sayi text-right">{String(g.islem_sayisi)}</td>
+              <td className="sayi text-right">{paraFormat(Number(g.ortalama_sepet), { simge: false })}</td>
+              <td className="sayi text-right">{paraFormat(Number(g.nakit), { simge: false })}</td>
+              <td className="sayi text-right">{paraFormat(Number(g.kart), { simge: false })}</td>
+              <td className="sayi text-right">{paraFormat(Number(g.veresiye), { simge: false })}</td>
+              {karGorebilir && <td className="sayi text-vurgu text-right">{paraFormat(Number(g.brut_kar), { simge: false })}</td>}
             </tr>
           ))}
           {gunler.length === 0 && (
@@ -382,9 +382,9 @@ function UrunRaporuGorunumu({ veri, karGorebilir }: { veri: Record<string, unkno
               {enCok.map((u) => (
                 <tr key={String(u.urun_id)}>
                   <td>{String(u.urun_adi)}</td>
-                  <td className="sayi">{miktarFormat(Number(u.adet))}</td>
-                  <td className="sayi">{paraFormat(Number(u.ciro), { simge: false })}</td>
-                  {karGorebilir && <td className="sayi text-vurgu">{paraFormat(Number(u.kar), { simge: false })}</td>}
+                  <td className="sayi text-right">{miktarFormat(Number(u.adet))}</td>
+                  <td className="sayi text-right">{paraFormat(Number(u.ciro), { simge: false })}</td>
+                  {karGorebilir && <td className="sayi text-vurgu text-right">{paraFormat(Number(u.kar), { simge: false })}</td>}
                 </tr>
               ))}
               {enCok.length === 0 && (
@@ -423,9 +423,9 @@ function UrunRaporuGorunumu({ veri, karGorebilir }: { veri: Record<string, unkno
                 {enKarli.map((u) => (
                   <tr key={String(u.urun_id)}>
                     <td>{String(u.urun_adi)}</td>
-                    <td className="sayi">{miktarFormat(Number(u.adet))}</td>
-                    <td className="sayi text-vurgu">{paraFormat(Number(u.kar), { simge: false })}</td>
-                    <td className="sayi text-metin-3">
+                    <td className="sayi text-right">{miktarFormat(Number(u.adet))}</td>
+                    <td className="sayi text-vurgu text-right">{paraFormat(Number(u.kar), { simge: false })}</td>
+                    <td className="sayi text-metin-3 text-right">
                       {Number(u.ciro) > 0 ? `%${Math.round((Number(u.kar) / Number(u.ciro)) * 1000) / 10}` : '—'}
                     </td>
                   </tr>
@@ -458,8 +458,8 @@ function UrunRaporuGorunumu({ veri, karGorebilir }: { veri: Record<string, unkno
               {olu.map((u) => (
                 <tr key={String(u.urun_id)}>
                   <td>{String(u.ad)}</td>
-                  <td className="sayi">{miktarFormat(Number(u.stok))}</td>
-                  <td className="sayi text-uyari">{paraFormat(Number(u.bagli_sermaye), { simge: false })}</td>
+                  <td className="sayi text-right">{miktarFormat(Number(u.stok))}</td>
+                  <td className="sayi text-uyari text-right">{paraFormat(Number(u.bagli_sermaye), { simge: false })}</td>
                 </tr>
               ))}
               {olu.length === 0 && (
@@ -513,6 +513,7 @@ function SatislarGorunumu({ veri, onDegisti }: { veri: Record<string, unknown>; 
             <th>Fiş No</th>
             <th>Tarih</th>
             <th>Kasiyer</th>
+            <th>Müşteri</th>
             <th>Ödeme</th>
             <th className="text-right">Tutar</th>
             <th>Durum</th>
@@ -525,8 +526,10 @@ function SatislarGorunumu({ veri, onDegisti }: { veri: Record<string, unknown>; 
               <td className="font-mono">{String(s.fis_no)}</td>
               <td className="text-metin-3">{tarihSaatFormat(String(s.tarih))}</td>
               <td>{String(s.kullanici_adi ?? '—')}</td>
+              {/* Müşterisiz satış perakendedir; boş bırakmak "bilgi yok" gibi okunuyordu. */}
+              <td className={s.musteri_adi ? '' : 'text-metin-4'}>{String(s.musteri_adi ?? 'Perakende')}</td>
               <td>{String(s.odeme_ozeti)}</td>
-              <td className="sayi">{paraFormat(Number(s.genel_toplam), { simge: false })}</td>
+              <td className="sayi text-right">{paraFormat(Number(s.genel_toplam), { simge: false })}</td>
               <td>
                 {s.iptal_mi ? (
                   <Rozet tur="tehlike">İptal</Rozet>
@@ -557,7 +560,7 @@ function SatislarGorunumu({ veri, onDegisti }: { veri: Record<string, unknown>; 
           ))}
           {kayitlar.length === 0 && (
             <tr>
-              <td colSpan={7} className="py-8 text-center text-sm text-metin-4">
+              <td colSpan={8} className="py-8 text-center text-sm text-metin-4">
                 Bu aralıkta satış yok.
               </td>
             </tr>
@@ -765,11 +768,11 @@ function SatisDetayDiyalogu({
                     <div className="font-medium">{k.urun_adi}</div>
                     {k.barkod && <div className="font-mono text-xs text-metin-4">{k.barkod}</div>}
                   </td>
-                  <td className="sayi">{miktarFormat(Math.abs(k.miktar), k.birim_tipi as never)}</td>
-                  <td className="sayi">{mutlak(k.birim_fiyat)}</td>
-                  <td className="sayi text-uyari">{k.iskonto !== 0 ? '-' + mutlak(k.iskonto) : '—'}</td>
-                  <td className="sayi text-metin-3">%{k.kdv_orani}</td>
-                  <td className="sayi font-semibold">{mutlak(k.satir_toplam)}</td>
+                  <td className="sayi text-right">{miktarFormat(Math.abs(k.miktar), k.birim_tipi as never)}</td>
+                  <td className="sayi text-right">{mutlak(k.birim_fiyat)}</td>
+                  <td className="sayi text-uyari text-right">{k.iskonto !== 0 ? '-' + mutlak(k.iskonto) : '—'}</td>
+                  <td className="sayi text-metin-3 text-right">%{k.kdv_orani}</td>
+                  <td className="sayi font-semibold text-right">{mutlak(k.satir_toplam)}</td>
                 </tr>
               ))}
             </tbody>
@@ -897,9 +900,13 @@ function KasaGecmisiGorunumu({ veri }: { veri: Record<string, unknown>[] }) {
               <td className="text-metin-3">
                 {o.kapanis_zamani ? tarihSaatFormat(String(o.kapanis_zamani)) : <Rozet tur="uyari">Açık</Rozet>}
               </td>
-              <td className="sayi">{o.beklenen_nakit !== null ? paraFormat(Number(o.beklenen_nakit), { simge: false }) : '—'}</td>
-              <td className="sayi">{o.sayilan_nakit !== null ? paraFormat(Number(o.sayilan_nakit), { simge: false }) : '—'}</td>
-              <td className={`sayi ${Number(o.kasa_farki ?? 0) !== 0 ? 'text-tehlike' : 'text-vurgu'}`}>
+              <td className="sayi text-right">
+                {o.beklenen_nakit !== null ? paraFormat(Number(o.beklenen_nakit), { simge: false }) : '—'}
+              </td>
+              <td className="sayi text-right">
+                {o.sayilan_nakit !== null ? paraFormat(Number(o.sayilan_nakit), { simge: false }) : '—'}
+              </td>
+              <td className={`text-right sayi ${Number(o.kasa_farki ?? 0) !== 0 ? 'text-tehlike' : 'text-vurgu'}`}>
                 {o.kasa_farki !== null ? paraFormat(Number(o.kasa_farki), { simge: false, isaret: true }) : '—'}
               </td>
             </tr>
@@ -930,6 +937,7 @@ function VardiyaDokumuDiyalogu({ oturumId, onKapat }: { oturumId: string | null;
       aciklama: string | null;
       belge_id: string | null;
       created_at: string;
+      musteri_adi?: string | null;
     }[];
   } | null>(null);
   const [yukleniyor, setYukleniyor] = useState(false);
@@ -999,8 +1007,9 @@ function VardiyaDokumuDiyalogu({ oturumId, onKapat }: { oturumId: string | null;
                   <td className="text-metin-3">
                     {h.aciklama ?? '—'}
                     {fisVar && <span className="ml-2 whitespace-nowrap text-xs text-vurgu">fişi gör →</span>}
+                    {fisVar && <div className="text-xs text-metin-4">Müşteri: {h.musteri_adi ?? 'Perakende'}</div>}
                   </td>
-                  <td className={`sayi ${h.tutar < 0 ? 'text-tehlike' : 'text-vurgu'}`}>
+                  <td className={`text-right sayi ${h.tutar < 0 ? 'text-tehlike' : 'text-vurgu'}`}>
                     {paraFormat(h.tutar, { simge: false, isaret: true })}
                   </td>
                 </tr>
@@ -1039,9 +1048,9 @@ function SuistimalGorunumu({ veri }: { veri: Record<string, unknown> }) {
           {kasiyer.map((k, i) => (
             <tr key={i}>
               <td>{String(k.kullanici_adi ?? '—')}</td>
-              <td className="sayi">{String(k.satis)}</td>
-              <td className="sayi text-uyari">{String(k.iade)}</td>
-              <td className="sayi text-tehlike">{String(k.iptal)}</td>
+              <td className="sayi text-right">{String(k.satis)}</td>
+              <td className="sayi text-uyari text-right">{String(k.iade)}</td>
+              <td className="sayi text-tehlike text-right">{String(k.iptal)}</td>
             </tr>
           ))}
         </tbody>

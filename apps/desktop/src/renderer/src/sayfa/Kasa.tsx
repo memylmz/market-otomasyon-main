@@ -41,6 +41,8 @@ interface KasaHareketi {
   /** Hareketi doğuran belge — satışsa fişi açılabilir (§10.7). */
   belge_id: string | null;
   created_at: string;
+  /** Satıştan doğan harekette satışın müşterisi. */
+  musteri_adi?: string | null;
 }
 
 interface KasaDurumu {
@@ -226,9 +228,13 @@ export function KasaSayfasi() {
                           <td className="max-w-xs truncate text-metin-3">
                             {h.aciklama ?? '—'}
                             {fisVar && <span className="ml-2 whitespace-nowrap text-xs text-vurgu">fişi gör →</span>}
+                            {/* Veresiye satırının açıklaması müşteriyi zaten söyler. */}
+                            {fisVar && h.tip !== 'SATIS_VERESIYE' && (
+                              <div className="text-xs text-metin-4">Müşteri: {h.musteri_adi ?? 'Perakende'}</div>
+                            )}
                           </td>
                           <td
-                            className={`sayi ${
+                            className={`text-right sayi ${
                               NAKIT_DISI_TIPLER.has(h.tip) ? 'text-uyari' : h.tutar < 0 ? 'text-tehlike' : 'text-vurgu'
                             }`}
                           >

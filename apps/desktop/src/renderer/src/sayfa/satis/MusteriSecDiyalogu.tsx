@@ -148,8 +148,10 @@ export function MusteriSecDiyalogu({
                       <div className="font-medium">{cari.ad_unvan}</div>
                       {cari.telefon && <div className="text-xs text-metin-4">{cari.telefon}</div>}
                     </td>
-                    <td className={`sayi ${cari.bakiye > 0 ? 'text-uyari' : ''}`}>{paraFormat(cari.bakiye, { simge: false })}</td>
-                    <td className="sayi text-metin-3">
+                    <td className={`text-right sayi ${cari.bakiye > 0 ? 'text-uyari' : ''}`}>
+                      {paraFormat(cari.bakiye, { simge: false })}
+                    </td>
+                    <td className="sayi text-metin-3 text-right">
                       {cari.kredi_limiti > 0 ? paraFormat(cari.kredi_limiti, { simge: false }) : 'Sınırsız'}
                     </td>
                     <td>{limitDoldu ? <Rozet tur="tehlike">Limit doldu</Rozet> : <Rozet tur="basari">Uygun</Rozet>}</td>

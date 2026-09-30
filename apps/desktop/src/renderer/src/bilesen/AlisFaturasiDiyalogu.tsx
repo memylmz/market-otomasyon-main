@@ -69,10 +69,10 @@ export function AlisFaturasiIcerigi({ fatura, kalemler }: { fatura: AlisFaturasi
           {kalemler.map((k) => (
             <tr key={k.id}>
               <td>{k.urun_adi}</td>
-              <td className="sayi">{miktarFormat(k.miktar, k.birim_tipi as never)}</td>
-              <td className="sayi">{paraFormat(k.birim_fiyat, { simge: false })}</td>
-              <td className="sayi text-metin-3">%{k.kdv_orani}</td>
-              <td className="sayi font-semibold">{paraFormat(k.satir_toplam, { simge: false })}</td>
+              <td className="sayi text-right">{miktarFormat(k.miktar, k.birim_tipi as never)}</td>
+              <td className="sayi text-right">{paraFormat(k.birim_fiyat, { simge: false })}</td>
+              <td className="sayi text-metin-3 text-right">%{k.kdv_orani}</td>
+              <td className="sayi font-semibold text-right">{paraFormat(k.satir_toplam, { simge: false })}</td>
               <td className="text-xs text-metin-4">{[k.skt, k.lot_no].filter(Boolean).join(' · ') || '—'}</td>
             </tr>
           ))}

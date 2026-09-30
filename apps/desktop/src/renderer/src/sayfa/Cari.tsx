@@ -244,7 +244,9 @@ export function CariSayfasi() {
                       </div>
                       {c.telefon && <div className="text-xs text-metin-4">{c.telefon}</div>}
                     </td>
-                    <td className={`sayi ${c.bakiye > 0 ? 'text-uyari' : c.bakiye < 0 ? 'text-vurgu' : 'text-metin-3'}`}>
+                    <td
+                      className={`text-right sayi ${c.bakiye > 0 ? 'text-uyari' : c.bakiye < 0 ? 'text-vurgu' : 'text-metin-3'}`}
+                    >
                       {paraFormat(c.bakiye, { simge: false })}
                     </td>
                     <td className="text-xs text-metin-4">{c.son_hareket ? tarihSaatFormat(c.son_hareket) : '—'}</td>
@@ -482,10 +484,10 @@ export function CariSayfasi() {
                             </div>
                             {h.aciklama && <div className="text-xs text-metin-4">{h.aciklama}</div>}
                           </td>
-                          <td className={`sayi ${h.tutar > 0 ? 'text-uyari' : 'text-vurgu'}`}>
+                          <td className={`text-right sayi ${h.tutar > 0 ? 'text-uyari' : 'text-vurgu'}`}>
                             {paraFormat(h.tutar, { simge: false, isaret: true })}
                           </td>
-                          <td className="sayi font-semibold">{paraFormat(h.yuruyen_bakiye, { simge: false })}</td>
+                          <td className="sayi font-semibold text-right">{paraFormat(h.yuruyen_bakiye, { simge: false })}</td>
                         </tr>
                       );
                     })}

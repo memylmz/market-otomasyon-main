@@ -106,6 +106,14 @@ describe('kasa ekranında veresiye', () => {
     expect(durum.ozet?.beklenen_nakit).toBe(oncekiNakit + 1000);
   });
 
+  it('satıştan doğan kasa hareketi satışın müşterisini taşır; müşterisiz satışta boştur', () => {
+    const musterili = sat([{ tip: 'KART', tutar: 1000 }]);
+    const perakende = sat([{ tip: 'NAKIT', tutar: 1000 }], null);
+    const hareketler = kasaDurumu(ortam.uygulama.baglam, ortam.admin).hareketler;
+    expect(hareketler.find((h) => h.belge_id === musterili)?.musteri_adi).toBe('Barış Köse');
+    expect(hareketler.find((h) => h.belge_id === perakende)?.musteri_adi ?? null).toBeNull();
+  });
+
   it('iptal edilen veresiye satış listeden düşer', () => {
     const satisId = sat([{ tip: 'VERESIYE', tutar: 2000 }]);
     satisIptal(ortam.uygulama.baglam, ortam.admin, satisId, 'yanlış müşteri');

@@ -203,8 +203,10 @@ export function UrunAramaDiyalogu({
                     <div className="text-xs text-metin-4">{[urun.marka, urun.barkodlar[0]].filter(Boolean).join(' · ')}</div>
                   </td>
                   <td className="text-metin-3">{urun.kategori_adi ?? '—'}</td>
-                  <td className={`sayi ${urun.stok <= 0 ? 'text-tehlike' : ''}`}>{miktarFormat(urun.stok, urun.birim_tipi)}</td>
-                  <td className="sayi font-semibold">{paraFormat(urun.satis_fiyati, { simge: false })}</td>
+                  <td className={`text-right sayi ${urun.stok <= 0 ? 'text-tehlike' : ''}`}>
+                    {miktarFormat(urun.stok, urun.birim_tipi)}
+                  </td>
+                  <td className="sayi font-semibold text-right">{paraFormat(urun.satis_fiyati, { simge: false })}</td>
                 </tr>
               ))}
             </tbody>

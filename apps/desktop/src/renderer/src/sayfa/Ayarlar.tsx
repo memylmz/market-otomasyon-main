@@ -645,7 +645,7 @@ function SenkronTanilama() {
               {hatalilar.slice(0, 10).map((h) => (
                 <tr key={h.id}>
                   <td>{h.olay_tipi}</td>
-                  <td className="sayi">{h.deneme_sayisi}</td>
+                  <td className="sayi text-right">{h.deneme_sayisi}</td>
                   <td className="text-metin-3">{h.son_hata ?? '—'}</td>
                 </tr>
               ))}
@@ -821,7 +821,7 @@ function YedekSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ay
                 <tr key={y.yol}>
                   <td className="font-mono text-xs">{y.dosya}</td>
                   <td className="text-metin-3">{tarihSaatFormat(y.zaman)}</td>
-                  <td className="sayi">{(y.boyut / 1024 / 1024).toFixed(2)} MB</td>
+                  <td className="sayi text-right">{(y.boyut / 1024 / 1024).toFixed(2)} MB</td>
                   <td className="space-x-2">
                     <button
                       type="button"

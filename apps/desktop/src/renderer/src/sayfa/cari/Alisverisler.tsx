@@ -132,7 +132,7 @@ export function MusteriAlisverisleri({
                       {s.veresiye !== 0 && <Rozet tur="uyari">Veresiye {paraFormat(s.veresiye, { simge: false })}</Rozet>}
                     </div>
                   </td>
-                  <td className={`sayi font-semibold ${s.iptal_mi ? 'text-metin-4 line-through' : ''}`}>
+                  <td className={`text-right sayi font-semibold ${s.iptal_mi ? 'text-metin-4 line-through' : ''}`}>
                     {paraFormat(s.genel_toplam, { simge: false })}
                   </td>
                 </tr>

@@ -1225,7 +1225,7 @@ function EtiketKuyruguDiyalogu({
                     </span>
                   )}
                 </td>
-                <td>
+                <td className="text-right">
                   <input
                     className="alan sayi w-24"
                     inputMode="numeric"

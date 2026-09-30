@@ -166,13 +166,20 @@ export interface KasaHareketiKaydi {
   belge_id: string | null;
   kullanici_id: string | null;
   created_at: ZamanDamgasi;
+  /** Hareket bir satıştan/iadeden doğduysa o satışın müşterisi (okunurken türetilir). */
+  musteri_adi?: string | null;
 }
 
 export function oturumHareketleri(vt: Vt, oturumId: string, limit = 1000): KasaHareketiKaydi[] {
   return vt
     .hazirla(
-      `SELECT id, kasa_oturum_id, tip, tutar, aciklama, belge_id, kullanici_id, created_at
-       FROM kasa_hareketleri WHERE kasa_oturum_id = ? ORDER BY created_at, rowid LIMIT ?`,
+      // Satıştan doğan harekette müşteri gösterilir: "bu kart satışı kimindi" kasadan cevaplanabilsin.
+      `SELECT h.id, h.kasa_oturum_id, h.tip, h.tutar, h.aciklama, h.belge_id, h.kullanici_id, h.created_at,
+              c.ad_unvan AS musteri_adi
+       FROM kasa_hareketleri h
+       LEFT JOIN satislar s ON s.id = h.belge_id
+       LEFT JOIN cariler c ON c.id = s.musteri_id
+       WHERE h.kasa_oturum_id = ? ORDER BY h.created_at, h.rowid LIMIT ?`,
     )
     .tumu<KasaHareketiKaydi>(oturumId, limit);
 }
@@ -190,7 +197,7 @@ export function oturumVeresiyeSatislari(vt: Vt, oturumId: string): Omit<KasaHare
     .hazirla(
       `SELECT s.id, s.kasa_oturum_id, SUM(o.tutar) AS tutar,
               'Veresiye — ' || COALESCE(c.ad_unvan, 'müşteri') || ' (' || s.fis_no || ')' AS aciklama,
-              s.id AS belge_id, s.kullanici_id, s.tarih AS created_at
+              s.id AS belge_id, s.kullanici_id, s.tarih AS created_at, c.ad_unvan AS musteri_adi
        FROM satislar s
        JOIN odemeler o ON o.satis_id = s.id AND o.odeme_tipi = 'VERESIYE'
        LEFT JOIN cariler c ON c.id = s.musteri_id

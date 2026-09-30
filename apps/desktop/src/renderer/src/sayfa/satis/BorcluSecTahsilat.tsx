@@ -157,7 +157,7 @@ export function BorcluSecTahsilat({ acik, onKapat }: { acik: boolean; onKapat: (
                     <div className="font-medium">{c.ad_unvan}</div>
                     {c.telefon && <div className="text-xs text-metin-4">{c.telefon}</div>}
                   </td>
-                  <td className="sayi font-semibold text-uyari">{paraFormat(c.bakiye, { simge: false })}</td>
+                  <td className="sayi font-semibold text-uyari text-right">{paraFormat(c.bakiye, { simge: false })}</td>
                 </tr>
               ))}
             </tbody>
