@@ -555,7 +555,7 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
     }
 
     // Tedarikçiye borç — faturanın tamamı önce borç olarak yazılır.
-    cariHareketEkle(
+    const borcHareketId = cariHareketEkle(
       vt,
       {
         cari_id: girdi.tedarikci_id,
@@ -580,8 +580,9 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
      * ayrı ayrı görünmelidir (mutabakat ve denetim için). Kalan tutar bakiyede
      * kendiliğinden borç olarak durur.
      */
+    let odemeHareketId: string | null = null;
     if (odenen > 0) {
-      cariHareketEkle(
+      odemeHareketId = cariHareketEkle(
         vt,
         {
           cari_id: girdi.tedarikci_id,
@@ -637,6 +638,14 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
            * Tedarikçi borcu paneldeki en kritik rakamlardan biri (§11.8).
            */
           odenen_tutar: girdi.odenen_tutar ?? 0,
+          /*
+           * Kasadaki borç ve ödeme satırlarının KİMLİKLERİ. Merkez bu satırları
+           * olaydan türetir; aynı kimliği kullanmazsa kasada yapılan ödeme
+           * iptali (belge_id = ödeme satırı) merkezde eşleşmez, panel iptal
+           * edilmiş ödemeyi yeniden iptal etmeyi teklif ederdi.
+           */
+          borc_hareket_id: borcHareketId,
+          odeme_hareket_id: odemeHareketId,
           /*
            * Belgenin TAMAMI taşınır: KDV kırılımı, vade, not, durum ve faturayı
            * kimin girdiği. Eskiden yalnız tedarikçi, tarih ve genel toplam

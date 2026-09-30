@@ -849,3 +849,195 @@ describe('iade fişi — müşteri ve kaynak fiş (§10.4)', () => {
     expect(orijinal.iadeler).toEqual([expect.objectContaining({ id: iadeId, fis_no: 'A-000005', genel_toplam: -20_000 })]);
   });
 });
+
+/*
+ * Kasa ile panelin cari defteri AYNI satırları göstermeli (§11.6, §11.8).
+ */
+describe('kasa ↔ panel cari uyumu', () => {
+  const cariOlayi = (id: string, tip: 'MUSTERI' | 'TEDARIKCI', ad: string) => ({
+    uuid: uuid(),
+    tip: 'CARI_KAYDEDILDI' as const,
+    entity: 'cari',
+    entity_id: id,
+    olusturma_zamani: simdi(),
+    veri: { id, tip, ad_unvan: ad, created_at: simdi(), updated_at: simdi() },
+  });
+  const ekstre = async (cariId: string) =>
+    (await panelGet(`${UCLAR.cariler}/${cariId}/ekstre`)).json() as {
+      cari: { bakiye: number } | null;
+      hareketler: { id: string; hareket_tipi: string; tutar: number; belge_id: string | null; belge_tipi: string | null }[];
+    };
+
+  function faturaOlayi(tedarikciId: string, ek: Record<string, unknown> = {}) {
+    const id = uuid();
+    return {
+      id,
+      olay: {
+        uuid: uuid(),
+        tip: 'ALIS_FATURASI_ONAYLANDI' as const,
+        entity: 'alis_faturasi',
+        entity_id: id,
+        olusturma_zamani: simdi(),
+        veri: {
+          id,
+          tedarikci_id: tedarikciId,
+          tarih: simdi(),
+          genel_toplam: 500_000,
+          odenen_tutar: 250_000,
+          kalemler: [{ urun_id: URUN_ID, miktar: 100_000, birim_fiyat: 5000, kdv_orani: 0, satir_toplam: 500_000 }],
+          ...ek,
+        },
+      },
+    };
+  }
+
+  it('kasadan gelen faturanın borç ve ödeme satırları belge türünü ve kasadaki kimliği taşır', async () => {
+    const tedarikci = uuid();
+    const borcId = uuid();
+    const odemeId = uuid();
+    const f = faturaOlayi(tedarikci, { borc_hareket_id: borcId, odeme_hareket_id: odemeId });
+    await push([cariOlayi(tedarikci, 'TEDARIKCI', 'Enis'), f.olay]);
+
+    const e = await ekstre(tedarikci);
+    expect(e.hareketler).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: borcId, belge_id: f.id, belge_tipi: 'ALIS', tutar: 500_000 }),
+        expect.objectContaining({ id: odemeId, belge_id: f.id, belge_tipi: 'ALIS_ODEME', tutar: -250_000 }),
+      ]),
+    );
+    expect(e.cari?.bakiye).toBe(250_000);
+  });
+
+  it('eski kasadan (kimliksiz) gelen faturada da belge türü yazılır', async () => {
+    const tedarikci = uuid();
+    const f = faturaOlayi(tedarikci);
+    await push([cariOlayi(tedarikci, 'TEDARIKCI', 'Enis'), f.olay]);
+    const tipler = (await ekstre(tedarikci)).hareketler.map((h) => h.belge_tipi).sort();
+    expect(tipler).toEqual(['ALIS', 'ALIS_ODEME']);
+  });
+
+  it('kasada iptal edilen fatura ödemesi panelde aynı satıra bağlanır', async () => {
+    const tedarikci = uuid();
+    const odemeId = uuid();
+    const f = faturaOlayi(tedarikci, { borc_hareket_id: uuid(), odeme_hareket_id: odemeId });
+    const iptalId = uuid();
+    await push([
+      cariOlayi(tedarikci, 'TEDARIKCI', 'Enis'),
+      f.olay,
+      {
+        uuid: uuid(),
+        tip: 'CARI_HAREKETI',
+        entity: 'cari_hareketi',
+        entity_id: iptalId,
+        olusturma_zamani: simdi(),
+        veri: {
+          id: iptalId,
+          cari_id: tedarikci,
+          hareket_tipi: 'DUZELTME',
+          tutar: 250_000,
+          belge_id: odemeId,
+          belge_tipi: 'TAHSILAT_IPTAL',
+          tarih: simdi(),
+        },
+      },
+    ]);
+    const e = await ekstre(tedarikci);
+    const iptal = e.hareketler.find((h) => h.belge_tipi === 'TAHSILAT_IPTAL');
+    expect(e.hareketler.some((h) => h.id === iptal?.belge_id)).toBe(true);
+    expect(e.cari?.bakiye).toBe(500_000);
+  });
+
+  it('veresiye iade müşterinin borcundan düşer', async () => {
+    const musteri = uuid();
+    const satis = satisOlayi({ tutar: 40_000 });
+    Object.assign(satis.veri, { musteri_id: musteri, odemeler: [{ tip: 'VERESIYE', tutar: 40_000 }] });
+    const iadeId = uuid();
+    await push([
+      cariOlayi(musteri, 'MUSTERI', 'Barış'),
+      satis,
+      {
+        uuid: uuid(),
+        tip: 'IADE_YAPILDI' as const,
+        entity: 'satis',
+        entity_id: iadeId,
+        olusturma_zamani: simdi(),
+        veri: {
+          id: iadeId,
+          fis_no: 'A-000009',
+          tarih: simdi(),
+          kaynak_satis_id: satis.veri.id,
+          musteri_id: musteri,
+          genel_toplam: -20_000,
+          iade_yontemi: 'VERESIYE',
+          kalemler: [{ urun_id: URUN_ID, miktar: -2000, satir_toplam: -20_000 }],
+          odemeler: [{ tip: 'VERESIYE', tutar: -20_000 }],
+        },
+      },
+    ]);
+    const e = await ekstre(musteri);
+    expect(e.cari?.bakiye).toBe(20_000);
+    expect(e.hareketler.find((h) => h.belge_id === iadeId)).toMatchObject({ belge_tipi: 'IADE', tutar: -20_000 });
+  });
+
+  it('satış iptalinin cari satırı belge türünü taşır', async () => {
+    const musteri = uuid();
+    const satis = satisOlayi({ tutar: 40_000 });
+    Object.assign(satis.veri, { musteri_id: musteri, odemeler: [{ tip: 'VERESIYE', tutar: 40_000 }] });
+    await push([
+      cariOlayi(musteri, 'MUSTERI', 'Barış'),
+      satis,
+      {
+        uuid: uuid(),
+        tip: 'SATIS_IPTAL_EDILDI' as const,
+        entity: 'satis',
+        entity_id: satis.veri.id,
+        olusturma_zamani: simdi(),
+        veri: { id: satis.veri.id, neden: 'yanlış' },
+      },
+    ]);
+    const e = await ekstre(musteri);
+    expect(e.cari?.bakiye).toBe(0);
+    expect(e.hareketler.map((h) => h.belge_tipi).sort()).toEqual(['SATIS', 'SATIS_IPTAL']);
+  });
+});
+
+describe('eski cari satırlarının belge türü onarımı', () => {
+  it('belge türü boş kalmış fatura borç/ödeme ve satış iptali satırları şema hazırlığında onarılır', async () => {
+    const tedarikci = uuid();
+    const faturaId = uuid();
+    const zaman = simdi();
+    await vt.calistir(
+      `INSERT INTO alis_faturalari (id, isletme_id, tedarikci_id, tarih, ara_toplam, kdv_toplam, genel_toplam,
+                                    odenen_tutar, durum, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, 0, 1000, 500, 'ONAYLANDI', ?, ?)`,
+      [faturaId, ISLETME_ID, tedarikci, zaman, zaman, zaman],
+    );
+    for (const [id, tip, tutar] of [
+      [`${faturaId}-borc`, 'BORC', 1000],
+      [`${faturaId}-odeme`, 'ODEME', -500],
+    ] as const) {
+      await vt.calistir(
+        `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, belge_id, tarih)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, ISLETME_ID, tedarikci, tip, tutar, faturaId, zaman],
+      );
+    }
+    const satisId = uuid();
+    await vt.calistir(
+      `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, belge_id, tarih)
+       VALUES (?, ?, ?, 'ALACAK', -100, ?, ?)`,
+      [`${satisId}-veresiye-iptal`, ISLETME_ID, uuid(), satisId, zaman],
+    );
+
+    await semayiHazirla(vt);
+
+    const tipler = await vt.tumu<{ id: string; belge_tipi: string | null }>(
+      'SELECT id, belge_tipi FROM cari_hareketler WHERE isletme_id = ? ORDER BY id',
+      [ISLETME_ID],
+    );
+    const harita = Object.fromEntries(tipler.map((t) => [t.id, t.belge_tipi]));
+    expect(harita[`${faturaId}-borc`]).toBe('ALIS');
+    expect(harita[`${faturaId}-odeme`]).toBe('ALIS_ODEME');
+    expect(harita[`${satisId}-veresiye-iptal`]).toBe('SATIS_IPTAL');
+  });
+});

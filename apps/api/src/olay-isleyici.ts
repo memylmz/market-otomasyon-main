@@ -340,22 +340,30 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
        * satış iki kez işlense borç bir kez yazılır.
        */
       const musteriId = veri.musteri_id ? metin(veri.musteri_id) : '';
+      /*
+       * İade olayında tutarlar EKSİ gelir (veresiye = -200). Eskiden koşul
+       * `veresiye > 0` idi: veresiye iade merkezde hiç cariye yazılmıyor, kasada
+       * borcu düşen müşteri panelde borçlu kalıyordu. Mutlak değer alınır,
+       * işaret iade/satıştan gelir. Satır türü kasayla aynıdır (IADE / SATIS).
+       */
+      const veresiyeTutari = Math.abs(veresiye);
 
-      if (musteriId && veresiye > 0) {
-        const imzali = iadeMi ? -veresiye : veresiye;
+      if (musteriId && veresiyeTutari > 0) {
+        const imzali = iadeMi ? -veresiyeTutari : veresiyeTutari;
         const eklendi = await islem.calistir(
           `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id,
                                         belge_tipi, tarih, cihaz_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'SATIS', ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
           [
             `${satisId}-veresiye`,
             isletmeId,
             musteriId,
-            iadeMi ? 'ALACAK' : 'BORC',
+            iadeMi ? 'IADE' : 'BORC',
             imzali,
             iadeMi ? 'İade (veresiye)' : 'Veresiye satış',
             satisId,
+            iadeMi ? 'IADE' : 'SATIS',
             metin(veri.tarih, baglam.zaman),
             baglam.cihazId,
           ],
@@ -427,8 +435,9 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         if (iptalEdilen?.musteri_id && iptalVeresiye > 0) {
           const cariId = String(iptalEdilen.musteri_id);
           const eklendi = await islem.calistir(
-            `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id, tarih, cihaz_id)
-             VALUES (?, ?, ?, 'ALACAK', ?, 'Satış iptali', ?, ?, ?)
+            `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id,
+                                          belge_tipi, tarih, cihaz_id)
+             VALUES (?, ?, ?, 'DUZELTME', ?, 'Satış iptali', ?, 'SATIS_IPTAL', ?, ?)
              ON CONFLICT(isletme_id, id) DO NOTHING`,
             [`${satisId}-veresiye-iptal`, isletmeId, cariId, -iptalVeresiye, satisId, String(mevcut.tarih), baglam.cihazId],
           );
@@ -876,13 +885,21 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
           );
         }
 
+        /*
+         * Satırlar kasadakiyle AYNI kimlik ve belge türüyle yazılır. Belge türü
+         * yokken panel ekstresinde "faturayı gör" hiç çıkmıyordu; kimlik farklıyken
+         * kasada iptal edilen ödeme panelde eşleşmiyordu. Eski kasalar kimlik
+         * göndermez — o zaman deterministik kimliğe düşülür.
+         */
+        const borcHareketId = metin(veri.borc_hareket_id) || `${faturaId}-borc`;
+        const odemeHareketId = metin(veri.odeme_hareket_id) || `${faturaId}-odeme`;
         await islem.calistir(
           `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id,
-                                        tarih, vade_tarihi, kullanici_id, cihaz_id)
-           VALUES (?, ?, ?, 'BORC', ?, ?, ?, ?, ?, ?, ?)
+                                        belge_tipi, tarih, vade_tarihi, kullanici_id, cihaz_id)
+           VALUES (?, ?, ?, 'BORC', ?, ?, ?, 'ALIS', ?, ?, ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
           [
-            `${faturaId}-borc`,
+            borcHareketId,
             isletmeId,
             tedarikciId,
             genelToplam,
@@ -911,19 +928,10 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         if (odenen > 0) {
           const eklendi = await islem.calistir(
             `INSERT INTO cari_hareketler (id, isletme_id, cari_id, hareket_tipi, tutar, aciklama, belge_id,
-                                          tarih, kullanici_id, cihaz_id)
-             VALUES (?, ?, ?, 'ODEME', ?, 'Mal alımı peşin ödeme', ?, ?, ?, ?)
+                                          belge_tipi, tarih, kullanici_id, cihaz_id)
+             VALUES (?, ?, ?, 'ODEME', ?, 'Mal alımı peşin ödeme', ?, 'ALIS_ODEME', ?, ?, ?)
              ON CONFLICT(isletme_id, id) DO NOTHING`,
-            [
-              `${faturaId}-odeme`,
-              isletmeId,
-              tedarikciId,
-              -odenen,
-              faturaId,
-              faturaTarihi,
-              veri.kullanici_id ?? null,
-              baglam.cihazId,
-            ],
+            [odemeHareketId, isletmeId, tedarikciId, -odenen, faturaId, faturaTarihi, veri.kullanici_id ?? null, baglam.cihazId],
           );
           if (eklendi.rowsAffected > 0) {
             await cariOzetEkle(islem, baglam, tedarikciId, -odenen, faturaTarihi);

@@ -498,6 +498,29 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'satislar', 'kasiyer_adi TEXT');
 
   /*
+   * ONARIM — olaydan türetilen cari satırlarına belge türü (§11.6).
+   *
+   * Merkez fatura borcu/ödemesi ve satış iptali satırlarını belge türü OLMADAN
+   * yazıyordu; panel ekstresinde "faturayı gör / fişi gör" bu satırlarda hiç
+   * çıkmıyordu. Türetilen satırların kimlik soneki türü kesin söyler. Yalnız
+   * boş olanlara dokunur; tekrar çalışması zararsızdır.
+   */
+  await vt.calistir(
+    `UPDATE cari_hareketler SET belge_tipi = 'ALIS'
+      WHERE belge_tipi IS NULL AND id = belge_id || '-borc'
+        AND EXISTS (SELECT 1 FROM alis_faturalari f WHERE f.isletme_id = cari_hareketler.isletme_id AND f.id = cari_hareketler.belge_id)`,
+  );
+  await vt.calistir(
+    `UPDATE cari_hareketler SET belge_tipi = 'ALIS_ODEME'
+      WHERE belge_tipi IS NULL AND id = belge_id || '-odeme'
+        AND EXISTS (SELECT 1 FROM alis_faturalari f WHERE f.isletme_id = cari_hareketler.isletme_id AND f.id = cari_hareketler.belge_id)`,
+  );
+  await vt.calistir(
+    `UPDATE cari_hareketler SET belge_tipi = 'SATIS_IPTAL'
+      WHERE belge_tipi IS NULL AND id = belge_id || '-veresiye-iptal'`,
+  );
+
+  /*
    * ALIŞ FATURASI — belgenin tamamı merkeze taşınır (§11.8).
    *
    * Eskiden yalnız tedarikçi, tarih ve genel toplam geliyordu. Panelden
