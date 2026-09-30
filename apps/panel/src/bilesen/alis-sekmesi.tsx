@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
+  belgeTarihi,
   bugun,
   faturaToplamlari,
   gunEkle,
@@ -943,8 +944,8 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
           tip: 'OLUSTUR',
           tedarikci_id: tedarikciId,
           fatura_no: faturaNo.trim() || null,
-          // Kasa zaman damgası bekler; seçilen gün gün başı olarak gönderilir.
-          tarih: `${tarih}T00:00:00.000Z`,
+          // Bugünse işlem anı, geçmiş günse o YEREL günün başı (UTC gece yarısı TR'de 03:00'tü).
+          tarih: belgeTarihi(tarih),
           vade_tarihi: vadeTarihi || null,
           notlar: notlar.trim() || null,
           odenen_tutar: odenenTutar,

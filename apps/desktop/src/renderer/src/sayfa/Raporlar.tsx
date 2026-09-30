@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   bugun,
+  gunBasi,
   gunEkle,
+  gunSonu,
   IADE_YONTEMI_ETIKETI,
   miktarFormat,
   paraFormat,
@@ -93,7 +95,8 @@ export function RaporlarSayfasi() {
     setYukleniyor(true);
     const girdi =
       sekme === 'satislar'
-        ? { filtre: { baslangic: baslangic + 'T00:00:00.000Z', bitis: gunEkle(bitis, 1) + 'T00:00:00.000Z' }, limit: 200 }
+        ? // Gün sınırı YEREL gündür: UTC gece yarısı (TR 03:00) 00:00-03:00 arasındaki satışları önceki güne atıyordu.
+          { filtre: { baslangic: gunBasi(baslangic), bitis: gunSonu(bitis) }, limit: 200 }
         : sekme === 'denetim'
           ? { limit: 200 }
           : { from: baslangic, to: bitis };

@@ -186,3 +186,14 @@ export function ayBasi(gun: GunAnahtari = bugun()): GunAnahtari {
 export function kalanGun(hedef: GunAnahtari, referans: GunAnahtari = bugun()): number {
   return gunFarki(referans, hedef);
 }
+
+/**
+ * Formdaki belge gününü (fatura tarihi gibi) zaman damgasına çevirir.
+ *
+ * Bugünse İŞLEM ANI döner: saat bilgisi kaybolmasın, ekstrede sıra doğru
+ * dursun. Geçmiş bir günse o YEREL günün başı döner. `${gun}T00:00:00Z`
+ * yazmak UTC gece yarısıdır — TR'de 03:00 görünür.
+ */
+export function belgeTarihi(gun: GunAnahtari, an: ZamanDamgasi = simdi()): ZamanDamgasi {
+  return gun === gunAnahtari(an) ? an : gunBasi(gun);
+}

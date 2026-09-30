@@ -65,6 +65,7 @@ export function UrunKartiDiyalogu({
   onKapat,
   onKaydedildi,
   taslak,
+  stokGizli = false,
 }: {
   urun: UrunSatiri | 'yeni' | null;
   kategoriler: Kategori[];
@@ -76,6 +77,12 @@ export function UrunKartiDiyalogu({
    * gelirse form kullanıcının yazdıklarını sıfırlar.
    */
   taslak?: { baslangic: UrunKartiTaslagi; onUygula: (deger: UrunKartiTaslagi) => void };
+  /**
+   * Stok alanı gizlenir. Mal kabulden açılan kartta stok FATURADAN gelir;
+   * karttan da girilirse maliyetsiz bir düzeltme hareketi olarak ikinci kez
+   * sayılırdı.
+   */
+  stokGizli?: boolean;
 }) {
   const yeniMi = urun === 'yeni';
   const taslakBaslangic = taslak?.baslangic;
@@ -510,7 +517,7 @@ export function UrunKartiDiyalogu({
           yeni üründe açılış stoğu, mevcut üründe sayım düzeltmesi.
         */}
         {/* Taslakta stok faturadan gelir; ayrı bir açılış stoğu çift sayım olurdu. */}
-        {!taslak && (
+        {!taslak && !stokGizli && (
           <Alan
             etiket="Stok miktarı"
             ipucu={

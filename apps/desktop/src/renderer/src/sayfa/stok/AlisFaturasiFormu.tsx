@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
+  belgeTarihi,
   gunAnahtari,
   paraFormat,
   topluGirisKalemleri,
@@ -464,7 +465,8 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         {
           tedarikci_id: tedarikciId,
           fatura_no: faturaNo.trim() || undefined,
-          tarih: `${faturaTarihi}T00:00:00.000Z`,
+          // Bugünse işlem anı, geçmiş günse o YEREL günün başı (UTC gece yarısı TR'de 03:00'tü).
+          tarih: belgeTarihi(faturaTarihi),
           vade_tarihi: vadeTarihi || undefined,
           notlar: notlar.trim() || undefined,
           odenen_tutar: odenenTutar,
@@ -514,7 +516,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   const detayOzeti = [
     faturaNo.trim() ? `Fatura ${faturaNo.trim()}` : 'Fatura no yok',
     faturaTarihi.split('-').reverse().join('.'),
-    odemeDurumu === 'BORC' ? 'Borç kalacak' : odemeDurumu === 'NAKIT' ? 'Nakit ödendi' : 'Havale/kart',
+    odemeDurumu === 'BORC' ? 'Borç kalacak' : odemeDurumu === 'NAKIT' ? 'Kasadan nakit ödendi' : 'Kart/havale ile ödendi',
     marjYuzde.trim() ? `Marj %${marjYuzde.trim()}` : 'Marj girilmedi',
     kategoriId ? (kategoriler.find((k) => k.id === kategoriId)?.ad ?? 'Kategori') : 'Kategorisiz',
   ].join(' · ');
@@ -635,7 +637,16 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
             <Alan etiket="Vade tarihi" ipucu="Borç kalacaksa anlamlıdır.">
               <input type="date" className="alan" value={vadeTarihi} onChange={(e) => setVadeTarihi(e.target.value)} />
             </Alan>
-            <Alan etiket="Ödeme durumu" ipucu="Nakit seçilirse kasadan da düşülür; kasa açık olmalıdır.">
+            <Alan
+              etiket="Ödeme durumu"
+              ipucu={
+                odemeDurumu === 'NAKIT'
+                  ? 'Ödenen tutar KASADAN düşülür (kasa açık olmalı).'
+                  : odemeDurumu === 'HAVALE'
+                    ? 'Kasa etkilenmez; yalnız tedarikçi borcu kapanır.'
+                    : 'Tamamı tedarikçi borcu olarak kalır.'
+              }
+            >
               <select
                 className="alan"
                 value={odemeDurumu}
@@ -647,8 +658,8 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                 }}
               >
                 <option value="BORC">Ödemedim — borç kalsın</option>
-                <option value="NAKIT">Ödedim — nakit</option>
-                <option value="HAVALE">Ödedim — havale/kart</option>
+                <option value="NAKIT">Ödedim — kasadan nakit</option>
+                <option value="HAVALE">Ödedim — kart / havale (kasayı etkilemez)</option>
               </select>
             </Alan>
             <Alan
@@ -991,6 +1002,8 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
           urun={'urun' in kart ? kart.urun : 'yeni'}
           kategoriler={kategoriler}
           onKapat={() => setKart(null)}
+          // Stok bu faturadan gelir; karttan ayrıca girilirse maliyetsiz bir düzeltme olarak ikinci kez sayılır.
+          stokGizli
           onKaydedildi={() => 'urun' in kart && void kartKaydedildi(kart.sira, kart.urun.id)}
           taslak={'taslak' in kart ? { baslangic: kart.taslak, onUygula: (t) => taslagiUygula(kart.sira, t) } : undefined}
         />
