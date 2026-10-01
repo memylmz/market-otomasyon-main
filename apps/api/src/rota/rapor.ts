@@ -435,8 +435,13 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
              CASE WHEN s.iade_mi = 1 THEN 'Karta iade — ' ELSE 'Kart satış — ' END || s.fis_no AS aciklama,
              SUM(o.tutar) AS tutar, s.id AS belge_id
       FROM satislar s JOIN odemeler o ON o.isletme_id = s.isletme_id AND o.satis_id = s.id AND o.odeme_tipi = 'KART'
-      WHERE s.isletme_id = ? AND s.iptal_mi = 0
+      WHERE s.isletme_id = ?
       GROUP BY s.id
+      UNION ALL
+      SELECT k.created_at AS tarih, 'IPTAL' AS tur, 'Satış iptali (karta iade) — ' || s.fis_no AS aciklama,
+             k.tutar, s.id AS belge_id
+      FROM kasa_hareketleri k JOIN satislar s ON s.isletme_id = k.isletme_id AND s.id = k.belge_id
+      WHERE k.isletme_id = ? AND s.iptal_mi = 1 AND s.iade_mi = 0 AND k.tip = 'SATIS_KART' AND k.tutar < 0
       UNION ALL
       SELECT h.tarih,
              CASE WHEN h.hareket_tipi = 'TAHSILAT' THEN 'KART_TAHSILAT'
@@ -463,8 +468,9 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
     const bas = gunBasi(from);
     const bit = gunSonu(to);
     const [devirSatiri, satirlar, oranSatiri] = await Promise.all([
-      // Kaynak sorgusunda işletme kimliği üç kez geçer (satış, cari, banka).
+      // Kaynak sorgusunda işletme kimliği dört kez geçer (satış, iptal, cari, banka).
       uygulama.vt.tek<{ t: number }>(`SELECT COALESCE(SUM(tutar), 0) t FROM (${kaynaklar}) WHERE tarih < ?`, [
+        isletmeId,
         isletmeId,
         isletmeId,
         isletmeId,
@@ -473,7 +479,7 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
       uygulama.vt.tumu<{ tarih: string; tur: string; aciklama: string; tutar: number; belge_id: string | null }>(
         `SELECT tarih, tur, aciklama, tutar, belge_id FROM (${kaynaklar})
           WHERE tarih >= ? AND tarih < ? ORDER BY tarih LIMIT 2000`,
-        [isletmeId, isletmeId, isletmeId, bas, bit],
+        [isletmeId, isletmeId, isletmeId, isletmeId, bas, bit],
       ),
       uygulama.vt.tek<{ deger: string }>(
         "SELECT deger FROM ayarlar WHERE isletme_id = ? AND anahtar = 'pos.komisyon_orani' AND silindi_mi = 0",

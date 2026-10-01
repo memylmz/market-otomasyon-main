@@ -55,8 +55,16 @@ const KAYNAKLAR = `
          CASE WHEN s.iade_mi = 1 THEN 'Karta iade — ' ELSE 'Kart satış — ' END || s.fis_no AS aciklama,
          SUM(o.tutar) AS tutar, s.id AS belge_id, 'SATIS' AS belge_tipi
   FROM satislar s JOIN odemeler o ON o.satis_id = s.id AND o.odeme_tipi = 'KART'
-  WHERE s.iptal_mi = 0
   GROUP BY s.id
+
+  UNION ALL
+
+  -- İptal edilen satışın kartla geri ödenen kısmı. İptal nakit iade edildiyse
+  -- bu satır yoktur: kart parası bankada kalır, nakit kasadan çıkar.
+  SELECT k.created_at AS tarih, 'IPTAL' AS tur, 'Satış iptali (karta iade) — ' || s.fis_no AS aciklama,
+         k.tutar, s.id AS belge_id, 'SATIS_IPTAL' AS belge_tipi
+  FROM kasa_hareketleri k JOIN satislar s ON s.id = k.belge_id
+  WHERE s.iptal_mi = 1 AND s.iade_mi = 0 AND k.tip = 'SATIS_KART' AND k.tutar < 0
 
   UNION ALL
 

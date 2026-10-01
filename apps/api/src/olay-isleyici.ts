@@ -447,12 +447,17 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         }
 
         const gun = gunAnahtari(String(mevcut.tarih));
+        // Ödeme kırılımı da düşülür; kasa paranın hangi yoldan geri verildiğini
+        // (nakit_iade / kart_iade) gönderir. Eski kasalar göndermez → 0.
         await gunlukOzetEkle(islem, baglam, gun, {
           ciro: -Number(mevcut.genel_toplam),
           iptal_toplam: Number(mevcut.genel_toplam),
           islem_sayisi: -1,
           brut_kar: -Number(mevcut.brut_kar),
           kdv_toplam: -Number(mevcut.kdv_toplam),
+          nakit: -sayi(veri.nakit_iade),
+          kart: -sayi(veri.kart_iade),
+          veresiye: -iptalVeresiye,
         });
       }
       return;

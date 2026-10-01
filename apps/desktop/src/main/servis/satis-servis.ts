@@ -517,7 +517,15 @@ function vadeTarihiHesapla(baglam: Baglam, cariId: string, zaman: string): strin
 // İptal (§10.3)
 // ---------------------------------------------------------------------------
 
-export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden: string): void {
+/**
+ * Satışı iptal eder.
+ *
+ * `paraYolu` ödenmiş kısmın (nakit + kart) müşteriye NASIL geri verildiğidir;
+ * verilmezse ödendiği gibi döner (nakit → kasadan, kart → karta). Nakit iade
+ * o anki AÇIK kasadan yazılır — satışın vardiyası kapanmış olabilir. Veresiye
+ * kısmı her durumda borçtan silinir: satış hiç olmamış sayılır.
+ */
+export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden: string, paraYolu?: 'NAKIT' | 'KART'): void {
   yetkiIste(aktor, 'satis.iptal');
   const { vt, cihazId } = baglam;
   const zaman = simdi();
@@ -530,6 +538,16 @@ export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden:
   const kalemler = kalemleriGetir(vt, satisId);
   const odemeler = odemeleriGetir(vt, satisId);
   const gun = gunAnahtari(satis.tarih);
+
+  const toplamTip = (tip: string) => odemeler.filter((o) => o.odeme_tipi === tip).reduce((t, o) => t + o.tutar, 0);
+  const nakit = toplamTip('NAKIT');
+  const kart = toplamTip('KART');
+  const veresiye = satis.musteri_id ? toplamTip('VERESIYE') : 0;
+  const odenen = nakit + kart;
+  const nakitIade = paraYolu === undefined ? nakit : paraYolu === 'NAKIT' ? odenen : 0;
+  const kartIade = paraYolu === undefined ? kart : paraYolu === 'KART' ? odenen : 0;
+  // Para geri verilecekse açık bir vardiya gerekir; tamamen veresiye satış kasasız iptal edilebilir.
+  const kasaOturumId = odenen > 0 ? kasaOturumuIste(aktor) : null;
 
   vt.islem(() => {
     const etkilenen = satisIptalIsaretle(vt, satisId, neden, zaman);
@@ -559,61 +577,52 @@ export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden:
       urunOzetEkle(vt, kalem.urun_id, gun, cihazId, { adet: -kalem.miktar, ciro: -kalem.satir_toplam, kar: -satirKar }, zaman);
     }
 
-    let nakit = 0;
-    let kart = 0;
-    let veresiye = 0;
-    for (const odeme of odemeler) {
-      if (odeme.odeme_tipi === 'NAKIT') {
-        nakit += odeme.tutar;
-        if (satis.kasa_oturum_id) {
-          kasaHareketEkle(
-            vt,
-            {
-              kasa_oturum_id: satis.kasa_oturum_id,
-              tip: 'IADE_NAKIT',
-              tutar: -odeme.tutar,
-              belge_id: satisId,
-              aciklama: `Satış iptali ${satis.fis_no}`,
-              kullanici_id: aktor.kullaniciId,
-            },
-            cihazId,
-            zaman,
-          );
-        }
-      } else if (odeme.odeme_tipi === 'KART') {
-        kart += odeme.tutar;
-        if (satis.kasa_oturum_id) {
-          kasaHareketEkle(
-            vt,
-            {
-              kasa_oturum_id: satis.kasa_oturum_id,
-              tip: 'SATIS_KART',
-              tutar: -odeme.tutar,
-              belge_id: satisId,
-              aciklama: `Satış iptali ${satis.fis_no}`,
-              kullanici_id: aktor.kullaniciId,
-            },
-            cihazId,
-            zaman,
-          );
-        }
-      } else if (satis.musteri_id) {
-        veresiye += odeme.tutar;
-        cariHareketEkle(
-          vt,
-          {
-            cari_id: satis.musteri_id,
-            hareket_tipi: 'DUZELTME',
-            tutar: -odeme.tutar,
-            aciklama: `Satış iptali ${satis.fis_no}`,
-            belge_id: satisId,
-            belge_tipi: 'SATIS_IPTAL',
-            kullanici_id: aktor.kullaniciId,
-          },
-          cihazId,
-          zaman,
-        );
-      }
+    if (kasaOturumId && nakitIade > 0) {
+      kasaHareketEkle(
+        vt,
+        {
+          kasa_oturum_id: kasaOturumId,
+          tip: 'IADE_NAKIT',
+          tutar: -nakitIade,
+          belge_id: satisId,
+          aciklama: `Satış iptali ${satis.fis_no} — nakit iade`,
+          kullanici_id: aktor.kullaniciId,
+        },
+        cihazId,
+        zaman,
+      );
+    }
+    // Karta iade kasa nakdini etkilemez; kart kırılımı ve Banka/POS defteri için yazılır.
+    if (kasaOturumId && kartIade > 0) {
+      kasaHareketEkle(
+        vt,
+        {
+          kasa_oturum_id: kasaOturumId,
+          tip: 'SATIS_KART',
+          tutar: -kartIade,
+          belge_id: satisId,
+          aciklama: `Satış iptali ${satis.fis_no} — karta iade`,
+          kullanici_id: aktor.kullaniciId,
+        },
+        cihazId,
+        zaman,
+      );
+    }
+    if (satis.musteri_id && veresiye > 0) {
+      cariHareketEkle(
+        vt,
+        {
+          cari_id: satis.musteri_id,
+          hareket_tipi: 'DUZELTME',
+          tutar: -veresiye,
+          aciklama: `Satış iptali ${satis.fis_no}`,
+          belge_id: satisId,
+          belge_tipi: 'SATIS_IPTAL',
+          kullanici_id: aktor.kullaniciId,
+        },
+        cihazId,
+        zaman,
+      );
     }
 
     gunlukOzetEkle(
@@ -624,8 +633,8 @@ export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden:
         ciro: -satis.genel_toplam,
         iptal_toplam: satis.genel_toplam,
         islem_sayisi: -1,
-        nakit: -nakit,
-        kart: -kart,
+        nakit: -nakitIade,
+        kart: -kartIade,
         veresiye: -veresiye,
         brut_kar: -brutKar,
         kdv_toplam: -satis.kdv_toplam,
@@ -640,7 +649,16 @@ export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden:
         olay_tipi: 'SATIS_IPTAL_EDILDI',
         entity: 'satis',
         entity_id: satisId,
-        veri: { id: satisId, fis_no: satis.fis_no, neden, iptal_zamani: zaman, kullanici_id: aktor.kullaniciId },
+        veri: {
+          id: satisId,
+          fis_no: satis.fis_no,
+          neden,
+          iptal_zamani: zaman,
+          kullanici_id: aktor.kullaniciId,
+          para_yolu: paraYolu ?? 'ORIJINAL',
+          nakit_iade: nakitIade,
+          kart_iade: kartIade,
+        },
         olusturma_zamani: zaman,
       },
       cihazId,
@@ -655,7 +673,7 @@ export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden:
         entity: 'satis',
         entity_id: satisId,
         eski_deger: { genel_toplam: satis.genel_toplam },
-        yeni_deger: { neden },
+        yeni_deger: { neden, para_yolu: paraYolu ?? 'ORIJINAL', nakit_iade: nakitIade, kart_iade: kartIade },
       },
       cihazId,
       zaman,

@@ -1134,6 +1134,7 @@ function SatisDetayDiyalogu({
           acik={iptalAcik}
           fisNo={detay.satis.fis_no}
           satisId={satisId}
+          odemeler={detay.odemeler}
           onKapat={() => setIptalAcik(false)}
           onTamam={() => {
             setIptalAcik(false);
@@ -1298,7 +1299,13 @@ function VardiyaDokumuDiyalogu({ oturumId, onKapat }: { oturumId: string | null;
                   onClick={() => fisVar && h.belge_id && setFisId(h.belge_id)}
                 >
                   <td className="text-metin-3">{tarihSaatFormat(h.created_at).slice(-5)}</td>
-                  <td>{KASA_HAREKET_ETIKETI[h.tip] ?? h.tip}</td>
+                  <td>
+                    {h.aciklama?.startsWith('Satış iptali')
+                      ? h.tip === 'IADE_NAKIT'
+                        ? 'İptal — nakit iade'
+                        : 'İptal — karta iade'
+                      : (KASA_HAREKET_ETIKETI[h.tip] ?? h.tip)}
+                  </td>
                   <td className="text-metin-3">
                     {h.aciklama ?? '—'}
                     {fisVar && <span className="ml-2 whitespace-nowrap text-xs text-vurgu">fişi gör →</span>}
@@ -1396,21 +1403,35 @@ function SatisIptalDiyalogu({
   acik,
   satisId,
   fisNo,
+  odemeler,
   onKapat,
   onTamam,
 }: {
   acik: boolean;
   satisId: string | null;
   fisNo: string;
+  odemeler: { odeme_tipi: string; tutar: Kurus }[];
   onKapat: () => void;
   onTamam: () => void;
 }) {
   const [neden, setNeden] = useState('');
   const [calisiyor, setCalisiyor] = useState(false);
+  /** Ödenmiş kısmın geri dönüş yolu; ORIJINAL = ödendiği gibi (yalnız karma ödemede anlamlı). */
+  const [yol, setYol] = useState<'ORIJINAL' | 'NAKIT' | 'KART'>('ORIJINAL');
+
+  const toplam = (tip: string) => odemeler.filter((o) => o.odeme_tipi === tip).reduce((t, o) => t + o.tutar, 0);
+  const nakit = toplam('NAKIT');
+  const kart = toplam('KART');
+  const veresiye = toplam('VERESIYE');
+  const odenen = nakit + kart;
+  const karma = nakit > 0 && kart > 0;
 
   useEffect(() => {
-    if (acik) setNeden('');
-  }, [acik]);
+    if (!acik) return;
+    setNeden('');
+    // Varsayılan: para ödendiği yoldan döner.
+    setYol(karma ? 'ORIJINAL' : kart > 0 ? 'KART' : 'NAKIT');
+  }, [acik, karma, kart]);
 
   if (!acik || !satisId) return null;
 
@@ -1420,8 +1441,11 @@ function SatisIptalDiyalogu({
     if (!gecerli) return;
     setCalisiyor(true);
     try {
-      await cagir('satis.iptal', { satisId, neden: neden.trim() });
-      bildir.basari(`Fiş ${fisNo} iptal edildi`, 'Stok geri alındı, varsa veresiye borcu düşüldü.');
+      await cagir('satis.iptal', { satisId, neden: neden.trim(), paraYolu: yol === 'ORIJINAL' ? undefined : yol });
+      bildir.basari(
+        `Fiş ${fisNo} iptal edildi`,
+        'Stok geri alındı; para seçilen yoldan iade edildi, varsa veresiye borcu silindi.',
+      );
       onTamam();
     } catch (hata) {
       hatayiBildir(hata, 'Satış iptali');
@@ -1450,9 +1474,52 @@ function SatisIptalDiyalogu({
     >
       <div className="space-y-3">
         <div className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
-          İptal edildiğinde: satılan ürünler <strong>stoğa geri döner</strong>, veresiye satışsa müşterinin
-          <strong> borcundan düşülür</strong>, gün sonu cirosu düzeltilir.
+          İptal edildiğinde: satılan ürünler <strong>stoğa geri döner</strong>, gün sonu cirosu düzeltilir.
+          {veresiye > 0 && (
+            <>
+              {' '}
+              Veresiye kısmı (<strong>{paraFormat(veresiye)}</strong>) müşterinin borcundan silinir.
+            </>
+          )}
         </div>
+        {odenen > 0 && (
+          <div className="space-y-2" role="radiogroup" aria-label="Para nasıl iade edildi">
+            <span className="etiket">{paraFormat(odenen)} müşteriye nasıl iade edildi?</span>
+            {[
+              ...(karma
+                ? [
+                    {
+                      deger: 'ORIJINAL' as const,
+                      baslik: 'Ödendiği gibi',
+                      alt: `${paraFormat(nakit)} nakit (kasadan), ${paraFormat(kart)} karta (POS'tan)`,
+                    },
+                  ]
+                : []),
+              { deger: 'NAKIT' as const, baslik: '💵 Nakit (kasadan)', alt: 'Tutar şu anki açık kasadan çıkar.' },
+              { deger: 'KART' as const, baslik: '💳 Karta (POS iadesi)', alt: 'POS cihazından iade yapın; kasa nakdi değişmez.' },
+            ].map((s) => {
+              const orijinal = karma ? s.deger === 'ORIJINAL' : (kart > 0 ? 'KART' : 'NAKIT') === s.deger;
+              return (
+                <button
+                  key={s.deger}
+                  type="button"
+                  role="radio"
+                  aria-checked={yol === s.deger}
+                  onClick={() => setYol(s.deger)}
+                  className={`w-full rounded border px-3 py-2 text-left text-sm ${
+                    yol === s.deger ? 'border-vurgu bg-vurgu-yumusak' : 'border-cizgi hover:bg-yuzey-2'
+                  }`}
+                >
+                  <span className="flex items-center justify-between gap-2 font-medium">
+                    {s.baslik}
+                    {orijinal && <span className="text-xs font-normal text-metin-3">ödendiği yol</span>}
+                  </span>
+                  <span className="block text-xs text-metin-3">{s.alt}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <Alan etiket="İptal nedeni *" ipucu="En az 3 karakter. Denetim kaydında ve fiş detayında görünür.">
           <input
             className="alan"

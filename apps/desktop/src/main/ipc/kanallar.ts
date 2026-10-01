@@ -378,8 +378,8 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       return { ...sonuc, yazdirmaBaslatildi: fisYazdir ?? ayarlariOku(b()).otomatikFis };
     },
 
-    'satis.iptal': (girdi: { satisId: string; neden: string }) => {
-      satisIptal(b(), a(), girdi.satisId, girdi.neden);
+    'satis.iptal': (girdi: { satisId: string; neden: string; paraYolu?: 'NAKIT' | 'KART' }) => {
+      satisIptal(b(), a(), girdi.satisId, girdi.neden, girdi.paraYolu);
       return { basarili: true };
     },
 

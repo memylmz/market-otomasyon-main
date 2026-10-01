@@ -224,7 +224,13 @@ export function KasaSayfasi() {
                           onClick={() => fisVar && h.belge_id && setFisId(h.belge_id)}
                         >
                           <td className="text-metin-3">{tarihSaatFormat(h.created_at).slice(-5)}</td>
-                          <td>{HAREKET_ETIKETI[h.tip] ?? h.tip}</td>
+                          <td>
+                            {h.aciklama?.startsWith('Satış iptali')
+                              ? h.tip === 'IADE_NAKIT'
+                                ? 'İptal — nakit iade'
+                                : 'İptal — karta iade'
+                              : (HAREKET_ETIKETI[h.tip] ?? h.tip)}
+                          </td>
                           <td className="max-w-xs truncate text-metin-3">
                             {h.aciklama ?? '—'}
                             {fisVar && <span className="ml-2 whitespace-nowrap text-xs text-vurgu">fişi gör →</span>}
