@@ -31,8 +31,17 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
       notlar?: string | null;
       musteri_adi?: string | null;
     };
-    kalemler: { urun_adi: string; miktar: number; birim_tipi?: string; birim_fiyat: Kurus; satir_toplam: Kurus }[];
+    kalemler: {
+      urun_adi: string;
+      miktar: number;
+      birim_tipi?: string;
+      birim_fiyat: Kurus;
+      satir_toplam: Kurus;
+      /** Bu satıştan iade edilen miktar (eksi). */
+      iade_edilen?: number;
+    }[];
     odemeler: { odeme_tipi: string; tutar: Kurus }[];
+    iadeler?: { fis_no: string; genel_toplam: Kurus }[];
   } | null>(null);
   const [yukleniyor, setYukleniyor] = useState(false);
   const gezin = useNavigate();
@@ -53,6 +62,9 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
   }, [satisId]);
 
   if (!satisId) return null;
+  // Orijinal fiş değişmez; iade edilen miktar ve kalan satırın yanında gösterilir.
+  const iadeVar = Boolean(detay && !detay.satis.iade_mi && detay.kalemler.some((k) => (k.iade_edilen ?? 0) !== 0));
+  const iadeToplami = (detay?.iadeler ?? []).reduce((t, i) => t + i.genel_toplam, 0);
 
   return (
     <Diyalog
@@ -95,7 +107,13 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
             <thead>
               <tr>
                 <th>Ürün</th>
-                <th className="text-right">Miktar</th>
+                <th className="text-right">{iadeVar ? 'Satılan' : 'Miktar'}</th>
+                {iadeVar && (
+                  <>
+                    <th className="text-right">İade</th>
+                    <th className="text-right">Kalan</th>
+                  </>
+                )}
                 <th className="text-right">Birim</th>
                 <th className="text-right">Tutar</th>
               </tr>
@@ -105,6 +123,16 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
                 <tr key={i}>
                   <td>{k.urun_adi}</td>
                   <td className="sayi text-right">{miktarFormat(k.miktar, k.birim_tipi as never)}</td>
+                  {iadeVar && (
+                    <>
+                      <td className="sayi text-uyari text-right">
+                        {k.iade_edilen ? miktarFormat(-k.iade_edilen, k.birim_tipi as never) : '—'}
+                      </td>
+                      <td className="sayi font-medium text-right">
+                        {miktarFormat(k.miktar + (k.iade_edilen ?? 0), k.birim_tipi as never)}
+                      </td>
+                    </>
+                  )}
                   <td className="sayi text-metin-3 text-right">{paraFormat(k.birim_fiyat, { simge: false })}</td>
                   <td className="sayi font-semibold text-right">{paraFormat(k.satir_toplam, { simge: false })}</td>
                 </tr>
@@ -115,6 +143,18 @@ export function SatisFisiDiyalogu({ satisId, onKapat }: { satisId: string | null
             <span className="text-metin-2">Genel toplam</span>
             <span className="font-mono text-xl font-bold text-vurgu">{paraFormat(detay.satis.genel_toplam)}</span>
           </div>
+          {iadeToplami !== 0 && (
+            <div className="mt-2 space-y-1 rounded border border-uyari-cizgi px-4 py-2 text-sm">
+              <div className="flex justify-between text-uyari">
+                <span>İadeler ({(detay.iadeler ?? []).map((i) => i.fis_no).join(', ')})</span>
+                <span className="font-mono">-{paraFormat(Math.abs(iadeToplami), { simge: false })}</span>
+              </div>
+              <div className="flex justify-between font-semibold">
+                <span>Net tutar</span>
+                <span className="font-mono">{paraFormat(detay.satis.genel_toplam + iadeToplami)}</span>
+              </div>
+            </div>
+          )}
 
           <OdemeDokumu
             odemeler={detay.odemeler}

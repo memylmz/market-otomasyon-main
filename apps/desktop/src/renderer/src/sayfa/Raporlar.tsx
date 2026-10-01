@@ -902,6 +902,8 @@ interface SatisDetayVerisi {
     kdv_orani: number;
     kdv_tutar: Kurus;
     satir_toplam: Kurus;
+    /** Bu satıştan yapılan iadelerde bu üründen geri alınan miktar (eksi). */
+    iade_edilen?: number;
   }[];
   odemeler: { id: string; odeme_tipi: string; tutar: Kurus; alinan: Kurus; para_ustu: Kurus }[];
 }
@@ -958,6 +960,12 @@ function SatisDetayDiyalogu({
   }
 
   const mutlak = (d: Kurus) => paraFormat(Math.abs(d), { simge: false });
+  /*
+   * Satır bazında iade: orijinal fiş DEĞİŞMEZ, yanında ne kadarının iade
+   * edildiği ve kalanı gösterilir; altta iadeler düşülmüş net tutar.
+   */
+  const iadeVar = Boolean(detay && !detay.satis.iade_mi && detay.kalemler.some((k) => (k.iade_edilen ?? 0) !== 0));
+  const iadeToplami = (detay?.iadeler ?? []).reduce((t, i) => t + i.genel_toplam, 0);
 
   return (
     <Diyalog
@@ -1049,7 +1057,13 @@ function SatisDetayDiyalogu({
             <thead>
               <tr>
                 <th>Ürün</th>
-                <th className="text-right">Miktar</th>
+                <th className="text-right">{iadeVar ? 'Satılan' : 'Miktar'}</th>
+                {iadeVar && (
+                  <>
+                    <th className="text-right">İade</th>
+                    <th className="text-right">Kalan</th>
+                  </>
+                )}
                 <th className="text-right">Birim fiyat</th>
                 <th className="text-right">İskonto</th>
                 <th className="text-right">KDV</th>
@@ -1064,6 +1078,16 @@ function SatisDetayDiyalogu({
                     {k.barkod && <div className="font-mono text-xs text-metin-4">{k.barkod}</div>}
                   </td>
                   <td className="sayi text-right">{miktarFormat(Math.abs(k.miktar), k.birim_tipi as never)}</td>
+                  {iadeVar && (
+                    <>
+                      <td className="sayi text-uyari text-right">
+                        {k.iade_edilen ? miktarFormat(-k.iade_edilen, k.birim_tipi as never) : '—'}
+                      </td>
+                      <td className="sayi font-medium text-right">
+                        {miktarFormat(k.miktar + (k.iade_edilen ?? 0), k.birim_tipi as never)}
+                      </td>
+                    </>
+                  )}
                   <td className="sayi text-right">{mutlak(k.birim_fiyat)}</td>
                   <td className="sayi text-uyari text-right">{k.iskonto !== 0 ? '-' + mutlak(k.iskonto) : '—'}</td>
                   <td className="sayi text-metin-3 text-right">%{k.kdv_orani}</td>
@@ -1100,6 +1124,18 @@ function SatisDetayDiyalogu({
                 <span className="font-semibold">GENEL TOPLAM</span>
                 <span className="sayi text-xl font-bold text-vurgu">{mutlak(detay.satis.genel_toplam)}</span>
               </div>
+              {iadeToplami !== 0 && (
+                <>
+                  <div className="mt-1 flex justify-between text-sm text-uyari">
+                    <span>İadeler ({detay.iadeler!.map((i) => i.fis_no).join(', ')})</span>
+                    <span className="sayi">-{mutlak(iadeToplami)}</span>
+                  </div>
+                  <div className="mt-1 flex items-baseline justify-between border-t border-cizgi pt-2">
+                    <span className="font-semibold">NET TUTAR</span>
+                    <span className="sayi text-lg font-bold">{mutlak(detay.satis.genel_toplam + iadeToplami)}</span>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="rounded border border-cizgi p-3">

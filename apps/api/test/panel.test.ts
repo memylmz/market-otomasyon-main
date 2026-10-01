@@ -1201,3 +1201,34 @@ describe('banka / POS defteri — panel (kasayla aynı kural)', () => {
     expect(govde.ozet.kart_satis).toBe(1000);
   });
 });
+
+describe('fiş detayında satır bazında iade (kasayla aynı kural)', () => {
+  it('kalem iade edilen miktarı taşır', async () => {
+    const satis = satisOlayi({ tutar: 40_000 });
+    satis.veri.kalemler[0]!.miktar = 4000;
+    const iadeId = uuid();
+    await push([
+      satis,
+      {
+        uuid: uuid(),
+        tip: 'IADE_YAPILDI' as const,
+        entity: 'satis',
+        entity_id: iadeId,
+        olusturma_zamani: simdi(),
+        veri: {
+          id: iadeId,
+          fis_no: 'IA-000001',
+          tarih: simdi(),
+          kaynak_satis_id: satis.veri.id,
+          genel_toplam: -20_000,
+          iade_yontemi: 'NAKIT',
+          kalemler: [{ urun_id: URUN_ID, urun_adi: 'Süt', miktar: -2000, satir_toplam: -20_000 }],
+        },
+      },
+    ]);
+    const detay = (await panelGet(`${UCLAR.satislar}/${satis.veri.id}`)).json() as {
+      kalemler: { miktar: number; iade_edilen: number }[];
+    };
+    expect(detay.kalemler[0]).toMatchObject({ miktar: 4000, iade_edilen: -2000 });
+  });
+});

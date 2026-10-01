@@ -349,6 +349,8 @@ interface FisKalemi {
   kdv_orani: number;
   kdv_tutar: Kurus;
   satir_toplam: Kurus;
+  /** Bu satıştan iade edilen miktar (eksi). */
+  iade_edilen?: number;
 }
 
 interface FisDetayVerisi {
@@ -374,6 +376,9 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
 
   // İade fişlerinde tutarlar negatiftir; okunurluk için mutlak değer gösterilir.
   const mutlak = (d: Kurus) => paraFormat(Math.abs(d), { simge: false });
+  // Orijinal fiş değişmez; iade edilen miktar ve kalan satırın yanında, net tutar altta (kasayla aynı).
+  const iadeVar = Boolean(veri?.satis && !veri.satis.iade_mi && veri.kalemler.some((k) => Number(k.iade_edilen ?? 0) !== 0));
+  const iadeToplami = (veri?.iadeler ?? []).reduce((t, i) => t + Number(i.genel_toplam), 0);
 
   const kdvDilimleri = new Map<number, { matrah: Kurus; kdv: Kurus }>();
   for (const k of veri?.kalemler ?? []) {
@@ -472,7 +477,13 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
               <thead>
                 <tr>
                   <th className="text-left">Ürün</th>
-                  <th>Miktar</th>
+                  <th>{iadeVar ? 'Satılan' : 'Miktar'}</th>
+                  {iadeVar && (
+                    <>
+                      <th>İade</th>
+                      <th>Kalan</th>
+                    </>
+                  )}
                   <th>Birim fiyat</th>
                   <th>İskonto</th>
                   <th>KDV</th>
@@ -487,6 +498,12 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
                       {k.barkod && <div className="font-mono text-xs text-metin-4">{k.barkod}</div>}
                     </td>
                     <td className="sayi">{miktarFormat(Math.abs(k.miktar))}</td>
+                    {iadeVar && (
+                      <>
+                        <td className="sayi text-uyari">{Number(k.iade_edilen) ? miktarFormat(-Number(k.iade_edilen)) : '—'}</td>
+                        <td className="sayi font-medium">{miktarFormat(k.miktar + Number(k.iade_edilen ?? 0))}</td>
+                      </>
+                    )}
                     <td className="sayi">{mutlak(k.birim_fiyat)}</td>
                     <td className="sayi text-uyari">{k.iskonto !== 0 ? '-' + mutlak(k.iskonto) : '—'}</td>
                     <td className="sayi text-metin-3">%{k.kdv_orani}</td>
@@ -524,6 +541,18 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
                 <span className="font-semibold">GENEL TOPLAM</span>
                 <span className="font-mono text-xl font-bold text-vurgu">{mutlak(veri.satis.genel_toplam)}</span>
               </div>
+              {iadeToplami !== 0 && (
+                <>
+                  <div className="mt-1 flex justify-between text-sm text-uyari">
+                    <span>İadeler ({(veri.iadeler ?? []).map((i) => i.fis_no).join(', ')})</span>
+                    <span className="font-mono">-{mutlak(iadeToplami)}</span>
+                  </div>
+                  <div className="mt-1 flex items-baseline justify-between border-t border-cizgi pt-2">
+                    <span className="font-semibold">NET TUTAR</span>
+                    <span className="font-mono text-lg font-bold">{mutlak(veri.satis.genel_toplam + iadeToplami)}</span>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="rounded-lg border border-cizgi p-3">

@@ -77,9 +77,16 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
         [isletmeId, istek.params.id],
       ),
       uygulama.vt.tumu(
-        `SELECT id, urun_id, urun_adi, barkod, miktar, birim_fiyat, birim_maliyet, iskonto,
-                kdv_orani, kdv_tutar, satir_toplam
-         FROM satis_kalemleri WHERE isletme_id = ? AND satis_id = ?`,
+        // iade_edilen: bu satıştan yapılan iadelerde aynı üründen geri alınan miktar (eksi) — kasadaki kuralın aynısı.
+        `SELECT k.id, k.urun_id, k.urun_adi, k.barkod, k.miktar, k.birim_fiyat, k.birim_maliyet, k.iskonto,
+                k.kdv_orani, k.kdv_tutar, k.satir_toplam,
+                COALESCE((
+                  SELECT SUM(ik.miktar) FROM satis_kalemleri ik
+                  JOIN satislar isa ON isa.isletme_id = ik.isletme_id AND isa.id = ik.satis_id
+                  WHERE isa.isletme_id = k.isletme_id AND isa.kaynak_satis_id = k.satis_id
+                    AND isa.iptal_mi = 0 AND ik.urun_id = k.urun_id
+                ), 0) AS iade_edilen
+         FROM satis_kalemleri k WHERE k.isletme_id = ? AND k.satis_id = ?`,
         [isletmeId, istek.params.id],
       ),
       uygulama.vt.tumu('SELECT id, odeme_tipi, tutar FROM odemeler WHERE isletme_id = ? AND satis_id = ?', [

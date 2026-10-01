@@ -26,8 +26,9 @@ export interface FisVerisi {
     kaynak_fis_no?: string | null;
     musteri_adi?: string | null;
   } | null;
-  kalemler: { urun_adi: string; miktar: number; birim_fiyat: Kurus; satir_toplam: Kurus }[];
+  kalemler: { urun_adi: string; miktar: number; birim_fiyat: Kurus; satir_toplam: Kurus; iade_edilen?: number }[];
   odemeler: { odeme_tipi: string; tutar: Kurus }[];
+  iadeler?: { fis_no: string; genel_toplam: Kurus }[];
 }
 
 const ODEME_ETIKETI: Record<string, string> = {
@@ -59,6 +60,10 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
     );
   }
 
+  // Orijinal fiş değişmez; iade edilen miktar ve kalan satırın yanında gösterilir (kasayla aynı).
+  const iadeVar = veri.satis.iade_mi !== 1 && veri.kalemler.some((k) => Number(k.iade_edilen ?? 0) !== 0);
+  const iadeToplami = (veri.iadeler ?? []).reduce((t, i) => t + Number(i.genel_toplam), 0);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -79,7 +84,13 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
           <thead>
             <tr>
               <th className="text-left">Ürün</th>
-              <th>Miktar</th>
+              <th>{iadeVar ? 'Satılan' : 'Miktar'}</th>
+              {iadeVar && (
+                <>
+                  <th>İade</th>
+                  <th>Kalan</th>
+                </>
+              )}
               <th>Birim</th>
               <th>Tutar</th>
             </tr>
@@ -89,6 +100,12 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
               <tr key={i}>
                 <td className="text-left">{k.urun_adi}</td>
                 <td className="sayi">{miktarFormat(k.miktar)}</td>
+                {iadeVar && (
+                  <>
+                    <td className="sayi text-uyari">{Number(k.iade_edilen) ? miktarFormat(-Number(k.iade_edilen)) : '—'}</td>
+                    <td className="sayi font-medium">{miktarFormat(k.miktar + Number(k.iade_edilen ?? 0))}</td>
+                  </>
+                )}
                 <td className="sayi text-metin-3">{paraFormat(k.birim_fiyat, { simge: false })}</td>
                 <td className="sayi font-semibold">{paraFormat(k.satir_toplam, { simge: false })}</td>
               </tr>
@@ -101,6 +118,18 @@ export function FisIcerigi({ satisId }: { satisId: string }) {
         <span className="text-metin-2">Genel toplam</span>
         <span className="font-mono text-xl font-bold text-vurgu">{paraFormat(veri.satis.genel_toplam)}</span>
       </div>
+      {iadeToplami !== 0 && (
+        <div className="space-y-1 rounded-lg border border-uyari-cizgi px-4 py-2 text-sm">
+          <div className="flex justify-between text-uyari">
+            <span>İadeler ({(veri.iadeler ?? []).map((i) => i.fis_no).join(', ')})</span>
+            <span className="font-mono">-{paraFormat(Math.abs(iadeToplami), { simge: false })}</span>
+          </div>
+          <div className="flex justify-between font-semibold">
+            <span>Net tutar</span>
+            <span className="font-mono">{paraFormat(veri.satis.genel_toplam + iadeToplami)}</span>
+          </div>
+        </div>
+      )}
 
       {/*
         Ödeme dökümü kasadaki fişle AYNI bilgiyi verir: 1.150 TL'lik satışın
