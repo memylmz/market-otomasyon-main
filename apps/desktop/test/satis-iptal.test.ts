@@ -14,7 +14,8 @@ import { bankaDefteri } from '../src/main/depo/banka.js';
 import { bakiyeOku } from '../src/main/depo/cari.js';
 import { oturumOzeti } from '../src/main/depo/kasa.js';
 import { gunSonu, kasaAc } from '../src/main/servis/kasa-servis.js';
-import { satisIptal, satisKesinlestir } from '../src/main/servis/satis-servis.js';
+import { kalemleriGetir } from '../src/main/depo/satis.js';
+import { iadeYap, satisIptal, satisKesinlestir } from '../src/main/servis/satis-servis.js';
 import { musteriEkle, testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
 
 let ortam: TestOrtami;
@@ -114,5 +115,17 @@ describe('satış iptalinde para iadesi', () => {
     expect(() => satisIptal(ortam.uygulama.baglam, ortam.admin, nakitSatis, 'x')).toThrow(/kasa/i);
     satisIptal(ortam.uygulama.baglam, ortam.admin, veresiyeSatis, 'yanlış müşteri');
     expect(bakiyeOku(ortam.uygulama.vt, musteri)).toBe(0);
+  });
+
+  it('iadesi yapılmış satış iptal edilemez — para ve stok ikinci kez dönmesin', () => {
+    const id = sat([{ tip: 'KART', tutar: 500 }]);
+    const kalem = kalemleriGetir(ortam.uygulama.vt, id)[0]!;
+    iadeYap(ortam.uygulama.baglam, ortam.admin, {
+      kaynak_satis_id: id,
+      kalemler: [{ satis_kalemi_id: kalem.id, miktar: adet(1) }],
+      iade_yontemi: 'KART',
+      neden: 'bozuk',
+    });
+    expect(() => satisIptal(ortam.uygulama.baglam, ortam.admin, id, 'vazgeçti')).toThrow(/iade/i);
   });
 });

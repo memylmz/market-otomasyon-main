@@ -998,7 +998,8 @@ function SatisDetayDiyalogu({
               İade Et
             </button>
           )}
-          {iptalYetkisi && detay && !detay.satis.iptal_mi && !detay.satis.iade_mi && (
+          {/* İadesi yapılmış satış iptal edilemez (para ikinci kez dönerdi); kalan kısım iade edilir. */}
+          {iptalYetkisi && detay && !detay.satis.iptal_mi && !detay.satis.iade_mi && !detay.iadeler?.length && (
             <button type="button" className="tus-tehlike" onClick={() => setIptalAcik(true)}>
               Satışı İptal Et
             </button>

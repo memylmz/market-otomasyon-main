@@ -577,6 +577,13 @@ export function satisIptal(
   if (!satis) throw hatalar.bulunamadi('Satış');
   if (satis.iptal_mi) throw hatalar.isKurali(HATA_KODU.SATIS_ZATEN_IPTAL);
   if (!neden.trim()) throw hatalar.dogrulama('İptal nedeni zorunludur.');
+  // İadesi yapılmış satış iptal edilirse iade edilen kısım (para ve stok) ikinci kez döner.
+  const iadeVar = vt
+    .hazirla('SELECT 1 FROM satislar WHERE kaynak_satis_id = ? AND iade_mi = 1 AND iptal_mi = 0 LIMIT 1')
+    .tek(satisId);
+  if (iadeVar) {
+    throw hatalar.dogrulama('Bu satıştan iade yapılmış; iptal edilemez. Kalan ürünleri İade ekranından iade edin.');
+  }
 
   const kalemler = kalemleriGetir(vt, satisId);
   const odemeler = odemeleriGetir(vt, satisId);
