@@ -306,7 +306,7 @@ export function SatisSayfasi() {
             setAramaAcik(true);
             return;
           }
-          bildir.uyari('Ürün bulunamadı', `"${barkod}" barkodu kayıtlı değil. F2 ile isimden arayabilirsiniz.`);
+          bildir.uyari('Ürün bulunamadı', `"${barkod}" barkodu kayıtlı değil. F3 ile isimden arayabilirsiniz.`);
           return;
         }
         if (sonuc.uyari) {
@@ -834,7 +834,7 @@ export function SatisSayfasi() {
 
           <div className="kart min-h-0 flex-1 overflow-auto">
             {sepet.satirlar.length === 0 ? (
-              <BosDurum baslik="Sepet boş" aciklama="Barkod okutarak ya da F2 ile ürün arayarak satışa başlayın." />
+              <BosDurum baslik="Sepet boş" aciklama="Barkod okutarak ya da F3 ile ürün arayarak satışa başlayın." />
             ) : (
               <table className="tablo">
                 <thead className="sticky top-0 bg-yuzey">
@@ -1047,9 +1047,14 @@ export function SatisSayfasi() {
         <HizliUrunIzgarasi adetOneki={adetOneki} onCarpanTuketildi={() => setAdetOneki(null)} onSepeteEklendi={odaklan} />
       </div>
 
+      {/*
+        Kısayol çubuğu F TUŞU SIRASIYLA dizilir (F1 → F10); tuşların görevi
+        değişmez, yalnız okuma sırası. Karışık sırada kasiyer aradığı tuşu
+        çubukta tarıyordu. Gezinme tuşları ayraçtan sonra gelir.
+      */}
       <footer className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-cizgi bg-yuzey-3/80 px-4 py-2.5 text-sm text-metin-3">
         <span>
-          <Kisayol>Enter</Kisayol> ekle
+          <Kisayol>F1</Kisayol> müşteri
         </span>
         <span>
           <Kisayol>F2</Kisayol> tahsilat
@@ -1057,16 +1062,12 @@ export function SatisSayfasi() {
         <span>
           <Kisayol>F3</Kisayol> ara
         </span>
-        <span>
-          <Kisayol>F1</Kisayol> müşteri
+        <span className="font-medium text-metin-2">
+          <Kisayol>F4</Kisayol> ödeme + fiş
         </span>
         <span className="font-medium text-metin-2">
           <Kisayol>F5</Kisayol> ödeme
         </span>
-        <span className="font-medium text-metin-2">
-          <Kisayol>F4</Kisayol> ödeme + fiş
-        </span>
-
         <span>
           <Kisayol>F8</Kisayol> satır sil
         </span>
@@ -1075,6 +1076,12 @@ export function SatisSayfasi() {
         </span>
         <span>
           <Kisayol>F10</Kisayol> yeni sepet
+        </span>
+        <span aria-hidden="true" className="text-cizgi-kuvvetli">
+          |
+        </span>
+        <span>
+          <Kisayol>Enter</Kisayol> ekle
         </span>
         <span>
           <Kisayol>←→</Kisayol> alan
