@@ -505,6 +505,8 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'satislar', 'kasiyer_adi TEXT');
   // Tahsilat/ödeme iptalinde paranın geri dönüş yolu (NAKIT | KART); boşsa kasa orijinal yolu kullanır.
   await sutunEkle(vt, 'cari_talimatlari', 'para_yolu TEXT');
+  // Perakende satışın panelden verilen iadesinde borcundan düşülecek müşteri.
+  await sutunEkle(vt, 'iade_talimatlari', 'musteri_id TEXT');
 
   /*
    * ONARIM — olaydan türetilen cari satırlarına belge türü (§11.6).

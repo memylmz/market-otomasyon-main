@@ -14,6 +14,7 @@
 
 import { simdi } from '@market/shared';
 import type { Vt } from '../db/surucu.js';
+import { kalemleriGetir } from '../depo/satis.js';
 import { iadeYap } from './satis-servis.js';
 import { yetkisiVarMi, type Aktor, type Baglam } from './baglam.js';
 
@@ -24,6 +25,8 @@ export interface IadeTalimati {
   iade_yontemi: string;
   neden: string;
   hedef_cihaz_id: string;
+  /** Perakende satışın iadesi borçtan düşülecekse müşteri. */
+  musteri_id?: string | null;
 }
 
 /** Pull'da gelen talimatı yerele yazar. Aynı id tekrar inerse üzerine yazılmaz. */
@@ -32,8 +35,8 @@ export function iadeTalimatiniSakla(vt: Vt, veri: Record<string, unknown>, zaman
   if (!id) return;
   vt.hazirla(
     `INSERT INTO iade_talimatlari (id, satis_id, kalemler, iade_yontemi, neden, hedef_cihaz_id,
-                                   kullanici_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   kullanici_id, created_at, updated_at, musteri_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO NOTHING`,
   ).calistir(
     id,
@@ -45,6 +48,7 @@ export function iadeTalimatiniSakla(vt: Vt, veri: Record<string, unknown>, zaman
     (veri.kullanici_id as string | null) ?? null,
     String(veri.created_at ?? zaman),
     zaman,
+    typeof veri.musteri_id === 'string' && veri.musteri_id ? veri.musteri_id : null,
   );
 }
 
@@ -68,7 +72,7 @@ export function bekleyenIadeleriIsle(baglam: Baglam, aktor: Aktor): IslemSonucu 
   const { vt, cihazId } = baglam;
   const bekleyenler = vt
     .hazirla(
-      `SELECT id, satis_id, kalemler, iade_yontemi, neden, hedef_cihaz_id
+      `SELECT id, satis_id, kalemler, iade_yontemi, neden, hedef_cihaz_id, musteri_id
        FROM iade_talimatlari WHERE uygulandi_mi = 0 ORDER BY created_at`,
     )
     .tumu<IadeTalimati>();
@@ -91,7 +95,18 @@ export function bekleyenIadeleriIsle(baglam: Baglam, aktor: Aktor): IslemSonucu 
     if (!yetkisiVarMi(aktor, 'satis.iade')) continue;
 
     try {
-      const kalemler = JSON.parse(talimat.kalemler) as { satis_kalemi_id: string; miktar: number }[];
+      const hamKalemler = JSON.parse(talimat.kalemler) as { satis_kalemi_id: string; miktar: number }[];
+      /*
+       * Eski satışlarda merkez kalem kimliğini kendisi üretiyordu ("<satış>-k<sıra>");
+       * panel o kimliği gönderir. Sıra, kasadaki kalemin `sira`sıyla aynıdır.
+       */
+      const yerelKalemler = kalemleriGetir(vt, talimat.satis_id);
+      const kalemler = hamKalemler.map((k) => {
+        const eslesme = /-k(\d+)$/.exec(k.satis_kalemi_id);
+        if (!eslesme || yerelKalemler.some((y) => y.id === k.satis_kalemi_id)) return k;
+        const yerel = yerelKalemler.find((y) => y.sira === Number(eslesme[1]));
+        return yerel ? { ...k, satis_kalemi_id: yerel.id } : k;
+      });
       /*
        * UYGULAMA VE "UYGULANDI" İŞARETİ TEK İŞLEMDE.
        *
@@ -110,6 +125,7 @@ export function bekleyenIadeleriIsle(baglam: Baglam, aktor: Aktor): IslemSonucu 
           kaynak_satis_id: talimat.satis_id,
           kalemler,
           iade_yontemi: talimat.iade_yontemi,
+          musteri_id: talimat.musteri_id ?? undefined,
           neden: talimat.neden,
         });
         vt.hazirla(

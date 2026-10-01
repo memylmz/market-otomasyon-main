@@ -13,6 +13,7 @@ import { bekleyenOlaylar } from '../src/main/depo/senkron.js';
 import { kalemleriGetir, satisDetayi } from '../src/main/depo/satis.js';
 import { satisBelgesi } from '../src/main/donanim/fis-belge.js';
 import { iadeYap, satisKesinlestir } from '../src/main/servis/satis-servis.js';
+import { bekleyenIadeleriIsle, iadeTalimatiniSakla } from '../src/main/servis/iade-talimat-servis.js';
 import { musteriEkle, tedarikciEkle, testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
 
 let ortam: TestOrtami;
@@ -171,5 +172,51 @@ describe('iadede müşteri seçimi', () => {
         neden: 'x',
       }),
     ).toThrow(/müşteri/i);
+  });
+});
+
+describe('panelden gelen iade talimatı — müşteri seçimi', () => {
+  it('perakende satışın iadesi talimattaki müşterinin borcundan düşülür', () => {
+    const urunId = urunEkle(ortam, { ad: 'Silgi', satisFiyati: 1000, stok: adet(10) });
+    const perakende = satisKesinlestir(ortam.uygulama.baglam, ortam.admin, {
+      kalemler: [{ urun_id: urunId, miktar: adet(2), birim_fiyat: 1000 }],
+      odemeler: [{ tip: 'NAKIT', tutar: 2000 }],
+    }).satisId;
+    const kalem = kalemleriGetir(ortam.uygulama.vt, perakende)[0]!;
+    const once = bakiyeOku(ortam.uygulama.vt, musteriId);
+
+    iadeTalimatiniSakla(ortam.uygulama.vt, {
+      id: 'iade-talimat-1',
+      satis_id: perakende,
+      kalemler: [{ satis_kalemi_id: kalem.id, miktar: adet(1) }],
+      iade_yontemi: 'VERESIYE',
+      neden: 'panelden',
+      hedef_cihaz_id: ortam.uygulama.cihazId,
+      musteri_id: musteriId,
+    });
+    expect(bekleyenIadeleriIsle(ortam.uygulama.baglam, ortam.admin).uygulanan).toBe(1);
+    expect(bakiyeOku(ortam.uygulama.vt, musteriId)).toBe(once - 1000);
+  });
+});
+
+describe('panelin kısmi iadesinde kalem kimliği', () => {
+  it('satış olayı kalemleri kasadaki kimlikleriyle taşır', () => {
+    const olay = bekleyenOlaylar(ortam.uygulama.vt, 500).find((o) => o.olay_tipi === 'SATIS_YAPILDI' && o.entity_id === satisId);
+    const veri = JSON.parse(olay?.veri ?? '{}') as { kalemler: { id: string }[] };
+    expect(veri.kalemler[0]?.id).toBe(kalemleriGetir(ortam.uygulama.vt, satisId)[0]!.id);
+  });
+
+  it('eski satışın merkez kimliğiyle ("<satış>-k0") gelen talimat doğru kaleme uygulanır', () => {
+    const once = bakiyeOku(ortam.uygulama.vt, musteriId);
+    iadeTalimatiniSakla(ortam.uygulama.vt, {
+      id: 'iade-talimat-eski',
+      satis_id: satisId,
+      kalemler: [{ satis_kalemi_id: `${satisId}-k0`, miktar: adet(1) }],
+      iade_yontemi: 'VERESIYE',
+      neden: 'panelden',
+      hedef_cihaz_id: ortam.uygulama.cihazId,
+    });
+    expect(bekleyenIadeleriIsle(ortam.uygulama.baglam, ortam.admin).uygulanan).toBe(1);
+    expect(bakiyeOku(ortam.uygulama.vt, musteriId)).toBe(once - 10_000);
   });
 });

@@ -53,7 +53,8 @@ const PULL_TABLOLARI: Record<PullVarligi, { tablo: string; sutunlar: string }> =
   ayarlar: { tablo: 'ayarlar', sutunlar: 'id, anahtar, deger, aciklama, created_at, updated_at, cihaz_id' },
   iade_talimatlari: {
     tablo: 'iade_talimatlari',
-    sutunlar: 'id, satis_id, kalemler, iade_yontemi, neden, hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id',
+    sutunlar:
+      'id, satis_id, kalemler, iade_yontemi, neden, hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id, musteri_id',
   },
   stok_duzeltmeleri: {
     tablo: 'stok_duzeltmeleri',

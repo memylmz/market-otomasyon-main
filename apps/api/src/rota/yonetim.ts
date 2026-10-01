@@ -743,12 +743,18 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
   const zIadeTalimatiGovde = z.object({
     satis_id: z.string().uuid(),
     kalemler: z
-      .array(z.object({ satis_kalemi_id: z.string().uuid(), miktar: z.number().int().positive() }))
+      // Kalem kimliği kasadaki uuid'dir; eski satışlarda merkezin ürettiği "<satış>-k<sıra>" biçimi gelir.
+      .array(z.object({ satis_kalemi_id: z.string().min(1).max(120), miktar: z.number().int().positive() }))
       .min(1, 'En az bir kalem seçilmelidir'),
     iade_yontemi: z.enum(['NAKIT', 'KART', 'VERESIYE']),
     neden: z.string().trim().min(3).max(300),
     /** Talimatı uygulayacak kasa (cihazlar.id). */
     hedef_cihaz_id: z.string().uuid(),
+    /**
+     * Perakende (müşterisiz) satışın iadesi borçtan düşülecekse müşteri —
+     * kasadaki iade ekranının aynı kuralı. Satışın müşterisi varsa ona yazılır.
+     */
+    musteri_id: z.string().uuid().optional(),
   });
 
   /**
@@ -899,12 +905,26 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
     const id = uuid();
 
     await uygulama.vt.islem(async (islem) => {
-      const satis = await islem.tek<{ id: string; iptal_mi: number; iade_mi: number }>(
-        'SELECT id, iptal_mi, iade_mi FROM satislar WHERE isletme_id = ? AND id = ?',
+      const satis = await islem.tek<{ id: string; iptal_mi: number; iade_mi: number; musteri_id: string | null }>(
+        'SELECT id, iptal_mi, iade_mi, musteri_id FROM satislar WHERE isletme_id = ? AND id = ?',
         [isletmeId, govde.satis_id],
       );
       if (!satis) throw hatalar.bulunamadi('Satış');
       if (Number(satis.iptal_mi) === 1) throw hatalar.dogrulama('İptal edilmiş satış iade edilemez.');
+      // Kasadaki kural: satışın müşterisi varsa iade başkasına yazılamaz; borçtan düşmek müşteri ister.
+      if (satis.musteri_id && govde.musteri_id && govde.musteri_id !== satis.musteri_id) {
+        throw hatalar.dogrulama('Bu satış başka bir müşteri adına yapılmış; iadesi başka müşteriye yazılamaz.');
+      }
+      if (govde.musteri_id && !satis.musteri_id) {
+        const musteri = await islem.tek<{ tip: string }>('SELECT tip FROM cariler WHERE isletme_id = ? AND id = ?', [
+          isletmeId,
+          govde.musteri_id,
+        ]);
+        if (!musteri || musteri.tip !== 'MUSTERI') throw hatalar.dogrulama('İade yalnız bir müşteri hesabına yazılabilir.');
+      }
+      if (govde.iade_yontemi === 'VERESIYE' && !satis.musteri_id && !govde.musteri_id) {
+        throw hatalar.dogrulama('Borçtan düşmek için müşteri seçin; satış perakende yapılmış.');
+      }
 
       // Aynı satışa bekleyen ikinci talimat, iadeyi iki kez uygulatırdı.
       const bekleyen = await islem.tek<{ id: string }>(
@@ -922,8 +942,9 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
       const versiyon = await sonrakiVersiyon(islem, isletmeId);
       await islem.calistir(
         `INSERT INTO iade_talimatlari (id, isletme_id, satis_id, kalemler, iade_yontemi, neden,
-                                       hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id, versiyon, silindi_mi)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?, 0)`,
+                                       hedef_cihaz_id, kullanici_id, created_at, updated_at, cihaz_id, versiyon, silindi_mi,
+                                       musteri_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'panel', ?, 0, ?)`,
         [
           id,
           isletmeId,
@@ -936,6 +957,7 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
           zaman,
           zaman,
           versiyon,
+          satis.musteri_id ? null : (govde.musteri_id ?? null),
         ],
       );
     });

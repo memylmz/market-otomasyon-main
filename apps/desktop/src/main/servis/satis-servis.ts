@@ -305,10 +305,13 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
     );
 
     let brutKar = 0;
+    // Kalem kimlikleri olayla buluta gider: panelin kısmi iade talimatı kalemi
+    // kasadaki kimliğiyle gösterebilsin diye.
+    const kalemIdleri: string[] = [];
     hesap.satirlar.forEach((satir, i) => {
       const kalem = kalemler[i];
       if (!kalem) return;
-      kalemEkle(
+      kalemIdleri[i] = kalemEkle(
         vt,
         {
           satis_id: satisId,
@@ -454,6 +457,7 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
           kasa_oturum_id: kasaOturumId,
           brut_kar: brutKar,
           kalemler: hesap.satirlar.map((satir, i) => ({
+            id: kalemIdleri[i],
             urun_id: kalemler[i]?.urun.id,
             urun_adi: kalemler[i]?.ad,
             barkod: kalemler[i]?.barkod ?? null,

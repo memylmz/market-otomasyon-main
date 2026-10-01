@@ -966,7 +966,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
   const detayOzeti = [
     faturaNo.trim() ? `Fatura ${faturaNo.trim()}` : 'Fatura no yok',
     tarih.split('-').reverse().join('.'),
-    odemeDurumu === 'BORC' ? 'Borç kalacak' : odemeDurumu === 'NAKIT' ? 'Nakit ödendi' : 'Havale/kart',
+    odemeDurumu === 'BORC' ? 'Borç kalacak' : odemeDurumu === 'NAKIT' ? 'Kasadan nakit ödendi' : 'Kart/havale ile ödendi',
     marjYuzde.trim() ? `Marj %${marjYuzde.trim()}` : 'Marj girilmedi',
     kategoriId ? ((kategoriler.veri?.data ?? []).find((k) => k.id === kategoriId)?.ad ?? 'Kategori') : 'Kategorisiz',
   ].join(' · ');
@@ -1115,8 +1115,8 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                 }}
               >
                 <option value="BORC">Ödemedim — borç kalsın</option>
-                <option value="NAKIT">Ödedim — nakit</option>
-                <option value="HAVALE">Ödedim — havale/kart</option>
+                <option value="NAKIT">Ödedim — kasadan nakit</option>
+                <option value="HAVALE">Ödedim — kart / havale (kasayı etkilemez)</option>
               </select>
             </label>
             <label className="block">

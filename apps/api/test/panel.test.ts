@@ -1232,3 +1232,40 @@ describe('fiş detayında satır bazında iade (kasayla aynı kural)', () => {
     expect(detay.kalemler[0]).toMatchObject({ miktar: 4000, iade_edilen: -2000 });
   });
 });
+
+describe('panelden kısmi iade — perakende satışta müşteri', () => {
+  const cihazId = async () =>
+    (await vt.tek<{ id: string }>('SELECT id FROM cihazlar WHERE isletme_id = ? LIMIT 1', [ISLETME_ID]))!.id;
+  const musteriOlayi = (id: string, tip = 'MUSTERI') => ({
+    uuid: uuid(),
+    tip: 'CARI_KAYDEDILDI' as const,
+    entity: 'cari',
+    entity_id: id,
+    olusturma_zamani: simdi(),
+    veri: { id, tip, ad_unvan: 'Barış', created_at: simdi(), updated_at: simdi() },
+  });
+
+  it('borçtan düşmek için müşteri ister; seçilen müşteri talimatla kasaya iner', async () => {
+    const satis = satisOlayi();
+    const musteri = uuid();
+    await push([musteriOlayi(musteri), satis]);
+    const detay = (await panelGet(`${UCLAR.satislar}/${satis.veri.id}`)).json() as { kalemler: { id: string }[] };
+    const govde = {
+      satis_id: satis.veri.id,
+      kalemler: [{ satis_kalemi_id: detay.kalemler[0]!.id, miktar: 1000 }],
+      iade_yontemi: 'VERESIYE',
+      neden: 'borcundan düş',
+      hedef_cihaz_id: await cihazId(),
+    };
+
+    expect((await panelPost(UCLAR.iadeTalimatlari, govde)).statusCode).toBe(400);
+    expect((await panelPost(UCLAR.iadeTalimatlari, { ...govde, musteri_id: musteri })).statusCode).toBe(200);
+
+    const pull = await uygulama.inject({
+      method: 'GET',
+      url: `${UCLAR.senkronPull}?since=0&limit=500`,
+      headers: { 'x-device-token': CIHAZ_TOKEN },
+    });
+    expect(JSON.stringify(pull.json())).toContain(`"musteri_id":"${musteri}"`);
+  });
+});

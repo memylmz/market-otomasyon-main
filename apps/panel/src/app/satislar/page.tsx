@@ -617,6 +617,16 @@ function KismiIadeDiyalogu({
   const onerilen = varsayilanIadeYontemi(odemeler);
   const [yontem, setYontem] = useState<IadeYontemi>(onerilen);
   const veresiyeUyarisi = onerilen === 'VERESIYE' && yontem !== 'VERESIYE';
+  /*
+   * Perakende (müşterisiz) satışın iadesi de borçtan düşülebilir — kasadaki iade
+   * ekranının aynısı: müşteri burada seçilir, talimatla kasaya iner.
+   */
+  const perakende = !musteriAdi;
+  const [secilenMusteri, setSecilenMusteri] = useState('');
+  const musteriler = useVeri<{ data: { id: string; ad_unvan: string; bakiye: Kurus }[] }>(
+    perakende && yontem === 'VERESIYE' ? `${uclar.cariler}?tip=MUSTERI&limit=200` : null,
+    [perakende, yontem],
+  );
   const [neden, setNeden] = useState('');
   const [kasalar, setKasalar] = useState<{ id: string; cihaz_adi: string }[]>([]);
   const [hedefKasa, setHedefKasa] = useState('');
@@ -662,6 +672,10 @@ function KismiIadeDiyalogu({
       setHata('İadeyi uygulayacak kasayı seçin.');
       return;
     }
+    if (yontem === 'VERESIYE' && perakende && !secilenMusteri) {
+      setHata('Borçtan düşmek için müşteri seçin; satış perakende yapılmış.');
+      return;
+    }
 
     setGonderiliyor(true);
     try {
@@ -673,6 +687,7 @@ function KismiIadeDiyalogu({
           iade_yontemi: yontem,
           neden: neden.trim(),
           hedef_cihaz_id: hedefKasa,
+          musteri_id: yontem === 'VERESIYE' && perakende ? secilenMusteri : undefined,
         }),
       });
       onTamam();
@@ -754,12 +769,27 @@ function KismiIadeDiyalogu({
             <select className="alan" value={yontem} onChange={(e) => setYontem(e.target.value as typeof yontem)}>
               <option value="NAKIT">Nakit (kasadan çıkar){onerilen === 'NAKIT' ? ' — önerilen' : ''}</option>
               <option value="KART">Kart{onerilen === 'KART' ? ' — önerilen' : ''}</option>
-              <option value="VERESIYE" disabled={!musteriAdi}>
+              <option value="VERESIYE">
                 {musteriAdi
                   ? `${musteriAdi} hesabına (borçtan düşülür)${onerilen === 'VERESIYE' ? ' — önerilen' : ''}`
-                  : 'Cari hesaba (satışta müşteri yok)'}
+                  : 'Müşterinin borcundan düş (müşteri seçin)'}
               </option>
             </select>
+            {yontem === 'VERESIYE' && perakende && (
+              <select
+                className="alan mt-2"
+                value={secilenMusteri}
+                onChange={(e) => setSecilenMusteri(e.target.value)}
+                aria-label="Borcundan düşülecek müşteri"
+              >
+                <option value="">Müşteri seçin…</option>
+                {(musteriler.veri?.data ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.ad_unvan} — borç {paraFormat(m.bakiye, { simge: false })}
+                  </option>
+                ))}
+              </select>
+            )}
             {veresiyeUyarisi && (
               <span className="mt-1 block text-xs text-uyari">
                 Satış veresiye yapılmıştı: nakit/kartla iadede müşteriye para verilir, borcu düşmez.

@@ -869,6 +869,16 @@ export const GOCLER: readonly Goc[] = [
     `,
     asagi: `DROP TABLE IF EXISTS banka_hareketleri;`,
   },
+  {
+    surum: 12,
+    ad: 'iade_talimat_musteri',
+    /*
+     * Panelden verilen iadede, perakende satışın iadesi borcundan düşülecek
+     * müşteri. Boşsa satışın kendi müşterisi kullanılır (eski davranış).
+     */
+    yukari: `ALTER TABLE iade_talimatlari ADD COLUMN musteri_id TEXT;`,
+    asagi: ``,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

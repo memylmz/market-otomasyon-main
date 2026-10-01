@@ -293,7 +293,8 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
           [
-            `${satisId}-k${i}`,
+            // Kasadaki kalem kimliği (panelin kısmi iadesi bunu gönderir); eski kasalar göndermez.
+            metin(kalem.id) || `${satisId}-k${i}`,
             isletmeId,
             satisId,
             urunId,
