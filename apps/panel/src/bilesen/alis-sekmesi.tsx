@@ -151,7 +151,7 @@ export function AlisSekmesi() {
             }}
           />
           <button type="button" className="tus-birincil" onClick={() => setYeniAcik(true)}>
-            Yeni Alış Faturası
+            Yeni Mal Kabul / Alış Faturası
           </button>
         </section>
 

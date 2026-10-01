@@ -43,7 +43,6 @@ export function StokSayfasi() {
   const [rapor, setRapor] = useState<StokRaporu | null>(null);
   const [hareketler, setHareketler] = useState<Hareket[]>([]);
   const [yukleniyor, setYukleniyor] = useState(true);
-  const [malKabulAcik, setMalKabulAcik] = useState(false);
   const [fireAcik, setFireAcik] = useState(false);
   const [tedarikciIadeAcik, setTedarikciIadeAcik] = useState(false);
   const [hareketFiltre, setHareketFiltre] = useState<{ tip: string; from: string; to: string; arama: string }>({
@@ -88,7 +87,7 @@ export function StokSayfasi() {
     { anahtar: 'kritik', etiket: 'Kritik Stok', sayi: rapor?.kritikSayisi },
     { anahtar: 'skt', etiket: 'SKT Takibi', sayi: rapor?.sktYaklasanlar.length },
     { anahtar: 'hareketler', etiket: 'Hareketler' },
-    { anahtar: 'alis', etiket: 'Alış Faturaları' },
+    { anahtar: 'alis', etiket: 'Mal Kabul / Alış' },
     { anahtar: 'sayim', etiket: 'Sayım' },
   ];
 
@@ -96,11 +95,6 @@ export function StokSayfasi() {
     <div className="flex h-full flex-col p-4">
       <header className="mb-3 flex flex-wrap items-center gap-2">
         <h1 className="mr-auto text-xl font-semibold">Stok Yönetimi</h1>
-        {girisYetkisi && (
-          <button type="button" className="tus-birincil" onClick={() => setMalKabulAcik(true)}>
-            Mal Kabul
-          </button>
-        )}
         {girisYetkisi && (
           <button type="button" className="tus-ikincil" onClick={() => setTedarikciIadeAcik(true)}>
             Tedarikçiye İade
@@ -341,14 +335,6 @@ export function StokSayfasi() {
         )}
       </div>
 
-      <AlisFaturasiFormu
-        acik={malKabulAcik}
-        onKapat={() => setMalKabulAcik(false)}
-        onTamam={() => {
-          setMalKabulAcik(false);
-          void yukle();
-        }}
-      />
       <FireDiyalogu
         acik={fireAcik}
         onKapat={() => setFireAcik(false)}
@@ -1085,17 +1071,21 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
 
   return (
     <div className="p-3">
-      {/* Kasada da fatura girilebilmeli: mal kabulü yapan kişi panele geçmek zorunda kalmamalı. */}
+      {/*
+        Mal kabul / tedarikçiden toplu alım YALNIZ BURADAN girilir (panelde de
+        Stok → Mal Kabul / Alış). Eskiden Stok başlığından, bu sekmeden ve
+        Ürünler ekranından olmak üzere üç ayrı düğme aynı formu açıyordu.
+      */}
       {girisYetkisi && (
         <div className="mb-3 flex justify-end">
           <button type="button" className="tus-birincil" onClick={() => setYeniFaturaAcik(true)}>
-            Yeni Alış Faturası
+            Yeni Mal Kabul / Alış Faturası
           </button>
         </div>
       )}
 
       {faturalar.length === 0 ? (
-        <BosDurum baslik="Alış faturası yok" aciklama="Mal Kabul ile girilen faturalar burada listelenir." />
+        <BosDurum baslik="Alış faturası yok" aciklama="Tedarikçiden gelen malı «Yeni Mal Kabul / Alış Faturası» ile girin." />
       ) : (
         <table className="tablo">
           <thead>

@@ -3,10 +3,10 @@
  *
  * Toptancıdan gelen malın çoğu katalogda yoktur: barkod okutulup ürün
  * bulunamazsa satır "yeni ürün" olur, kaydedince ürün kartı fatura ile AYNI
- * transaction'da açılır (bkz. stok-servis.ts `malKabulOnayla`). Mal Kabul
- * artık ayrı bir diyalog DEĞİLDİR — bu form hem Stok ekranındaki "Mal Kabul"
- * düğmesinden, hem Alış sekmesinden, hem Ürünler ekranından açılır; hepsi
- * aynı `stok.malKabul` çağrısını yapar. Satır→kalem çevrimi ve marj hesabı
+ * transaction'da açılır (bkz. stok-servis.ts `malKabulOnayla`). Form YALNIZ
+ * Stok → Mal Kabul / Alış sekmesinden açılır (panelde de aynı yer); eskiden
+ * üç ayrı düğme aynı formu açıyor, kullanıcı hangisini kullanacağını
+ * bilemiyordu. Satır→kalem çevrimi ve marj hesabı
  * `topluGirisKalemleri`den (@market/shared) geçer — aynı satırdan iki ekran
  * farklı fatura üretmesin diye hesap burada TEKRAR YAZILMAZ.
  */

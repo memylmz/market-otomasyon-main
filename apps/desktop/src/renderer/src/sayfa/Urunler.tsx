@@ -8,7 +8,6 @@ import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
 import { UrunKartiDiyalogu, type UrunSatiri } from '../bilesen/UrunKartiDiyalogu';
-import { AlisFaturasiFormu } from './stok/AlisFaturasiFormu';
 
 interface Kategori {
   id: string;
@@ -29,7 +28,6 @@ export function UrunlerSayfasi() {
   const [topluAcik, setTopluAcik] = useState(false);
   const [iceAktarAcik, setIceAktarAcik] = useState(false);
   const [kategoriAcik, setKategoriAcik] = useState(false);
-  const [topluGirisAcik, setTopluGirisAcik] = useState(false);
   const [siralama, setSiralama] = useState<'ad' | 'stok' | 'fiyat' | 'guncelleme'>('ad');
   const [sayfa, setSayfa] = useState(0);
   const [secililer, setSecililer] = useState<Set<string>>(new Set());
@@ -42,9 +40,6 @@ export function UrunlerSayfasi() {
   const duzenleyebilir = useYetki('urun.duzenle');
   const topluYetki = useYetki('urun.toplu_islem');
   const stokDuzeltebilir = useYetki('stok.duzeltme');
-  const girisYetkisi = useYetki('stok.giris');
-  // Toplu giriş formu fatura kesiyor VE ürün kartı açıyor; ikisinin yetkisi de gerekir.
-  const topluGirisYetkisi = duzenleyebilir && girisYetkisi;
 
   const kategorileriYukle = useCallback(async () => {
     try {
@@ -137,11 +132,6 @@ export function UrunlerSayfasi() {
               Dışa Aktar
             </button>
           </>
-        )}
-        {topluGirisYetkisi && (
-          <button type="button" className="tus-ikincil" onClick={() => setTopluGirisAcik(true)}>
-            Tedarikçiden Toplu Ürün
-          </button>
         )}
         {duzenleyebilir && (
           <button type="button" className="tus-birincil" onClick={() => setDuzenlenen('yeni')}>
@@ -409,15 +399,6 @@ export function UrunlerSayfasi() {
         onKapat={() => setIceAktarAcik(false)}
         onTamam={() => {
           setIceAktarAcik(false);
-          void yukle();
-        }}
-      />
-
-      <AlisFaturasiFormu
-        acik={topluGirisAcik}
-        onKapat={() => setTopluGirisAcik(false)}
-        onTamam={() => {
-          setTopluGirisAcik(false);
           void yukle();
         }}
       />

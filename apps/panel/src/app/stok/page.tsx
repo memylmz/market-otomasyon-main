@@ -136,7 +136,7 @@ function StokIcerigi() {
             { anahtar: 'skt' as const, etiket: 'SKT Takibi' },
             { anahtar: 'hareketler' as const, etiket: 'Hareketler' },
             // Kasadaki Stok ekranında olduğu gibi etiket "Alış" (madde 4 taşıması).
-            ...(alisGorunur ? [{ anahtar: 'alis' as const, etiket: 'Alış' }] : []),
+            ...(alisGorunur ? [{ anahtar: 'alis' as const, etiket: 'Mal Kabul / Alış' }] : []),
           ].map((s) => (
             <button
               key={s.anahtar}
