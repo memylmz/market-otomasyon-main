@@ -387,12 +387,60 @@ export function SatisSayfasi() {
   // eksiksiz — bayat kapanış riski yok.
   const satisiTamamla = useCallback(
     async (
-      odemeler: { tip: 'NAKIT' | 'KART' | 'VERESIYE'; tutar: Kurus; alinan?: Kurus }[],
+      odemeler: {
+        tip: 'NAKIT' | 'KART' | 'VERESIYE';
+        tutar: Kurus;
+        alinan?: Kurus;
+        pos_onay_kodu?: string | null;
+        pos_referans?: string | null;
+        pos_kart?: string | null;
+      }[],
       onaylar: { limitAsimiOnaylandi?: boolean; negatifStokOnaylandi?: boolean },
       /** true → fiş bas, false → basma, undefined → ayar karar versin. */
       fisYazdir?: boolean,
     ) => {
       setIslemde(true);
+      /*
+       * POS açıksa kart tutarı ÖNCE cihaza gönderilir; onay gelmeden satış
+       * kaydedilmez. Onaylanan çekimden sonra satış kaydedilemezse çekim geri
+       * alınır — müşteriden para alınıp satış yokmuş gibi kalmasın.
+       */
+      const kartTutari = odemeler.filter((o) => o.tip === 'KART').reduce((t, o) => t + o.tutar, 0);
+      let posOnayi: { onay_kodu?: string | null; referans?: string | null; kart_maske?: string | null } | null = null;
+      try {
+        const pos = await cagir<{ aktif: boolean }>('pos.durum');
+        if (pos.aktif && kartTutari > 0) {
+          bildir.bilgi('POS cihazında kart bekleniyor', `${paraFormat(kartTutari)} — müşteri kartını okutsun.`);
+          const sonuc = await cagir<{
+            onaylandi: boolean;
+            hata?: string | null;
+            onay_kodu?: string | null;
+            referans?: string | null;
+            kart_maske?: string | null;
+          }>('pos.odeme', { tutar: kartTutari });
+          if (!sonuc.onaylandi) {
+            bildir.hata('Kart çekimi onaylanmadı', sonuc.hata ?? 'POS işlemi reddetti.');
+            return;
+          }
+          posOnayi = sonuc;
+          // Onay bilgisi ilk kart satırına işlenir (kayıt ve fiş için).
+          const ilkKart = odemeler.findIndex((o) => o.tip === 'KART');
+          odemeler = odemeler.map((o, i) =>
+            i === ilkKart
+              ? {
+                  ...o,
+                  pos_onay_kodu: sonuc.onay_kodu ?? null,
+                  pos_referans: sonuc.referans ?? null,
+                  pos_kart: sonuc.kart_maske ?? null,
+                }
+              : o,
+          );
+        }
+      } catch (hata) {
+        hatayiBildir(hata, 'POS');
+        setIslemde(false);
+        return;
+      }
       try {
         // Stok aşımı satışı ENGELLEMEZ (§20): stok kaydı sayım hatası veya geç
         // girilen mal kabul yüzünden gerçeğin gerisinde olabilir; müşteri bunun
@@ -419,6 +467,18 @@ export function SatisSayfasi() {
         void tazele();
       } catch (hata) {
         hatayiBildir(hata, 'Satış');
+        if (posOnayi) {
+          try {
+            const geri = await cagir<{ onaylandi: boolean; hata?: string | null }>('pos.iade', {
+              tutar: kartTutari,
+              referans: posOnayi.referans ?? null,
+            });
+            if (geri.onaylandi) bildir.uyari('Satış kaydedilemedi', 'POS çekimi geri alındı; müşteriden para alınmadı.');
+            else bildir.hata('POS çekimi geri alınamadı', `Cihazdan iptal edin. ${geri.hata ?? ''}`);
+          } catch {
+            bildir.hata('POS çekimi geri alınamadı', 'Satış kaydedilemedi; cihazdan çekimi iptal edin.');
+          }
+        }
       } finally {
         setIslemde(false);
         odaklan();

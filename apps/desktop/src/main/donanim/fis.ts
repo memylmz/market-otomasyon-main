@@ -115,6 +115,9 @@ export function satisFisi(
       iadeMi ? IADE_YONTEMI_ETIKETI[odeme.odeme_tipi as IadeYontemi] : ODEME_ETIKETI[odeme.odeme_tipi],
       mutlak(odeme.tutar),
     );
+    if (odeme.pos_kart || odeme.pos_onay_kodu) {
+      y.satir(`  ${[odeme.pos_kart, odeme.pos_onay_kodu ? `Onay ${odeme.pos_onay_kodu}` : null].filter(Boolean).join(' · ')}`);
+    }
     if (odeme.odeme_tipi === 'NAKIT' && odeme.para_ustu > 0) {
       y.ikiSutun('  Alınan', paraFormat(odeme.alinan, { simge: false }));
       y.ikiSutun('  Para Üstü', paraFormat(odeme.para_ustu, { simge: false }));

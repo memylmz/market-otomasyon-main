@@ -264,9 +264,19 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         else if (odemeTipi === 'KART') kart += tutar;
         else veresiye += tutar;
         await islem.calistir(
-          `INSERT INTO odemeler (id, isletme_id, satis_id, odeme_tipi, tutar) VALUES (?, ?, ?, ?, ?)
+          `INSERT INTO odemeler (id, isletme_id, satis_id, odeme_tipi, tutar, pos_onay_kodu, pos_referans, pos_kart)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
-          [`${satisId}-o${i}`, isletmeId, satisId, odemeTipi, tutar],
+          [
+            `${satisId}-o${i}`,
+            isletmeId,
+            satisId,
+            odemeTipi,
+            tutar,
+            odeme.pos_onay_kodu ?? null,
+            odeme.pos_referans ?? null,
+            odeme.pos_kart ?? null,
+          ],
         );
       }
       // İade olaylarında ödeme listesi gelmeyebilir; iade yöntemine göre kırılım kur.

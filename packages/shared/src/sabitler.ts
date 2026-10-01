@@ -218,6 +218,26 @@ export const MERKEZI_AYARLAR = [
  * Banka/POS defterine ELLE girilen hareketler. Kart satışı, kart/havale
  * tahsilat ve ödemeler kayıtlardan türetilir; bunlar türetilemeyenlerdir.
  */
+/**
+ * POS cihaz türleri. KAPALI: kart çekimi POS'tan elle yapılır, program yalnız
+ * kayıt tutar (bugünkü davranış). SIMULATOR: gerçek cihaz olmadan akışı denemek
+ * için. Gerçek cihaz sürücüleri (ör. yazarkasa POS) buraya eklenir.
+ */
+export const POS_TURU = ['KAPALI', 'SIMULATOR'] as const;
+export type PosTuru = (typeof POS_TURU)[number];
+
+/** POS işleminin sonucu — her sürücü bu şekli döndürür. */
+export interface PosIslemSonucu {
+  onaylandi: boolean;
+  onay_kodu?: string | null;
+  /** Cihazın/bankanın işlem referansı; iade ve iptalde orijinal işlemi gösterir. */
+  referans?: string | null;
+  /** Maskeli kart numarası, ör. "**** 4242". */
+  kart_maske?: string | null;
+  /** Reddedildiyse ya da hata olduysa okunur açıklama. */
+  hata?: string | null;
+}
+
 export const BANKA_HAREKET_TURU = ['ACILIS', 'KOMISYON', 'BANKADAN_KASAYA', 'KASADAN_BANKAYA', 'DUZELTME'] as const;
 export type BankaHareketTuru = (typeof BANKA_HAREKET_TURU)[number];
 
@@ -346,6 +366,12 @@ export const AYAR = {
   SEMA_SURUMU: 'schema_version',
   /** POS komisyon oranı (yüzde, örn. "1,8") — Banka/POS raporunda tahmini kesinti. */
   POS_KOMISYON_ORANI: 'pos.komisyon_orani',
+  /** POS cihaz türü (POS_TURU) — cihaza özel ayar, merkeze gitmez. */
+  POS_TURU: 'pos.turu',
+  /** Cihaz bağlantı adresi: ağ POS'unda "192.168.1.50:5000", seri bağlantıda "COM3". */
+  POS_ADRES: 'pos.adres',
+  /** Cihazdan yanıt beklenecek en uzun süre (saniye). */
+  POS_ZAMAN_ASIMI_SN: 'pos.zaman_asimi_sn',
   ISLETME_ADI: 'isletme.ad',
   ISLETME_ADRES: 'isletme.adres',
   ISLETME_TELEFON: 'isletme.telefon',

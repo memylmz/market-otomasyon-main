@@ -271,6 +271,80 @@ export function AyarlarSayfasi() {
   );
 }
 
+/**
+ * POS cihazı (§ POS entegrasyonu). Kapalıyken kart çekimi cihazdan elle yapılır,
+ * program yalnız kaydeder. Açıkken kart tutarı cihaza gider, onay gelmeden satış
+ * kapanmaz; karta iade de cihazdan yapılır. Cihaza özel ayardır.
+ */
+function PosAyarlari({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ayarla: (a: string, d: string) => void }) {
+  const [sonuc, setSonuc] = useState<{ basarili: boolean; mesaj: string } | null>(null);
+  const [deneniyor, setDeneniyor] = useState(false);
+  const tur = ayarlar[AYAR.POS_TURU] ?? 'KAPALI';
+
+  const dene = async () => {
+    setDeneniyor(true);
+    setSonuc(null);
+    try {
+      // Test kayıtlı ayarla yapılır; değiştirdiyseniz önce Kaydet'e basın.
+      setSonuc(await cagir<{ basarili: boolean; mesaj: string }>('pos.test'));
+    } catch (hata) {
+      hatayiBildir(hata, 'POS testi');
+    } finally {
+      setDeneniyor(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-3 rounded border border-cizgi p-3">
+      <p className="font-medium">POS cihazı</p>
+      <Alan
+        etiket="POS bağlantısı"
+        ipucu={
+          tur === 'KAPALI'
+            ? 'Kart çekimi POS cihazından elle yapılır; program yalnız kaydeder.'
+            : tur === 'SIMULATOR'
+              ? 'Gerçek cihaz olmadan akışı denemek için. Kuruşu 13 ile biten tutarlar (ör. 10,13) reddedilir.'
+              : undefined
+        }
+      >
+        <select className="alan" value={tur} onChange={(e) => ayarla(AYAR.POS_TURU, e.target.value)}>
+          <option value="KAPALI">Kapalı (elle çekim)</option>
+          <option value="SIMULATOR">Test simülatörü</option>
+        </select>
+      </Alan>
+      {tur !== 'KAPALI' && (
+        <>
+          <Alan
+            etiket="Cihaz adresi"
+            ipucu="Ağ POS'unda IP:port (ör. 192.168.1.50:5000), seri bağlantıda COM3. Simülatörde gerekmez."
+          >
+            <input
+              className="alan font-mono"
+              value={ayarlar[AYAR.POS_ADRES] ?? ''}
+              onChange={(e) => ayarla(AYAR.POS_ADRES, e.target.value)}
+              disabled={tur === 'SIMULATOR'}
+            />
+          </Alan>
+          <Alan etiket="Yanıt bekleme süresi (saniye)" ipucu="Müşterinin kartı okutması ve şifre girmesi için tanınan süre.">
+            <input
+              className="alan sayi w-32"
+              inputMode="numeric"
+              value={ayarlar[AYAR.POS_ZAMAN_ASIMI_SN] ?? '90'}
+              onChange={(e) => ayarla(AYAR.POS_ZAMAN_ASIMI_SN, e.target.value.replace(/\D/g, ''))}
+            />
+          </Alan>
+          <div className="flex items-center gap-2">
+            <button type="button" className="tus-ikincil" onClick={() => void dene()} disabled={deneniyor}>
+              {deneniyor ? 'Deneniyor…' : 'Bağlantıyı Test Et'}
+            </button>
+            {sonuc && <Rozet tur={sonuc.basarili ? 'basari' : 'tehlike'}>{sonuc.mesaj}</Rozet>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function DonanimSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ayarla: (a: string, d: string) => void }) {
   const [test, setTest] = useState<{ basarili: boolean; hata?: string; onizleme?: string } | null>(null);
   const yaziciTipi = ayarlar[AYAR.YAZICI_TIPI] ?? 'YOK';
@@ -397,12 +471,14 @@ function DonanimSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; 
             USB HID (klavye emülasyonu) okuyucular sürücüsüz çalışır — ayar gerekmez. Okuyucunun sonuna "Enter" göndermesi
             yeterlidir.
           </p>
-          <p className="mt-2 font-medium text-metin-2">POS / Terazi</p>
+          <p className="mt-2 font-medium text-metin-2">Terazi</p>
           <p>
-            Bu sürümde banka POS ve terazi entegrasyonu yoktur (bilinçli kapsam kararı). Kart tutarı manuel işaretlenir; kg/lt
-            ürünlerde miktar elle girilir.
+            Etiket basan barkodlu teraziler ayar gerektirmez (terazi barkodu okunur). Kasaya bağlı teraziden canlı tartım bu
+            sürümde yoktur; kg/lt ürünlerde miktar elle girilir.
           </p>
         </div>
+
+        <PosAyarlari ayarlar={ayarlar} ayarla={ayarla} />
       </div>
 
       <aside className="xl:sticky xl:top-4 xl:w-[400px] xl:shrink-0">

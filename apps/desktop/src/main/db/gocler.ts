@@ -879,6 +879,20 @@ export const GOCLER: readonly Goc[] = [
     yukari: `ALTER TABLE iade_talimatlari ADD COLUMN musteri_id TEXT;`,
     asagi: ``,
   },
+  {
+    surum: 13,
+    ad: 'odeme_pos_bilgisi',
+    /*
+     * POS entegrasyonu: kart çekiminin onay kodu, cihaz referansı (iade/iptalde
+     * orijinal işlemi gösterir) ve maskeli kart. POS kapalıyken boş kalır.
+     */
+    yukari: `
+      ALTER TABLE odemeler ADD COLUMN pos_onay_kodu TEXT;
+      ALTER TABLE odemeler ADD COLUMN pos_referans TEXT;
+      ALTER TABLE odemeler ADD COLUMN pos_kart TEXT;
+    `,
+    asagi: ``,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

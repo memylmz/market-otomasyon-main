@@ -507,6 +507,10 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'cari_talimatlari', 'para_yolu TEXT');
   // Perakende satışın panelden verilen iadesinde borcundan düşülecek müşteri.
   await sutunEkle(vt, 'iade_talimatlari', 'musteri_id TEXT');
+  // POS entegrasyonu: kart çekiminin onay kodu, cihaz referansı, maskeli kart.
+  await sutunEkle(vt, 'odemeler', 'pos_onay_kodu TEXT');
+  await sutunEkle(vt, 'odemeler', 'pos_referans TEXT');
+  await sutunEkle(vt, 'odemeler', 'pos_kart TEXT');
 
   /*
    * ONARIM — olaydan türetilen cari satırlarına belge türü (§11.6).

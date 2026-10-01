@@ -415,7 +415,15 @@ export function kampanyaliFiyat(urun: { id: string; kategori_id?: string | null;
 
 /** Sepeti ana sürecin beklediği satış girdisine çevirir. */
 export function satisGirdisiOlustur(
-  odemeler: { tip: 'NAKIT' | 'KART' | 'VERESIYE'; tutar: Kurus; alinan?: Kurus }[],
+  odemeler: {
+    tip: 'NAKIT' | 'KART' | 'VERESIYE';
+    tutar: Kurus;
+    alinan?: Kurus;
+    /** POS entegrasyonunda kart çekiminin onay bilgisi. */
+    pos_onay_kodu?: string | null;
+    pos_referans?: string | null;
+    pos_kart?: string | null;
+  }[],
   ekler: { limitAsimiOnaylandi?: boolean; negatifStokOnaylandi?: boolean } = {},
 ): Record<string, unknown> {
   const s = sepetDurumu.getState();
@@ -430,7 +438,15 @@ export function satisGirdisiOlustur(
       iskonto_tutar: x.iskontoTutar,
       kampanya_id: x.kampanyaId,
     })),
-    odemeler: odemeler.map((o) => ({ tip: o.tip, tutar: o.tutar, alinan: o.alinan })),
+    // POS onay bilgisi de taşınır: atılırsa kart çekiminin kanıtı kayda ve fişe ulaşmaz.
+    odemeler: odemeler.map((o) => ({
+      tip: o.tip,
+      tutar: o.tutar,
+      alinan: o.alinan,
+      pos_onay_kodu: o.pos_onay_kodu,
+      pos_referans: o.pos_referans,
+      pos_kart: o.pos_kart,
+    })),
     musteri_id: s.musteriId,
     notlar: s.notlar || undefined,
     limit_asimi_onaylandi: ekler.limitAsimiOnaylandi,

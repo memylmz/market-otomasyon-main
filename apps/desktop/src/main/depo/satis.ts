@@ -60,6 +60,10 @@ export interface OdemeKaydi {
   tutar: Kurus;
   alinan: Kurus;
   para_ustu: Kurus;
+  /** POS entegrasyonunda kart çekiminin onay kodu, cihaz referansı ve maskeli kartı. */
+  pos_onay_kodu?: string | null;
+  pos_referans?: string | null;
+  pos_kart?: string | null;
 }
 
 export interface SatisDetayi {
@@ -175,9 +179,23 @@ export function kalemEkle(
 export function odemeEkle(vt: Vt, odeme: Omit<OdemeKaydi, 'id'> & { id?: string }, cihazId: string, zaman = simdi()): string {
   const id = odeme.id ?? uuid();
   vt.hazirla(
-    `INSERT INTO odemeler (id, satis_id, odeme_tipi, tutar, alinan, para_ustu, created_at, updated_at, cihaz_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).calistir(id, odeme.satis_id, odeme.odeme_tipi, odeme.tutar, odeme.alinan, odeme.para_ustu, zaman, zaman, cihazId);
+    `INSERT INTO odemeler (id, satis_id, odeme_tipi, tutar, alinan, para_ustu, created_at, updated_at, cihaz_id,
+                           pos_onay_kodu, pos_referans, pos_kart)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).calistir(
+    id,
+    odeme.satis_id,
+    odeme.odeme_tipi,
+    odeme.tutar,
+    odeme.alinan,
+    odeme.para_ustu,
+    zaman,
+    zaman,
+    cihazId,
+    odeme.pos_onay_kodu ?? null,
+    odeme.pos_referans ?? null,
+    odeme.pos_kart ?? null,
+  );
   return id;
 }
 
@@ -241,7 +259,10 @@ export function kalemleriGetir(vt: Vt, satisId: string): SatisKalemiKaydi[] {
 
 export function odemeleriGetir(vt: Vt, satisId: string): OdemeKaydi[] {
   return vt
-    .hazirla('SELECT id, satis_id, odeme_tipi, tutar, alinan, para_ustu FROM odemeler WHERE satis_id = ? ORDER BY rowid')
+    .hazirla(
+      `SELECT id, satis_id, odeme_tipi, tutar, alinan, para_ustu, pos_onay_kodu, pos_referans, pos_kart
+       FROM odemeler WHERE satis_id = ? ORDER BY rowid`,
+    )
     .tumu<OdemeKaydi>(satisId);
 }
 

@@ -120,6 +120,13 @@ export function satisBelgesi(
       ? (IADE_YONTEMI_ETIKETI[odeme.odeme_tipi as IadeYontemi] ?? odeme.odeme_tipi)
       : (ODEME_ETIKETI[odeme.odeme_tipi] ?? odeme.odeme_tipi);
     odemeSatirlari.push({ etiket, deger: tutar(odeme.tutar) });
+    // POS çekiminin kanıtı fişte durur: müşteri itirazında hangi kart, hangi onay.
+    if (odeme.pos_kart || odeme.pos_onay_kodu) {
+      odemeSatirlari.push({
+        etiket: `  ${[odeme.pos_kart, odeme.pos_onay_kodu ? `Onay ${odeme.pos_onay_kodu}` : null].filter(Boolean).join(' · ')}`,
+        deger: '',
+      });
+    }
     if (odeme.odeme_tipi === 'NAKIT' && odeme.para_ustu > 0) {
       odemeSatirlari.push({ etiket: 'Alınan', deger: tutar(odeme.alinan) });
       odemeSatirlari.push({ etiket: 'Para üstü', deger: tutar(odeme.para_ustu) });

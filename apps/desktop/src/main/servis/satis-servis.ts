@@ -225,6 +225,12 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
 
   // --- Ödeme doğrulaması ---
   const odemeler: OdemeGirdisi[] = girdi.odemeler.map((o) => ({ tip: o.tip, tutar: o.tutar, alinan: o.alinan }));
+  // POS bilgisi ödeme doğrulamasına girmez; kayda ve fişe taşınır.
+  const posBilgisi = girdi.odemeler.map((o) => ({
+    pos_onay_kodu: o.pos_onay_kodu ?? null,
+    pos_referans: o.pos_referans ?? null,
+    pos_kart: o.pos_kart ?? null,
+  }));
   const odemeSonucu = odemeDogrula(hesap.genelToplam, odemeler);
   if (!odemeSonucu.gecerli) {
     const kod =
@@ -357,12 +363,19 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
 
     let nakit = 0;
     let kart = 0;
-    for (const odeme of odemeler) {
+    for (const [sira, odeme] of odemeler.entries()) {
       const alinan = odeme.tip === 'NAKIT' ? (odeme.alinan ?? odeme.tutar) : odeme.tutar;
       const paraUstu = odeme.tip === 'NAKIT' ? alinan - odeme.tutar : 0;
       odemeEkle(
         vt,
-        { satis_id: satisId, odeme_tipi: odeme.tip, tutar: odeme.tutar, alinan, para_ustu: paraUstu },
+        {
+          satis_id: satisId,
+          odeme_tipi: odeme.tip,
+          tutar: odeme.tutar,
+          alinan,
+          para_ustu: paraUstu,
+          ...(odeme.tip === 'KART' ? posBilgisi[sira] : {}),
+        },
         cihazId,
         zaman,
       );
@@ -469,7 +482,7 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
             kdv_tutar: satir.kdvTutar,
             satir_toplam: satir.satirToplam,
           })),
-          odemeler: odemeler.map((o) => ({ tip: o.tip, tutar: o.tutar })),
+          odemeler: odemeler.map((o, i) => ({ tip: o.tip, tutar: o.tutar, ...(o.tip === 'KART' ? posBilgisi[i] : {}) })),
         },
         olusturma_zamani: zaman,
       },
@@ -522,6 +535,24 @@ function vadeTarihiHesapla(baglam: Baglam, cariId: string, zaman: string): strin
 // ---------------------------------------------------------------------------
 
 /**
+ * İptalde ödenmiş kısmın hangi yoldan ne kadar döneceği — satış iptali ve
+ * POS iadesi (kayıttan ÖNCE cihaza gidilir) aynı hesabı kullanır.
+ */
+export function iptalIadeTutarlari(
+  odemeler: readonly { odeme_tipi: string; tutar: number }[],
+  paraYolu?: 'NAKIT' | 'KART',
+): { nakitIade: Kurus; kartIade: Kurus } {
+  const toplam = (tip: string) => odemeler.filter((o) => o.odeme_tipi === tip).reduce((t, o) => t + o.tutar, 0);
+  const nakit = toplam('NAKIT');
+  const kart = toplam('KART');
+  const odenen = nakit + kart;
+  return {
+    nakitIade: paraYolu === undefined ? nakit : paraYolu === 'NAKIT' ? odenen : 0,
+    kartIade: paraYolu === undefined ? kart : paraYolu === 'KART' ? odenen : 0,
+  };
+}
+
+/**
  * Satışı iptal eder.
  *
  * `paraYolu` ödenmiş kısmın (nakit + kart) müşteriye NASIL geri verildiğidir;
@@ -529,7 +560,15 @@ function vadeTarihiHesapla(baglam: Baglam, cariId: string, zaman: string): strin
  * o anki AÇIK kasadan yazılır — satışın vardiyası kapanmış olabilir. Veresiye
  * kısmı her durumda borçtan silinir: satış hiç olmamış sayılır.
  */
-export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden: string, paraYolu?: 'NAKIT' | 'KART'): void {
+export function satisIptal(
+  baglam: Baglam,
+  aktor: Aktor,
+  satisId: string,
+  neden: string,
+  paraYolu?: 'NAKIT' | 'KART',
+  /** POS'tan yapılan karta iadenin sonucu (POS açıksa); denetim kaydına yazılır. */
+  posIadesi?: { onay_kodu?: string | null; referans?: string | null } | null,
+): void {
   yetkiIste(aktor, 'satis.iptal');
   const { vt, cihazId } = baglam;
   const zaman = simdi();
@@ -548,8 +587,7 @@ export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden:
   const kart = toplamTip('KART');
   const veresiye = satis.musteri_id ? toplamTip('VERESIYE') : 0;
   const odenen = nakit + kart;
-  const nakitIade = paraYolu === undefined ? nakit : paraYolu === 'NAKIT' ? odenen : 0;
-  const kartIade = paraYolu === undefined ? kart : paraYolu === 'KART' ? odenen : 0;
+  const { nakitIade, kartIade } = iptalIadeTutarlari(odemeler, paraYolu);
   // Para geri verilecekse açık bir vardiya gerekir; tamamen veresiye satış kasasız iptal edilebilir.
   const kasaOturumId = odenen > 0 ? kasaOturumuIste(aktor) : null;
 
@@ -677,7 +715,13 @@ export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden:
         entity: 'satis',
         entity_id: satisId,
         eski_deger: { genel_toplam: satis.genel_toplam },
-        yeni_deger: { neden, para_yolu: paraYolu ?? 'ORIJINAL', nakit_iade: nakitIade, kart_iade: kartIade },
+        yeni_deger: {
+          neden,
+          para_yolu: paraYolu ?? 'ORIJINAL',
+          nakit_iade: nakitIade,
+          kart_iade: kartIade,
+          pos_iade: posIadesi ?? null,
+        },
       },
       cihazId,
       zaman,
@@ -691,7 +735,34 @@ export function satisIptal(baglam: Baglam, aktor: Aktor, satisId: string, neden:
 // İade / değişim (§10.4)
 // ---------------------------------------------------------------------------
 
-export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisSonucu {
+/**
+ * İadenin müşteriye dönecek tutarı — iadeYap'ın orantılı hesabının AYNISI.
+ * POS açıkken karta iade cihaza kayıttan ÖNCE gönderildiği için ayrıca gerekir.
+ */
+export function iadeTutariHesapla(
+  vt: Vt,
+  kaynakSatisId: string,
+  kalemler: readonly { satis_kalemi_id: string; miktar: Miktar }[],
+): Kurus {
+  const harita = new Map(kalemleriGetir(vt, kaynakSatisId).map((k) => [k.id, k]));
+  return kalemler.reduce((t, istek) => {
+    const k = harita.get(istek.satis_kalemi_id);
+    return k ? t + Math.round(k.satir_toplam * (istek.miktar / k.miktar)) : t;
+  }, 0);
+}
+
+/** Kaynak satışın kart çekiminin POS referansı (karta iadede orijinal işlem). */
+export function kartPosReferansi(vt: Vt, satisId: string): string | null {
+  return odemeleriGetir(vt, satisId).find((o) => o.odeme_tipi === 'KART' && o.pos_referans)?.pos_referans ?? null;
+}
+
+export function iadeYap(
+  baglam: Baglam,
+  aktor: Aktor,
+  hamGirdi: unknown,
+  /** POS'tan yapılan karta iadenin sonucu (POS açıksa) — iade fişine ve kayda yazılır. */
+  pos?: { onay_kodu?: string | null; referans?: string | null; kart_maske?: string | null } | null,
+): SatisSonucu {
   yetkiIste(aktor, 'satis.iade');
   const kasaOturumId = kasaOturumuIste(aktor);
 
@@ -851,7 +922,16 @@ export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisS
 
     odemeEkle(
       vt,
-      { satis_id: satisId, odeme_tipi: girdi.iade_yontemi, tutar: -toplamIade, alinan: 0, para_ustu: 0 },
+      {
+        satis_id: satisId,
+        odeme_tipi: girdi.iade_yontemi,
+        tutar: -toplamIade,
+        alinan: 0,
+        para_ustu: 0,
+        ...(girdi.iade_yontemi === 'KART' && pos
+          ? { pos_onay_kodu: pos.onay_kodu ?? null, pos_referans: pos.referans ?? null, pos_kart: pos.kart_maske ?? null }
+          : {}),
+      },
       cihazId,
       zaman,
     );

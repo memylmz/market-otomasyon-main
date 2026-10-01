@@ -258,6 +258,10 @@ export const zSatisGirdi = z.object({
         tip: z.enum(ODEME_TIPI),
         tutar: zKurus,
         alinan: zKurus.optional(),
+        /** POS entegrasyonunda kart çekiminin onay kodu, işlem referansı ve maskeli kartı. */
+        pos_onay_kodu: zMetin(40).nullable().optional(),
+        pos_referans: zMetin(80).nullable().optional(),
+        pos_kart: zMetin(40).nullable().optional(),
       }),
     )
     .min(1, 'En az bir ödeme satırı gereklidir'),
