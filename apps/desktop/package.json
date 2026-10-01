@@ -21,7 +21,8 @@
   "dependencies": {
     "@market/shared": "*",
     "better-sqlite3": "^12.2.0",
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "serialport": "^13.0.0"
   },
   "devDependencies": {
     "@market/tema": "*",

@@ -13,10 +13,12 @@ files:
   - '!**/*.map'
   - '!**/{.git,.github,test,__tests__,docs}/**'
 
-# better-sqlite3 yerel modüldür; paketin içine açık halde konur (asar dışı).
+# better-sqlite3 ve serialport yerel modüldür; paketin içine açık halde konur (asar dışı).
 asar: true
 asarUnpack:
   - '**/node_modules/better-sqlite3/**'
+  # Terazi seri portu (yerel modül).
+  - '**/node_modules/@serialport/**'
 
 npmRebuild: true
 buildDependenciesFromSource: false

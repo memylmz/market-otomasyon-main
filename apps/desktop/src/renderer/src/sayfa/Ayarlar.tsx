@@ -1,7 +1,7 @@
 /** Ayarlar (§10.11): işletme, donanım, senkron/lisans, yedekleme, görünüm. */
 
 import { useCallback, useEffect, useState } from 'react';
-import { AYAR, tarihSaatFormat } from '@market/shared';
+import { AYAR, paraFormat, tarihSaatFormat } from '@market/shared';
 import { Alan, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { EtiketOnizleme, FisOnizleme, type EtiketOnizlemeVerisi, type FisOnizlemeVerisi } from '../bilesen/Onizleme';
 import { bildir, hatayiBildir } from '../durum/bildirim';
@@ -303,7 +303,7 @@ function PosAyarlari({ ayarlar, ayarla }: { ayarlar: Record<string, string>; aya
           tur === 'KAPALI'
             ? 'Kart çekimi POS cihazından elle yapılır; program yalnız kaydeder.'
             : tur === 'SIMULATOR'
-              ? 'Gerçek cihaz olmadan akışı denemek için. Kuruşu 13 ile biten tutarlar (ör. 10,13) reddedilir.'
+              ? 'Gerçek cihaz olmadan akışı denemek için. Kuruşu 13 ile biten tutar (ör. 10,13) reddedilir, 14 ile biten yanıtsız kalır (süre aşımı denemesi).'
               : undefined
         }
       >
@@ -340,6 +340,221 @@ function PosAyarlari({ ayarlar, ayarla }: { ayarlar: Record<string, string>; aya
             {sonuc && <Rozet tur={sonuc.basarili ? 'basari' : 'tehlike'}>{sonuc.mesaj}</Rozet>}
           </div>
         </>
+      )}
+      <PosGunlugu />
+    </div>
+  );
+}
+
+/**
+ * Kasaya bağlı terazi (RS-232 / USB-seri ya da ağ). Açıkken kg ürünün tartım
+ * penceresi teraziden canlı okur. Ayar yalnız bu kasaya aittir.
+ */
+function TeraziAyarlari({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ayarla: (a: string, d: string) => void }) {
+  const [sonuc, setSonuc] = useState<{ basarili: boolean; mesaj: string } | null>(null);
+  const [deneniyor, setDeneniyor] = useState(false);
+  const [portlar, setPortlar] = useState<{ yol: string; aciklama: string }[]>([]);
+  const tur = ayarlar[AYAR.TERAZI_TURU] ?? 'KAPALI';
+
+  useEffect(() => {
+    if (tur !== 'SERI') return;
+    cagir<{ yol: string; aciklama: string }[]>('terazi.portlar')
+      .then(setPortlar)
+      .catch(() => setPortlar([]));
+  }, [tur]);
+
+  const dene = async () => {
+    setDeneniyor(true);
+    setSonuc(null);
+    try {
+      // Test kayıtlı ayarla yapılır; değiştirdiyseniz önce Kaydet'e basın.
+      setSonuc(await cagir<{ basarili: boolean; mesaj: string }>('terazi.test'));
+    } catch (hata) {
+      hatayiBildir(hata, 'Terazi testi');
+    } finally {
+      setDeneniyor(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-3 rounded border border-cizgi p-3">
+      <p className="font-medium">Kasaya bağlı terazi</p>
+      <Alan
+        etiket="Terazi bağlantısı"
+        ipucu={
+          tur === 'KAPALI'
+            ? 'Kapalı: kg ürünlerde miktar elle girilir.'
+            : tur === 'SIMULATOR'
+              ? 'Gerçek terazi olmadan denemek için; her okumada 1,250 kg döner.'
+              : 'Açık: kg ürün sepete eklenirken ağırlık teraziden canlı okunur, kefe durunca Enter ile eklenir.'
+        }
+      >
+        <select className="alan" value={tur} onChange={(e) => ayarla(AYAR.TERAZI_TURU, e.target.value)}>
+          <option value="KAPALI">Kapalı (elle giriş)</option>
+          <option value="SERI">Seri port / USB (COM)</option>
+          <option value="AG">Ağ / Ethernet (IP)</option>
+          <option value="SIMULATOR">Test simülatörü</option>
+        </select>
+      </Alan>
+      {(tur === 'SERI' || tur === 'AG') && (
+        <>
+          <Alan
+            etiket={tur === 'SERI' ? 'Port' : 'Terazi adresi'}
+            ipucu={
+              tur === 'SERI'
+                ? 'Teraziyi takınca Windows Aygıt Yöneticisi → Bağlantı noktaları altında görünen COM numarası.'
+                : 'Terazinin IP adresi ve portu, ör. 192.168.1.60:4001.'
+            }
+          >
+            <input
+              className="alan font-mono"
+              list={tur === 'SERI' ? 'terazi-portlari' : undefined}
+              placeholder={tur === 'SERI' ? 'COM3' : '192.168.1.60:4001'}
+              value={ayarlar[AYAR.TERAZI_ADRES] ?? ''}
+              onChange={(e) => ayarla(AYAR.TERAZI_ADRES, e.target.value.trim())}
+            />
+            {tur === 'SERI' && (
+              <datalist id="terazi-portlari">
+                {portlar.map((p) => (
+                  <option key={p.yol} value={p.yol}>
+                    {p.aciklama}
+                  </option>
+                ))}
+              </datalist>
+            )}
+          </Alan>
+          {tur === 'SERI' && (
+            <div className="grid grid-cols-2 gap-3">
+              <Alan etiket="Hız (baud)" ipucu="Terazinin kılavuzunda yazar; çoğunda 9600.">
+                <select
+                  className="alan"
+                  value={ayarlar[AYAR.TERAZI_BAUD] ?? '9600'}
+                  onChange={(e) => ayarla(AYAR.TERAZI_BAUD, e.target.value)}
+                >
+                  {['1200', '2400', '4800', '9600', '19200', '38400', '57600', '115200'].map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </Alan>
+              <Alan etiket="Veri biçimi" ipucu="Veri biti, parite, dur biti. Çoğunda 8N1; bazılarında 7E1.">
+                <select
+                  className="alan"
+                  value={ayarlar[AYAR.TERAZI_CERCEVE] ?? '8N1'}
+                  onChange={(e) => ayarla(AYAR.TERAZI_CERCEVE, e.target.value)}
+                >
+                  {['8N1', '7E1', '7O1', '8E1', '8O1', '8N2', '7N1'].map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </Alan>
+            </div>
+          )}
+          <Alan
+            etiket="Ağırlık isteme komutu"
+            ipucu={
+              'Terazi ağırlığı sürekli gönderiyorsa boş bırakın. İstek bekliyorsa kılavuzdaki komutu yazın, ör. W\\r\\n ya da \\x05 (ENQ).'
+            }
+          >
+            <input
+              className="alan font-mono"
+              placeholder="boş = sürekli gönderen terazi"
+              value={ayarlar[AYAR.TERAZI_KOMUT] ?? ''}
+              onChange={(e) => ayarla(AYAR.TERAZI_KOMUT, e.target.value)}
+            />
+          </Alan>
+        </>
+      )}
+      {tur !== 'KAPALI' && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="tus-ikincil" onClick={() => void dene()} disabled={deneniyor}>
+            {deneniyor ? 'Okunuyor…' : 'Teraziyi Test Et'}
+          </button>
+          {sonuc && <Rozet tur={sonuc.basarili ? 'basari' : 'tehlike'}>{sonuc.mesaj}</Rozet>}
+          <span className="text-xs text-metin-3">Önce Kaydet'e basın; test kayıtlı ayarla yapılır.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface PosGunlukSatiri {
+  id: string;
+  zaman: string;
+  tur: 'SATIS' | 'IADE' | 'GERI_ALMA';
+  tutar: number;
+  sonuc: 'ONAY' | 'RED' | 'ZAMAN_ASIMI' | 'HATA';
+  onay_kodu: string | null;
+  kart: string | null;
+  hata: string | null;
+  belge_tipi: string | null;
+  kullanici_adi?: string | null;
+}
+
+const POS_TUR_ADI: Record<PosGunlukSatiri['tur'], string> = { SATIS: 'Çekim', IADE: 'Karta iade', GERI_ALMA: 'Geri alma' };
+const POS_SONUC: Record<PosGunlukSatiri['sonuc'], { ad: string; tur: 'basari' | 'uyari' | 'tehlike' }> = {
+  ONAY: { ad: 'Onay', tur: 'basari' },
+  RED: { ad: 'Red', tur: 'uyari' },
+  ZAMAN_ASIMI: { ad: 'Yanıt yok', tur: 'tehlike' },
+  HATA: { ad: 'Hata', tur: 'tehlike' },
+};
+
+/** Cihaza giden son işlemler — gün sonu slibiyle karşılaştırma ve "para çekildi mi?" sorusu için. */
+function PosGunlugu() {
+  const [satirlar, setSatirlar] = useState<PosGunlukSatiri[] | null>(null);
+  const yukle = () => {
+    cagir<PosGunlukSatiri[]>('pos.gunluk', { limit: 50 })
+      .then(setSatirlar)
+      .catch((hata: unknown) => hatayiBildir(hata, 'POS günlüğü'));
+  };
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center gap-2">
+        <button type="button" className="tus-ikincil" onClick={yukle}>
+          {satirlar ? 'Yenile' : 'Son POS İşlemlerini Göster'}
+        </button>
+        <span className="text-xs text-metin-3">Onaylanan, reddedilen ve yanıt alınamayan her işlem burada.</span>
+      </div>
+      {satirlar && (
+        <div className="max-h-72 overflow-auto rounded border border-cizgi">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-yuzey-2 text-left text-metin-3">
+              <tr>
+                <th className="px-2 py-1">Zaman</th>
+                <th className="px-2 py-1">İşlem</th>
+                <th className="px-2 py-1 text-right">Tutar</th>
+                <th className="px-2 py-1">Sonuç</th>
+                <th className="px-2 py-1">Onay / Kart</th>
+                <th className="px-2 py-1">Kullanıcı</th>
+              </tr>
+            </thead>
+            <tbody>
+              {satirlar.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-2 py-3 text-center text-metin-3">
+                    Henüz POS işlemi yok.
+                  </td>
+                </tr>
+              )}
+              {satirlar.map((s) => (
+                <tr key={s.id} className="border-t border-cizgi align-top">
+                  <td className="whitespace-nowrap px-2 py-1">{tarihSaatFormat(s.zaman)}</td>
+                  <td className="px-2 py-1">{POS_TUR_ADI[s.tur] ?? s.tur}</td>
+                  <td className="px-2 py-1 text-right font-mono">{paraFormat(s.tutar)}</td>
+                  <td className="px-2 py-1">
+                    <Rozet tur={POS_SONUC[s.sonuc]?.tur ?? 'notr'}>{POS_SONUC[s.sonuc]?.ad ?? s.sonuc}</Rozet>
+                    {s.hata && <span className="block text-metin-3">{s.hata}</span>}
+                  </td>
+                  <td className="px-2 py-1 font-mono">{[s.onay_kodu, s.kart].filter(Boolean).join(' · ') || '—'}</td>
+                  <td className="px-2 py-1">{s.kullanici_adi ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -471,12 +686,11 @@ function DonanimSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; 
             USB HID (klavye emülasyonu) okuyucular sürücüsüz çalışır — ayar gerekmez. Okuyucunun sonuna "Enter" göndermesi
             yeterlidir.
           </p>
-          <p className="mt-2 font-medium text-metin-2">Terazi</p>
-          <p>
-            Etiket basan barkodlu teraziler ayar gerektirmez (terazi barkodu okunur). Kasaya bağlı teraziden canlı tartım bu
-            sürümde yoktur; kg/lt ürünlerde miktar elle girilir.
-          </p>
+          <p className="mt-2 font-medium text-metin-2">Etiket basan terazi</p>
+          <p>Barkodlu etiket basan teraziler ayar gerektirmez (terazi barkodu okunur). Kasaya bağlı terazi aşağıdadır.</p>
         </div>
+
+        <TeraziAyarlari ayarlar={ayarlar} ayarla={ayarla} />
 
         <PosAyarlari ayarlar={ayarlar} ayarla={ayarla} />
       </div>

@@ -215,7 +215,7 @@ export function SatisSayfasi() {
 
   /**
    * Sepete giden TEK kapı: KG/LT ürünlerde miktar verilmemişse önce tartım
-   * diyaloğu açılır (terazi entegrasyonu yok; kasiyer kg'ı ya da tutarı girer).
+   * diyaloğu açılır (bağlı terazi açıksa ağırlık canlı okunur; değilse kasiyer kg'ı ya da tutarı girer).
    */
   const sepeteAl = useCallback(
     (urun: EklenecekUrun, miktar?: Miktar) => {

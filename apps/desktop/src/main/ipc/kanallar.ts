@@ -100,6 +100,7 @@ import {
   posTesti,
   posUyariDinleyicisi,
 } from '../servis/pos-servis.js';
+import { seriPortlar, teraziDurumu, teraziOku, teraziTesti } from '../servis/terazi-servis.js';
 import {
   fireCikisi,
   alisFaturasiGuncelle,
@@ -630,6 +631,14 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       return posDurumu(b());
     },
     'pos.test': () => posTesti(b(), a()),
+    // ---------------------------------------------------------------- terazi
+    'terazi.durum': () => {
+      a();
+      return teraziDurumu(b());
+    },
+    'terazi.oku': () => teraziOku(b(), a()),
+    'terazi.test': () => teraziTesti(b(), a()),
+    'terazi.portlar': () => seriPortlar(a()),
     'pos.gunluk': (girdi?: { baslangic?: string; bitis?: string; limit?: number }) => posGunlugu(b(), a(), girdi ?? {}),
 
     'rapor.gunluk': (girdi?: { from?: GunAnahtari; to?: GunAnahtari }) => {
