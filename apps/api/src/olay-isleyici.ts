@@ -1125,6 +1125,27 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       return;
     }
 
+    /** Banka/POS defterine kasada elle girilen hareket; tutar işaretli gelir. */
+    case 'BANKA_HAREKETI': {
+      await islem.calistir(
+        `INSERT INTO banka_hareketleri (id, isletme_id, tur, tutar, aciklama, kasa_hareket_id, kullanici_id, tarih, cihaz_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(isletme_id, id) DO NOTHING`,
+        [
+          metin(veri.id),
+          isletmeId,
+          metin(veri.tur, 'DUZELTME'),
+          sayi(veri.tutar),
+          metin(veri.aciklama),
+          veri.kasa_hareket_id ?? null,
+          veri.kullanici_id ?? null,
+          metin(veri.tarih, baglam.zaman),
+          baglam.cihazId,
+        ],
+      );
+      return;
+    }
+
     case 'GUNLUK_OZET':
       // Rollup zaten satış olaylarından üretilir; ayrıca saklanmaz.
       return;

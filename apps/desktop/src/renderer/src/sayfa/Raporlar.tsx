@@ -15,13 +15,13 @@ import {
   type IadeYontemi,
   type Kurus,
 } from '@market/shared';
-import { Alan, BosDurum, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
+import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
 
-type Sekme = 'ozet' | 'urun' | 'saatlik' | 'kasa' | 'satislar' | 'suistimal' | 'denetim';
+type Sekme = 'ozet' | 'urun' | 'saatlik' | 'kasa' | 'satislar' | 'banka' | 'suistimal' | 'denetim';
 
 interface CiroOzeti {
   ciro: Kurus;
@@ -44,6 +44,7 @@ const KANAL: Record<Sekme, string> = {
   saatlik: 'rapor.saatlik',
   kasa: 'kasa.gecmis',
   satislar: 'satis.listele',
+  banka: 'rapor.banka',
   suistimal: 'rapor.suistimal',
   denetim: 'denetim.listele',
 };
@@ -171,6 +172,7 @@ export function RaporlarSayfasi() {
     { anahtar: 'saatlik', etiket: 'Saatlik Yoğunluk' },
     { anahtar: 'satislar', etiket: 'Satışlar' },
     { anahtar: 'kasa', etiket: 'Kasa Geçmişi' },
+    { anahtar: 'banka', etiket: 'Banka / POS' },
     { anahtar: 'suistimal', etiket: 'İade / İptal' },
     ...(denetimYetkisi ? [{ anahtar: 'denetim' as Sekme, etiket: 'Denetim Logu' }] : []),
   ];
@@ -241,6 +243,8 @@ export function RaporlarSayfasi() {
           <SatislarGorunumu veri={icerik as Record<string, unknown>} onDegisti={() => setTazelik((t) => t + 1)} />
         ) : sekme === 'kasa' ? (
           <KasaGecmisiGorunumu veri={dizi(icerik)} />
+        ) : sekme === 'banka' ? (
+          <BankaGorunumu veri={icerik as BankaVerisi} onDegisti={() => setTazelik((t) => t + 1)} />
         ) : sekme === 'suistimal' ? (
           <SuistimalGorunumu veri={icerik as Record<string, unknown>} />
         ) : (
@@ -250,6 +254,297 @@ export function RaporlarSayfasi() {
 
       <SatisDetayDiyalogu satisId={acikSatis} onKapat={() => setAcikSatis(null)} onDegisti={() => setTazelik((t) => t + 1)} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Banka / POS
+// ---------------------------------------------------------------------------
+
+interface BankaVerisi {
+  devir: Kurus;
+  bakiye: Kurus;
+  komisyon_orani: number;
+  ozet: {
+    kart_satis: Kurus;
+    kart_iade: Kurus;
+    tahsilat: Kurus;
+    odeme: Kurus;
+    komisyon: Kurus;
+    aktarim: Kurus;
+    tahmini_komisyon: Kurus;
+  };
+  hareketler: { tarih: string; tur: string; aciklama: string; tutar: Kurus; belge_id: string | null; yuruyen_bakiye: Kurus }[];
+}
+
+const BANKA_TUR_ETIKETI: Record<string, string> = {
+  KART_SATIS: 'Kart satış',
+  KART_IADE: 'Karta iade',
+  KART_TAHSILAT: 'Kart/havale tahsilat',
+  KART_ODEME: 'Kart/havale ödeme',
+  IPTAL: 'İptal (karta/hesaba)',
+  ACILIS: 'Açılış bakiyesi',
+  KOMISYON: 'Banka/POS kesintisi',
+  BANKADAN_KASAYA: 'Bankadan kasaya',
+  KASADAN_BANKAYA: 'Kasadan bankaya',
+  DUZELTME: 'Düzeltme',
+};
+
+/**
+ * Nakit dışı paranın defteri. Kart satışı, kart/havale tahsilat ve ödemeler
+ * kayıtlardan türetilir; açılış, kesinti ve kasa↔banka aktarımı elle girilir.
+ */
+function BankaGorunumu({ veri, onDegisti }: { veri: BankaVerisi; onDegisti: () => void }) {
+  const [ekleAcik, setEkleAcik] = useState(false);
+  const [oranAcik, setOranAcik] = useState(false);
+  const hareketYetkisi = useYetki('kasa.giris_cikis');
+  const ayarYetkisi = useYetki('ayar.yonet');
+  const netKart = veri.ozet.kart_satis + veri.ozet.kart_iade;
+
+  return (
+    <div className="space-y-4">
+      {/* Sınır açıkça söylenir: rakam bankadaki gerçek bakiye DEĞİL, olması gerekendir. */}
+      <div className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm text-metin-2">
+        <strong>Bu bakiye tahminidir.</strong> POS'tan çekilen tutar bankaya genellikle birkaç gün sonra ve banka kesintisi
+        düşülerek geçer; program bankanıza bağlı değildir. Ay sonunda banka ekstresiyle karşılaştırın, gerçek kesintiyi
+        &laquo;Banka/POS kesintisi&raquo;, kalan farkı &laquo;Düzeltme&raquo; olarak girin.
+      </div>
+
+      <KutuIzgara
+        ogeler={[
+          { etiket: 'Banka / POS bakiyesi', deger: paraFormat(veri.bakiye), alt: 'Olması gereken', vurgu: true },
+          { etiket: 'Net kart satışı', deger: paraFormat(netKart), alt: `İade: ${paraFormat(-veri.ozet.kart_iade)}` },
+          { etiket: 'Kart/havale tahsilat', deger: paraFormat(veri.ozet.tahsilat) },
+          { etiket: 'Kart/havale ödeme', deger: paraFormat(-veri.ozet.odeme), alt: 'Tedarikçilere' },
+        ]}
+      />
+
+      <div className="flex flex-wrap items-center gap-3 rounded border border-cizgi px-3 py-2 text-sm">
+        <span>
+          Tahmini kesinti (%{veri.komisyon_orani.toLocaleString('tr-TR')} × net kart satışı):{' '}
+          <strong className="font-mono">{paraFormat(veri.ozet.tahmini_komisyon)}</strong>
+        </span>
+        <span className="text-metin-3">
+          Girilen gerçek kesinti: <strong className="font-mono">{paraFormat(-veri.ozet.komisyon)}</strong>
+        </span>
+        {ayarYetkisi && (
+          <button type="button" className="text-xs text-vurgu hover:underline" onClick={() => setOranAcik(true)}>
+            oranı değiştir
+          </button>
+        )}
+        {hareketYetkisi && (
+          <button type="button" className="tus-birincil ml-auto" onClick={() => setEkleAcik(true)}>
+            Hareket Ekle
+          </button>
+        )}
+      </div>
+
+      <table className="tablo">
+        <thead>
+          <tr>
+            <th>Tarih</th>
+            <th>Tür</th>
+            <th>Açıklama</th>
+            <th className="text-right">Tutar</th>
+            <th className="text-right">Bakiye</th>
+          </tr>
+        </thead>
+        <tbody>
+          {veri.devir !== 0 && (
+            <tr>
+              <td className="text-metin-3">—</td>
+              <td colSpan={3} className="text-left text-metin-3">
+                Önceki dönemden devir
+              </td>
+              <td className="sayi text-right font-semibold">{paraFormat(veri.devir, { simge: false })}</td>
+            </tr>
+          )}
+          {[...veri.hareketler].reverse().map((h, i) => (
+            <tr key={`${h.belge_id ?? ''}-${i}`}>
+              <td className="text-metin-3">{tarihSaatFormat(h.tarih)}</td>
+              <td>{BANKA_TUR_ETIKETI[h.tur] ?? h.tur}</td>
+              <td className="max-w-sm truncate text-left text-metin-3">{h.aciklama}</td>
+              <td className={`sayi text-right ${h.tutar < 0 ? 'text-tehlike' : 'text-vurgu'}`}>
+                {paraFormat(h.tutar, { simge: false, isaret: true })}
+              </td>
+              <td className="sayi text-right font-semibold">{paraFormat(h.yuruyen_bakiye, { simge: false })}</td>
+            </tr>
+          ))}
+          {veri.hareketler.length === 0 && (
+            <tr>
+              <td colSpan={5} className="py-8 text-center text-sm text-metin-4">
+                Bu aralıkta kart/havale hareketi yok.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <BankaHareketiDiyalogu
+        acik={ekleAcik}
+        onKapat={() => setEkleAcik(false)}
+        onTamam={() => {
+          setEkleAcik(false);
+          onDegisti();
+        }}
+      />
+      <KomisyonOraniDiyalogu
+        acik={oranAcik}
+        mevcut={veri.komisyon_orani}
+        onKapat={() => setOranAcik(false)}
+        onTamam={() => {
+          setOranAcik(false);
+          onDegisti();
+        }}
+      />
+    </div>
+  );
+}
+
+const ELLE_TURLER: { deger: string; etiket: string; ipucu: string }[] = [
+  { deger: 'ACILIS', etiket: 'Açılış bakiyesi', ipucu: "Programa geçerken bankada/POS'ta bekleyen tutar." },
+  { deger: 'KOMISYON', etiket: 'Banka/POS kesintisi', ipucu: 'Banka ekstresindeki gerçek komisyon/kesinti; bakiyeden düşer.' },
+  {
+    deger: 'BANKADAN_KASAYA',
+    etiket: 'Bankadan kasaya (nakit çekme)',
+    ipucu: 'Bankadan düşer, kasaya girer (açık kasa gerekir).',
+  },
+  { deger: 'KASADAN_BANKAYA', etiket: 'Kasadan bankaya (yatırma)', ipucu: 'Kasadan çıkar, bankaya girer (açık kasa gerekir).' },
+  { deger: 'DUZELTME', etiket: 'Düzeltme', ipucu: 'Ekstreyle kalan fark; yönünü seçin.' },
+];
+
+function BankaHareketiDiyalogu({ acik, onKapat, onTamam }: { acik: boolean; onKapat: () => void; onTamam: () => void }) {
+  const [tur, setTur] = useState('KOMISYON');
+  const [tutar, setTutar] = useState<Kurus>(0);
+  const [aciklama, setAciklama] = useState('');
+  const [yon, setYon] = useState<'GIRIS' | 'CIKIS'>('CIKIS');
+  const [calisiyor, setCalisiyor] = useState(false);
+
+  useEffect(() => {
+    if (!acik) return;
+    setTur('KOMISYON');
+    setTutar(0);
+    setAciklama('');
+    setYon('CIKIS');
+  }, [acik]);
+
+  const gecerli = tutar > 0 && aciklama.trim().length > 0 && !calisiyor;
+  const kaydet = async () => {
+    if (!gecerli) return;
+    setCalisiyor(true);
+    try {
+      await cagir('banka.hareketEkle', { tur, tutar, aciklama: aciklama.trim(), yon });
+      bildir.basari('Banka hareketi eklendi');
+      onTamam();
+    } catch (hata) {
+      hatayiBildir(hata, 'Banka hareketi');
+    } finally {
+      setCalisiyor(false);
+    }
+  };
+
+  return (
+    <Diyalog
+      acik={acik}
+      baslik="Banka / POS Hareketi"
+      genislik="dar"
+      onKapat={onKapat}
+      altBilgi={
+        <>
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Vazgeç
+          </button>
+          <button type="button" className="tus-birincil" onClick={() => void kaydet()} disabled={!gecerli}>
+            Kaydet
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Alan etiket="Tür" ipucu={ELLE_TURLER.find((t) => t.deger === tur)?.ipucu}>
+          <select className="alan" value={tur} onChange={(e) => setTur(e.target.value)}>
+            {ELLE_TURLER.map((t) => (
+              <option key={t.deger} value={t.deger}>
+                {t.etiket}
+              </option>
+            ))}
+          </select>
+        </Alan>
+        {tur === 'DUZELTME' && (
+          <Alan etiket="Yön">
+            <select className="alan" value={yon} onChange={(e) => setYon(e.target.value as 'GIRIS' | 'CIKIS')}>
+              <option value="GIRIS">Bakiyeyi artır</option>
+              <option value="CIKIS">Bakiyeyi azalt</option>
+            </select>
+          </Alan>
+        )}
+        <Alan etiket="Tutar">
+          <ParaAlani deger={tutar} onDegisim={setTutar} />
+        </Alan>
+        <Alan etiket="Açıklama *">
+          <input
+            className="alan"
+            value={aciklama}
+            onChange={(e) => setAciklama(e.target.value)}
+            placeholder="Örn. Eylül POS kesintisi"
+          />
+        </Alan>
+      </div>
+    </Diyalog>
+  );
+}
+
+/** POS komisyon oranı — merkezî ayar; panel de aynı oranla tahmin eder. */
+function KomisyonOraniDiyalogu({
+  acik,
+  mevcut,
+  onKapat,
+  onTamam,
+}: {
+  acik: boolean;
+  mevcut: number;
+  onKapat: () => void;
+  onTamam: () => void;
+}) {
+  const [oran, setOran] = useState('');
+  useEffect(() => {
+    if (acik) setOran(mevcut ? String(mevcut).replace('.', ',') : '');
+  }, [acik, mevcut]);
+  const sayi = Number(oran.replace(',', '.'));
+  const gecerli = oran.trim() !== '' && Number.isFinite(sayi) && sayi >= 0 && sayi < 20;
+
+  const kaydet = async () => {
+    try {
+      await cagir('ayar.yaz', { degerler: { 'pos.komisyon_orani': oran.trim() } });
+      bildir.basari('Komisyon oranı kaydedildi');
+      onTamam();
+    } catch (hata) {
+      hatayiBildir(hata, 'Komisyon oranı');
+    }
+  };
+
+  return (
+    <Diyalog
+      acik={acik}
+      baslik="POS Komisyon Oranı"
+      aciklama="Bankanızla anlaştığınız ortalama oran. Kart türü ve taksite göre gerçek kesinti farklı olabilir."
+      genislik="dar"
+      onKapat={onKapat}
+      altBilgi={
+        <>
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Vazgeç
+          </button>
+          <button type="button" className="tus-birincil" onClick={() => void kaydet()} disabled={!gecerli}>
+            Kaydet
+          </button>
+        </>
+      }
+    >
+      <Alan etiket="Oran (%)" ipucu="Örn. 1,8">
+        <input className="alan sayi" inputMode="decimal" value={oran} onChange={(e) => setOran(e.target.value)} />
+      </Alan>
+    </Diyalog>
   );
 }
 

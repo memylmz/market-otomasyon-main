@@ -179,6 +179,8 @@ export const OLAY_TIPI = [
   'AYAR_DEGISTI',
   'DENETIM_KAYDI',
   'GUNLUK_OZET',
+  /** Banka/POS defterine elle girilen hareket: açılış, komisyon, kasa↔banka aktarımı, düzeltme. */
+  'BANKA_HAREKETI',
 ] as const;
 export type OlayTipi = (typeof OLAY_TIPI)[number];
 
@@ -208,7 +210,16 @@ export const MERKEZI_AYARLAR = [
   'barkod.ic_onek',
   'bakim.olay_saklama_gun',
   'bakim.denetim_saklama_gun',
+  // Banka/POS raporundaki tahmini kesinti; panel de aynı oranı göstersin diye merkezî.
+  'pos.komisyon_orani',
 ] as const;
+
+/**
+ * Banka/POS defterine ELLE girilen hareketler. Kart satışı, kart/havale
+ * tahsilat ve ödemeler kayıtlardan türetilir; bunlar türetilemeyenlerdir.
+ */
+export const BANKA_HAREKET_TURU = ['ACILIS', 'KOMISYON', 'BANKADAN_KASAYA', 'KASADAN_BANKAYA', 'DUZELTME'] as const;
+export type BankaHareketTuru = (typeof BANKA_HAREKET_TURU)[number];
 
 export type MerkeziAyar = (typeof MERKEZI_AYARLAR)[number];
 
@@ -333,6 +344,8 @@ export const HATA_MESAJLARI: Record<string, string> = {
 
 export const AYAR = {
   SEMA_SURUMU: 'schema_version',
+  /** POS komisyon oranı (yüzde, örn. "1,8") — Banka/POS raporunda tahmini kesinti. */
+  POS_KOMISYON_ORANI: 'pos.komisyon_orani',
   ISLETME_ADI: 'isletme.ad',
   ISLETME_ADRES: 'isletme.adres',
   ISLETME_TELEFON: 'isletme.telefon',

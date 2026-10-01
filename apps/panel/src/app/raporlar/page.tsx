@@ -8,13 +8,13 @@
 'use client';
 
 import { useState } from 'react';
-import { bugun, gunEkle, miktarFormat, paraDuz, paraFormat, type Kurus } from '@market/shared';
+import { bugun, gunEkle, miktarFormat, paraDuz, paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Kabuk, Kutu, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { CiroOzetiSekmesi, DenetimSekmesi, KasaSekmesi } from '@/bilesen/rapor-sekmeleri';
 import { kullaniciyiOku, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
 
-type Sekme = 'ozet' | 'urun' | 'saatlik' | 'suistimal' | 'kasa' | 'denetim';
+type Sekme = 'ozet' | 'urun' | 'saatlik' | 'suistimal' | 'kasa' | 'banka' | 'denetim';
 
 /** Her rapor yanıtı hangi aralığa ait olduğunu kendisi söyler. */
 interface Aralikli {
@@ -67,6 +67,22 @@ interface KasiyerSatiri {
   iptal_tutari: Kurus;
 }
 
+interface BankaRaporu extends Aralikli {
+  devir: Kurus;
+  bakiye: Kurus;
+  komisyon_orani: number;
+  ozet: {
+    kart_satis: Kurus;
+    kart_iade: Kurus;
+    tahsilat: Kurus;
+    odeme: Kurus;
+    komisyon: Kurus;
+    aktarim: Kurus;
+    tahmini_komisyon: Kurus;
+  };
+  hareketler: { tarih: string; tur: string; aciklama: string; tutar: Kurus; yuruyen_bakiye: Kurus }[];
+}
+
 interface SuistimalRaporu extends Aralikli {
   ciro: Kurus;
   iadeTutari: Kurus;
@@ -80,6 +96,7 @@ interface SuistimalRaporu extends Aralikli {
 type AktifVeri =
   | { sekme: 'urun'; icerik: UrunRaporu }
   | { sekme: 'saatlik'; icerik: SaatlikRapor }
+  | { sekme: 'banka'; icerik: BankaRaporu }
   | { sekme: 'suistimal'; icerik: SuistimalRaporu };
 
 /*
@@ -92,6 +109,7 @@ const SEKMELER: { anahtar: Sekme; etiket: string }[] = [
   { anahtar: 'urun', etiket: 'Ürün Performansı' },
   { anahtar: 'saatlik', etiket: 'Saatlik Yoğunluk' },
   { anahtar: 'kasa', etiket: 'Kasa Geçmişi' },
+  { anahtar: 'banka', etiket: 'Banka / POS' },
   { anahtar: 'suistimal', etiket: 'İade / İptal' },
   { anahtar: 'denetim', etiket: 'Denetim Logu' },
 ];
@@ -168,7 +186,9 @@ export default function RaporlarSayfasi() {
     bitis,
   ]);
 
-  const aktif = sekme === 'urun' ? urun : sekme === 'saatlik' ? saatlik : suistimal;
+  const banka = useVeri<BankaRaporu>(sekme === 'banka' ? `${uclar.raporBanka}?${aralik}` : null, [sekme, baslangic, bitis]);
+
+  const aktif = sekme === 'urun' ? urun : sekme === 'saatlik' ? saatlik : sekme === 'banka' ? banka : suistimal;
 
   /*
    * Veri, AİT OLDUĞU SEKME ile birlikte tutulur ve yalnız aktif sekmeye aitse
@@ -180,15 +200,18 @@ export default function RaporlarSayfasi() {
   const urunVerisi = aralikUyar(urun.veri, baslangic, bitis);
   const saatlikVerisi = aralikUyar(saatlik.veri, baslangic, bitis);
   const suistimalVerisi = aralikUyar(suistimal.veri, baslangic, bitis);
+  const bankaVerisi = aralikUyar(banka.veri, baslangic, bitis);
 
   const veri: AktifVeri | null =
     sekme === 'urun' && urunVerisi
       ? { sekme: 'urun', icerik: urunVerisi }
       : sekme === 'saatlik' && saatlikVerisi
         ? { sekme: 'saatlik', icerik: saatlikVerisi }
-        : sekme === 'suistimal' && suistimalVerisi
-          ? { sekme: 'suistimal', icerik: suistimalVerisi }
-          : null;
+        : sekme === 'banka' && bankaVerisi
+          ? { sekme: 'banka', icerik: bankaVerisi }
+          : sekme === 'suistimal' && suistimalVerisi
+            ? { sekme: 'suistimal', icerik: suistimalVerisi }
+            : null;
 
   const disaAktar = () => {
     if (!veri) return;
@@ -202,6 +225,13 @@ export default function RaporlarSayfasi() {
       satirlar.push('', 'Ölü Stok', 'urun;stok;bagli_sermaye');
       for (const u of dizi(veri.icerik.olu_stok)) {
         satirlar.push([hucre(u.ad), miktarFormat(u.stok), paraDuz(u.bagli_sermaye)].join(';'));
+      }
+    } else if (veri.sekme === 'banka') {
+      satirlar.push('tarih;tur;aciklama;tutar;bakiye');
+      for (const h of dizi(veri.icerik.hareketler)) {
+        satirlar.push(
+          [h.tarih, BANKA_TUR_ETIKETI[h.tur] ?? h.tur, hucre(h.aciklama), paraDuz(h.tutar), paraDuz(h.yuruyen_bakiye)].join(';'),
+        );
       }
     } else if (veri.sekme === 'saatlik') {
       satirlar.push('saat;ciro;islem');
@@ -302,6 +332,8 @@ export default function RaporlarSayfasi() {
           <UrunGorunumu veri={veri.icerik} />
         ) : veri.sekme === 'saatlik' ? (
           <SaatlikGorunum veri={veri.icerik} />
+        ) : veri.sekme === 'banka' ? (
+          <BankaGorunumu veri={veri.icerik} />
         ) : (
           <SuistimalGorunumu veri={veri.icerik} />
         )}
@@ -563,6 +595,96 @@ function SuistimalGorunumu({ veri }: { veri: SuistimalRaporu }) {
           barkod, vazgeçen müşteri veya bozuk ürün de bu sayıları yükseltir. Şüphelenilen kayıtları fiş detaylarıyla birlikte
           değerlendirin.
         </p>
+      </section>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Banka / POS
+// ---------------------------------------------------------------------------
+
+const BANKA_TUR_ETIKETI: Record<string, string> = {
+  KART_SATIS: 'Kart satış',
+  KART_IADE: 'Karta iade',
+  KART_TAHSILAT: 'Kart/havale tahsilat',
+  KART_ODEME: 'Kart/havale ödeme',
+  IPTAL: 'İptal (karta/hesaba)',
+  ACILIS: 'Açılış bakiyesi',
+  KOMISYON: 'Banka/POS kesintisi',
+  BANKADAN_KASAYA: 'Bankadan kasaya',
+  KASADAN_BANKAYA: 'Kasadan bankaya',
+  DUZELTME: 'Düzeltme',
+};
+
+/** Kasadaki Banka / POS sekmesinin panel karşılığı; hareket ekleme kasadan yapılır. */
+function BankaGorunumu({ veri }: { veri: BankaRaporu }) {
+  const hareketler = dizi(veri.hareketler);
+  const netKart = veri.ozet.kart_satis + veri.ozet.kart_iade;
+  return (
+    <>
+      <p className="rounded-lg border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm text-metin-2">
+        <strong>Bu bakiye tahminidir.</strong> POS&apos;tan çekilen tutar bankaya genellikle birkaç gün sonra ve banka kesintisi
+        düşülerek geçer; program bankanıza bağlı değildir. Ay sonunda banka ekstresiyle karşılaştırın; gerçek kesinti ve farklar
+        kasadan (Raporlar → Banka / POS → Hareket Ekle) girilir.
+      </p>
+
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <ParaKutusu etiket="Banka / POS bakiyesi" tutar={veri.bakiye} alt="Olması gereken" vurgulu />
+        <ParaKutusu etiket="Net kart satışı" tutar={netKart} alt={`İade: ${paraFormat(-veri.ozet.kart_iade)}`} />
+        <ParaKutusu etiket="Kart/havale tahsilat" tutar={veri.ozet.tahsilat} />
+        <ParaKutusu etiket="Kart/havale ödeme" tutar={-veri.ozet.odeme} alt="Tedarikçilere" />
+      </section>
+
+      <section className="kart p-4 text-sm">
+        Tahmini kesinti (%{veri.komisyon_orani.toLocaleString('tr-TR')} × net kart satışı):{' '}
+        <strong className="font-mono">{paraFormat(veri.ozet.tahmini_komisyon)}</strong>
+        <span className="ml-3 text-metin-3">
+          Girilen gerçek kesinti: <strong className="font-mono">{paraFormat(-veri.ozet.komisyon)}</strong>
+        </span>
+        <p className="mt-1 text-xs text-metin-4">Oran kasadaki Banka / POS sekmesinden ayarlanır.</p>
+      </section>
+
+      <section className="kart p-4">
+        {hareketler.length === 0 && veri.devir === 0 ? (
+          <BosDurum baslik="Bu aralıkta kart/havale hareketi yok" />
+        ) : (
+          <div className="tablo-sarmal">
+            <table className="tablo">
+              <thead>
+                <tr>
+                  <th>Tarih</th>
+                  <th>Tür</th>
+                  <th className="text-left">Açıklama</th>
+                  <th className="text-right">Tutar</th>
+                  <th className="text-right">Bakiye</th>
+                </tr>
+              </thead>
+              <tbody>
+                {veri.devir !== 0 && (
+                  <tr>
+                    <td className="text-metin-3">—</td>
+                    <td colSpan={3} className="text-left text-metin-3">
+                      Önceki dönemden devir
+                    </td>
+                    <td className="sayi text-right font-semibold">{paraFormat(veri.devir, { simge: false })}</td>
+                  </tr>
+                )}
+                {[...hareketler].reverse().map((h, i) => (
+                  <tr key={i}>
+                    <td className="whitespace-nowrap text-metin-3">{tarihSaatFormat(h.tarih)}</td>
+                    <td>{BANKA_TUR_ETIKETI[h.tur] ?? h.tur}</td>
+                    <td className="text-left text-metin-3">{h.aciklama}</td>
+                    <td className={`sayi text-right ${h.tutar < 0 ? 'text-tehlike' : 'text-vurgu'}`}>
+                      {paraFormat(h.tutar, { simge: false, isaret: true })}
+                    </td>
+                    <td className="sayi text-right font-semibold">{paraFormat(h.yuruyen_bakiye, { simge: false })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </>
   );

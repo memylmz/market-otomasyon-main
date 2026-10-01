@@ -312,6 +312,8 @@ export const UCLAR = {
   raporStok: `${API_ONEKI}/raporlar/stok`,
   /** Saatlik yoğunluk — kasadaki `rapor.saatlik` ile aynı şekil. */
   raporSaatlik: `${API_ONEKI}/raporlar/saatlik`,
+  /** Banka / POS defteri — kasadaki `rapor.banka` ile aynı şekil. */
+  raporBanka: `${API_ONEKI}/raporlar/banka`,
   /** İade / iptal (suistimal) analizi — kasadaki `rapor.suistimal` ile aynı şekil. */
   raporSuistimal: `${API_ONEKI}/raporlar/suistimal`,
   denetim: `${API_ONEKI}/denetim`,

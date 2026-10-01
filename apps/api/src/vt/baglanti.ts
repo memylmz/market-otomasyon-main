@@ -400,6 +400,13 @@ CREATE TABLE IF NOT EXISTS cari_ozet (
   son_hareket TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (isletme_id, cari_id)
 );
 
+CREATE TABLE IF NOT EXISTS banka_hareketleri (
+  id TEXT NOT NULL, isletme_id TEXT NOT NULL, tur TEXT NOT NULL, tutar INTEGER NOT NULL,
+  aciklama TEXT NOT NULL, kasa_hareket_id TEXT, kullanici_id TEXT, tarih TEXT NOT NULL, cihaz_id TEXT,
+  PRIMARY KEY (isletme_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_banka_tarih ON banka_hareketleri(isletme_id, tarih);
+
 CREATE TABLE IF NOT EXISTS sync_cakismalar (
   id TEXT PRIMARY KEY, isletme_id TEXT NOT NULL, entity TEXT NOT NULL, entity_id TEXT NOT NULL,
   kaynak_a TEXT, kaynak_b TEXT, cozum TEXT NOT NULL, cozum_zamani TEXT NOT NULL, detay TEXT

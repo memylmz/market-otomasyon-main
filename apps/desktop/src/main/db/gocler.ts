@@ -845,6 +845,30 @@ export const GOCLER: readonly Goc[] = [
     yukari: `ALTER TABLE cari_talimatlari ADD COLUMN para_yolu TEXT;`,
     asagi: ``,
   },
+  {
+    surum: 11,
+    ad: 'banka_hareketleri',
+    /*
+     * Banka/POS defterine ELLE girilen hareketler (açılış, komisyon,
+     * kasa↔banka aktarımı, düzeltme). Kart satışı ve kart/havale tahsilat ve
+     * ödemeleri burada TUTULMAZ, kendi kayıtlarından türetilir — iki yerde
+     * tutulan para ayrışır. `tutar` işaretlidir (+ bankaya giren).
+     */
+    yukari: `
+      CREATE TABLE IF NOT EXISTS banka_hareketleri (
+        id              TEXT PRIMARY KEY,
+        tur             TEXT NOT NULL CHECK (tur IN ('ACILIS','KOMISYON','BANKADAN_KASAYA','KASADAN_BANKAYA','DUZELTME')),
+        tutar           INTEGER NOT NULL,
+        aciklama        TEXT NOT NULL,
+        kasa_hareket_id TEXT,
+        kullanici_id    TEXT,
+        tarih           TEXT NOT NULL,
+        cihaz_id        TEXT
+      );
+      CREATE INDEX IF NOT EXISTS ix_banka_tarih ON banka_hareketleri(tarih);
+    `,
+    asagi: `DROP TABLE IF EXISTS banka_hareketleri;`,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

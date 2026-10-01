@@ -1135,3 +1135,69 @@ describe('müşteri alışverişleri — panel (kasayla aynı kural)', () => {
     expect((await liste('borc')).map((s) => s.id)).toEqual([karma.veri.id]);
   });
 });
+
+describe('banka / POS defteri — panel (kasayla aynı kural)', () => {
+  it('kart satış/iade, kart tahsilat, kart/havale ödeme, kartla iptal ve elle hareketlerden bakiye çıkarır', async () => {
+    const musteri = uuid();
+    const tedarikci = uuid();
+    const cari = (id: string, tip: string, ad: string) => ({
+      uuid: uuid(),
+      tip: 'CARI_KAYDEDILDI' as const,
+      entity: 'cari',
+      entity_id: id,
+      olusturma_zamani: simdi(),
+      veri: { id, tip, ad_unvan: ad, created_at: simdi(), updated_at: simdi() },
+    });
+    const cariHareket = (id: string, cariId: string, hareket_tipi: string, tutar: number, ek: Record<string, unknown> = {}) => ({
+      uuid: uuid(),
+      tip: 'CARI_HAREKETI' as const,
+      entity: 'cari_hareketi',
+      entity_id: id,
+      olusturma_zamani: simdi(),
+      veri: { id, cari_id: cariId, hareket_tipi, tutar, tarih: simdi(), ...ek },
+    });
+    const kartSatis = satisOlayi({ tutar: 1000 });
+    Object.assign(kartSatis.veri, { odemeler: [{ tip: 'KART', tutar: 1000 }] });
+    const nakitSatis = satisOlayi({ tutar: 500 });
+    const kartTahsilat = uuid();
+    const kartOdeme = uuid();
+    const iptalId = uuid();
+    const faturaId = uuid();
+    const bankaHareketi = (tur: string, tutar: number) => ({
+      uuid: uuid(),
+      tip: 'BANKA_HAREKETI' as const,
+      entity: 'banka_hareketi',
+      entity_id: uuid(),
+      olusturma_zamani: simdi(),
+      veri: { id: uuid(), tur, tutar, aciklama: tur, tarih: simdi() },
+    });
+
+    await push([
+      cari(musteri, 'MUSTERI', 'Barış'),
+      cari(tedarikci, 'TEDARIKCI', 'Enis'),
+      kartSatis,
+      nakitSatis,
+      cariHareket(kartTahsilat, musteri, 'TAHSILAT', -250, { belge_tipi: 'TAHSILAT' }),
+      cariHareket(kartOdeme, tedarikci, 'ODEME', -300, { belge_tipi: 'ODEME' }),
+      // Kartla yapılan ödeme "hesaba iade" yoluyla iptal edildi (kasa hareketi yok).
+      cariHareket(iptalId, tedarikci, 'DUZELTME', 300, { belge_id: kartOdeme, belge_tipi: 'TAHSILAT_IPTAL' }),
+      {
+        uuid: uuid(),
+        tip: 'ALIS_FATURASI_ONAYLANDI' as const,
+        entity: 'alis_faturasi',
+        entity_id: faturaId,
+        olusturma_zamani: simdi(),
+        veri: { id: faturaId, tedarikci_id: tedarikci, tarih: simdi(), genel_toplam: 5000, odenen_tutar: 2000, kalemler: [] },
+      },
+      bankaHareketi('ACILIS', 10_000),
+      bankaHareketi('KOMISYON', -50),
+    ]);
+
+    const yanit = await panelGet(`${UCLAR.raporBanka}?from=${bugun()}&to=${bugun()}`);
+    expect(yanit.statusCode).toBe(200);
+    const govde = yanit.json() as { bakiye: number; ozet: { kart_satis: number; odeme: number } };
+    // 1000 kart satış + 250 tahsilat − 300 ödeme + 300 iptal − 2000 havale (fatura) + 10.000 açılış − 50 kesinti
+    expect(govde.bakiye).toBe(1000 + 250 - 300 + 300 - 2000 + 10_000 - 50);
+    expect(govde.ozet.kart_satis).toBe(1000);
+  });
+});

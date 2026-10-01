@@ -421,6 +421,86 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
    * Suistimal göstergesi (§11.7): iade ve iptal oranları ile kasiyer kırılımı.
    * Oranlar rollup'tan (gunluk_ozet), kasiyer kırılımı satislar'dan gelir.
    */
+  /**
+   * Banka / POS defteri — kasadaki `rapor.banka` ile AYNI kural (bkz. kasa
+   * depo/banka.ts): kart satış/iade odemeler'den, kart/havale tahsilat ve
+   * ödemeler kasa hareketi olmayan cari satırlarından (yön cari tipinden),
+   * kartla iptaller ve elle girilen hareketler banka_hareketleri'nden.
+   */
+  uygulama.get(UCLAR.raporBanka, korumali, async (istek) => {
+    const { from, to } = zAralik.parse(istek.query);
+    const isletmeId = istek.kullanici?.isletmeId as string;
+    const kaynaklar = `
+      SELECT s.tarih, CASE WHEN s.iade_mi = 1 THEN 'KART_IADE' ELSE 'KART_SATIS' END AS tur,
+             CASE WHEN s.iade_mi = 1 THEN 'Karta iade — ' ELSE 'Kart satış — ' END || s.fis_no AS aciklama,
+             SUM(o.tutar) AS tutar, s.id AS belge_id
+      FROM satislar s JOIN odemeler o ON o.isletme_id = s.isletme_id AND o.satis_id = s.id AND o.odeme_tipi = 'KART'
+      WHERE s.isletme_id = ? AND s.iptal_mi = 0
+      GROUP BY s.id
+      UNION ALL
+      SELECT h.tarih,
+             CASE WHEN h.hareket_tipi = 'TAHSILAT' THEN 'KART_TAHSILAT'
+                  WHEN h.hareket_tipi = 'ODEME' THEN 'KART_ODEME' ELSE 'IPTAL' END AS tur,
+             c.ad_unvan || ' — ' || COALESCE(h.aciklama, '') AS aciklama,
+             CASE WHEN c.tip = 'MUSTERI' THEN -h.tutar ELSE h.tutar END AS tutar, h.id AS belge_id
+      FROM cari_hareketler h JOIN cariler c ON c.isletme_id = h.isletme_id AND c.id = h.cari_id
+      WHERE h.isletme_id = ? AND ((
+          h.hareket_tipi IN ('TAHSILAT', 'ODEME')
+          AND NOT EXISTS (SELECT 1 FROM kasa_hareketleri k WHERE k.isletme_id = h.isletme_id AND k.belge_id = h.id)
+          AND NOT (h.belge_tipi = 'ALIS_ODEME' AND EXISTS (
+            SELECT 1 FROM kasa_hareketleri k WHERE k.isletme_id = h.isletme_id AND k.belge_id = h.belge_id AND k.tip = 'ODEME'))
+        ) OR (
+          h.belge_tipi = 'TAHSILAT_IPTAL'
+          AND NOT EXISTS (SELECT 1 FROM kasa_hareketleri k WHERE k.isletme_id = h.isletme_id AND k.belge_id = h.id)
+        ) OR (
+          h.belge_tipi = 'ALIS_ODEME_IPTAL'
+          AND NOT EXISTS (SELECT 1 FROM kasa_hareketleri k
+                           WHERE k.isletme_id = h.isletme_id AND k.belge_id = h.belge_id AND k.tip = 'ODEME')
+        ))
+      UNION ALL
+      SELECT tarih, tur, aciklama, tutar, kasa_hareket_id AS belge_id FROM banka_hareketleri WHERE isletme_id = ?`;
+
+    const bas = gunBasi(from);
+    const bit = gunSonu(to);
+    const [devirSatiri, satirlar, oranSatiri] = await Promise.all([
+      // Kaynak sorgusunda işletme kimliği üç kez geçer (satış, cari, banka).
+      uygulama.vt.tek<{ t: number }>(`SELECT COALESCE(SUM(tutar), 0) t FROM (${kaynaklar}) WHERE tarih < ?`, [
+        isletmeId,
+        isletmeId,
+        isletmeId,
+        bas,
+      ]),
+      uygulama.vt.tumu<{ tarih: string; tur: string; aciklama: string; tutar: number; belge_id: string | null }>(
+        `SELECT tarih, tur, aciklama, tutar, belge_id FROM (${kaynaklar})
+          WHERE tarih >= ? AND tarih < ? ORDER BY tarih LIMIT 2000`,
+        [isletmeId, isletmeId, isletmeId, bas, bit],
+      ),
+      uygulama.vt.tek<{ deger: string }>(
+        "SELECT deger FROM ayarlar WHERE isletme_id = ? AND anahtar = 'pos.komisyon_orani' AND silindi_mi = 0",
+        [isletmeId],
+      ),
+    ]);
+
+    const devir = sayi(devirSatiri?.t);
+    const oran = Number(String(oranSatiri?.deger ?? '0').replace(',', '.')) || 0;
+    let yuruyen = devir;
+    const ozet = { kart_satis: 0, kart_iade: 0, tahsilat: 0, odeme: 0, komisyon: 0, aktarim: 0, tahmini_komisyon: 0 };
+    const hareketler = satirlar.map((s) => {
+      const tutar = sayi(s.tutar);
+      yuruyen += tutar;
+      if (s.tur === 'KART_SATIS') ozet.kart_satis += tutar;
+      else if (s.tur === 'KART_IADE') ozet.kart_iade += tutar;
+      else if (s.tur === 'KART_TAHSILAT') ozet.tahsilat += tutar;
+      else if (s.tur === 'KART_ODEME') ozet.odeme += tutar;
+      else if (s.tur === 'KOMISYON') ozet.komisyon += tutar;
+      else if (s.tur === 'BANKADAN_KASAYA' || s.tur === 'KASADAN_BANKAYA') ozet.aktarim += tutar;
+      return { ...s, tutar, yuruyen_bakiye: yuruyen };
+    });
+    ozet.tahmini_komisyon = Math.round(((ozet.kart_satis + ozet.kart_iade) * oran) / 100);
+
+    return { from, to, devir, bakiye: yuruyen, komisyon_orani: oran, ozet, hareketler, uretim_zamani: simdi() };
+  });
+
   uygulama.get(UCLAR.raporSuistimal, korumali, async (istek) => {
     const { from, to } = zAralik.parse(istek.query);
     const isletmeId = istek.kullanici?.isletmeId;

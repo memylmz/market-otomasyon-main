@@ -7,6 +7,7 @@
  */
 
 import {
+  AYAR,
   bugun,
   gunBasi,
   gunEkle,
@@ -21,6 +22,8 @@ import {
   type Yetki,
 } from '@market/shared';
 import { ayarMetin, ayarYaz, elleYazilabilirMi, tumAyarlar } from '../depo/ayar.js';
+import { bankaDefteri } from '../depo/banka.js';
+import { bankaHareketiEkle } from '../servis/banka-servis.js';
 import { carileriListele, cariBul, ekstre } from '../depo/cari.js';
 import {
   etkinKampanyalar,
@@ -595,6 +598,23 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     // --------------------------------------------------------------- raporlar
     'rapor.pano': () => panoOzeti(b(), a()),
     'rapor.bugun': () => bugunOzeti(b(), a()),
+    /**
+     * Banka / POS defteri: kart ve havale tarafının "olması gereken" bakiyesi.
+     * Tahmini kesinti için oran ayardan okunur ("1,8" → %1,8).
+     */
+    'rapor.banka': (girdi?: { from?: GunAnahtari; to?: GunAnahtari }) => {
+      const aktor = a();
+      if (!aktor.yetkiler.has('rapor.goruntule')) throw hatalar.yetki();
+      const { from, to } = araligiCoz(girdi);
+      const oran = Number(ayarMetin(b().vt, AYAR.POS_KOMISYON_ORANI, '0').replace(',', '.')) || 0;
+      return {
+        ...bankaDefteri(b().vt, { baslangic: gunBasi(from), bitis: gunSonuDamgasi(to), komisyonOrani: oran }),
+        komisyon_orani: oran,
+      };
+    },
+    'banka.hareketEkle': (girdi: Parameters<typeof bankaHareketiEkle>[2]) => ({
+      id: bankaHareketiEkle(b(), a(), girdi),
+    }),
     'rapor.gunluk': (girdi?: { from?: GunAnahtari; to?: GunAnahtari }) => {
       const { from, to } = araligiCoz(girdi);
       return gunlukRapor(b(), a(), from, to);
