@@ -10,6 +10,8 @@ import { AYAR, hatalar, type Kurus, type PosIslemSonucu } from '@market/shared';
 import { ayarMetin, ayarSayi } from '../depo/ayar.js';
 import { posSurucusuOlustur, type PosSurucusu } from '../donanim/pos.js';
 import { yetkiIste, type Aktor, type Baglam } from './baglam.js';
+import { cariBul } from '../depo/cari.js';
+import { tahsilatIptal, tahsilatIptalPosIhtiyaci, tahsilatYap } from './cari-servis.js';
 
 function surucu(baglam: Baglam): PosSurucusu | null {
   const tur = ayarMetin(baglam.vt, AYAR.POS_TURU, 'KAPALI');
@@ -66,4 +68,52 @@ export async function posTesti(baglam: Baglam, aktor: Aktor): Promise<{ basarili
   const s = surucu(baglam);
   if (!s) return { basarili: false, mesaj: 'POS türü "Kapalı" seçili.' };
   return s.test();
+}
+
+/**
+ * Cari tahsilat — müşteriden KARTLA alınıyorsa ve POS açıksa önce cihazdan
+ * çekilir; kayıt hata verirse çekim geri alınır. Tedarikçi ödemesi POS'a
+ * gitmez (o para işletmenin kartından çıkar); POS kapalıyken doğrudan kaydedilir.
+ */
+export async function posIleTahsilat(
+  baglam: Baglam,
+  aktor: Aktor,
+  girdi: { cari_id: string; tutar: Kurus; odeme_tipi: string; [anahtar: string]: unknown },
+): Promise<ReturnType<typeof tahsilatYap>> {
+  const musteri = cariBul(baglam.vt, girdi.cari_id)?.tip === 'MUSTERI';
+  if (girdi.odeme_tipi !== 'KART' || !musteri || !posDurumu(baglam).aktif) return tahsilatYap(baglam, aktor, girdi);
+
+  const cekim = await posOdemesi(baglam, aktor, girdi.tutar);
+  if (!cekim.onaylandi) throw hatalar.dogrulama(`POS çekimi onaylanmadı: ${cekim.hata ?? 'reddedildi'}`);
+  try {
+    return tahsilatYap(baglam, aktor, girdi, cekim);
+  } catch (hata) {
+    // Para çekildi ama tahsilat yazılamadı: çekim geri alınır, kasiyer bilgilendirilir.
+    const geri = await posIadesi(baglam, aktor, girdi.tutar, cekim.referans ?? null);
+    if (!geri.onaylandi) {
+      throw hatalar.dogrulama(
+        `Tahsilat kaydedilemedi ve POS çekimi geri alınamadı — cihazdan iptal edin. (${hata instanceof Error ? hata.message : String(hata)})`,
+      );
+    }
+    throw hata;
+  }
+}
+
+/**
+ * Tahsilat iptali — müşterinin tahsilatı "karta" iade ediliyorsa ve POS açıksa
+ * önce cihazdan iade yapılır; cihaz onaylamazsa iptal yazılmaz.
+ */
+export async function posIleTahsilatIptal(
+  baglam: Baglam,
+  aktor: Aktor,
+  hareketId: string,
+  neden: string,
+  paraYolu?: 'NAKIT' | 'KART',
+): Promise<ReturnType<typeof tahsilatIptal>> {
+  const ihtiyac = tahsilatIptalPosIhtiyaci(baglam.vt, hareketId, paraYolu);
+  if (ihtiyac.gerekli && posDurumu(baglam).aktif) {
+    const iade = await posIadesi(baglam, aktor, ihtiyac.tutar, ihtiyac.referans);
+    if (!iade.onaylandi) throw hatalar.dogrulama(`POS iadesi yapılamadı: ${iade.hata ?? 'reddedildi'}`);
+  }
+  return tahsilatIptal(baglam, aktor, hareketId, neden, paraYolu);
 }

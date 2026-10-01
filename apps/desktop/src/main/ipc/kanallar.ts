@@ -59,15 +59,7 @@ import { bekleyenAlisTalimatlariniIsle } from '../servis/alis-talimat-servis.js'
 import { bekleyenCariTalimatlariniIsle } from '../servis/cari-talimat-servis.js';
 import { bekleyenIadeleriIsle } from '../servis/iade-talimat-servis.js';
 import { ayarlariOku } from '../servis/baglam.js';
-import {
-  acilisBakiyesi,
-  bakiyeDuzelt,
-  cariKaydet,
-  kvkkAnonimlestir,
-  kvkkDisaAktar,
-  tahsilatIptal,
-  tahsilatYap,
-} from '../servis/cari-servis.js';
+import { acilisBakiyesi, bakiyeDuzelt, cariKaydet, kvkkAnonimlestir, kvkkDisaAktar } from '../servis/cari-servis.js';
 import { gunSonu, kasaAc, kasaDurumu, kasaHareketi, vardiyaRaporu } from '../servis/kasa-servis.js';
 import {
   barkodOku,
@@ -107,7 +99,7 @@ import {
   satisIptal,
   satisKesinlestir,
 } from '../servis/satis-servis.js';
-import { posDurumu, posIadesi, posOdemesi, posTesti } from '../servis/pos-servis.js';
+import { posDurumu, posIadesi, posIleTahsilat, posIleTahsilatIptal, posOdemesi, posTesti } from '../servis/pos-servis.js';
 import {
   fireCikisi,
   alisFaturasiGuncelle,
@@ -526,10 +518,11 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       return cari;
     },
     'cari.kaydet': (girdi: Parameters<typeof cariKaydet>[2]) => ({ id: cariKaydet(b(), a(), girdi) }),
-    'cari.tahsilat': (girdi: Record<string, unknown>) => tahsilatYap(b(), a(), girdi),
+    // Müşteriden kartla tahsilat POS açıksa önce cihazdan çekilir (bkz. posIleTahsilat).
+    'cari.tahsilat': (girdi: { cari_id: string; tutar: Kurus; odeme_tipi: string }) => posIleTahsilat(b(), a(), girdi),
     // Yanlış girilen tahsilat SİLİNMEZ, ters kayıtla geri alınır (§10.7).
     'cari.tahsilatIptal': (girdi: { hareketId: string; neden: string; paraYolu?: 'NAKIT' | 'KART' }) =>
-      tahsilatIptal(b(), a(), girdi.hareketId, girdi.neden, girdi.paraYolu),
+      posIleTahsilatIptal(b(), a(), girdi.hareketId, girdi.neden, girdi.paraYolu),
     'cari.acilisBakiyesi': (girdi: { cariId: string; tutar: Kurus }) => ({
       hareketId: acilisBakiyesi(b(), a(), girdi.cariId, girdi.tutar),
     }),

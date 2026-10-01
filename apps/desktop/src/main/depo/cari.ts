@@ -195,14 +195,19 @@ export interface CariHareketiYazma {
   vade_tarihi?: string | null;
   kullanici_id?: string | null;
   tarih?: ZamanDamgasi;
+  /** Kartla tahsilatta POS onay kodu, cihaz referansı ve maskeli kart. */
+  pos_onay_kodu?: string | null;
+  pos_referans?: string | null;
+  pos_kart?: string | null;
 }
 
 export function cariHareketEkle(vt: Vt, hareket: CariHareketiYazma, cihazId: string, zaman = simdi()): string {
   const id = uuid();
   vt.hazirla(
     `INSERT INTO cari_hareketler (id, cari_id, hareket_tipi, tutar, aciklama, belge_id, belge_tipi,
-                                  tarih, vade_tarihi, kullanici_id, created_at, updated_at, cihaz_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                  tarih, vade_tarihi, kullanici_id, created_at, updated_at, cihaz_id,
+                                  pos_onay_kodu, pos_referans, pos_kart)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).calistir(
     id,
     hareket.cari_id,
@@ -217,6 +222,9 @@ export function cariHareketEkle(vt: Vt, hareket: CariHareketiYazma, cihazId: str
     zaman,
     zaman,
     cihazId,
+    hareket.pos_onay_kodu ?? null,
+    hareket.pos_referans ?? null,
+    hareket.pos_kart ?? null,
   );
   return id;
 }

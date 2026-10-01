@@ -14,6 +14,7 @@ ayarlar POS'u tanır. Gerçek bir cihazı desteklemek için yalnız o cihazın
 | Satışta kart tutarını cihaza gönderme, onay gelmeden satışı kapatmama | Hazır |
 | Onaylanan çekimden sonra satış kaydedilemezse çekimi geri alma | Hazır |
 | Satış iptali ve iadede "karta" seçilirse cihazdan iade | Hazır |
+| Cari ekranında müşteriden kartla tahsilat ve tahsilat iptalinde karta iade | Hazır |
 | Onay kodu, cihaz referansı, maskeli kart → kayıt, fiş ve bulut | Hazır |
 | Ayarlar → Donanım → POS (tür, adres, bekleme süresi, bağlantı testi) | Hazır |
 | Gerçek cihaz sürücüsü | **Cihaz seçilince yazılacak** |
@@ -30,6 +31,10 @@ verirse kasa çekimi otomatik geri alır (`pos.iade`); geri alınamazsa kasiyere
 
 **İptal / iade:** "Karta" seçildiyse tutar kayıttan **önce** cihaza gönderilir
 (orijinal çekimin referansıyla). Cihaz onaylamazsa iptal/iade yazılmaz.
+
+**Cari tahsilat:** Müşteriden kartla tahsilat önce cihazdan çekilir; kayıt
+hata verirse çekim geri alınır. Tahsilat iptalinde "karta" seçilirse önce
+cihazdan iade yapılır. Tedarikçiye yapılan ödemeler POS'a gitmez.
 
 **Panelden gelen iade talimatları** kasada kayıt olarak uygulanır; kart iadesi
 müşteri kasadayken POS'tan elle yapılır (kart fiziksel olarak gerekir).

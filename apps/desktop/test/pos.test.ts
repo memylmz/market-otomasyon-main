@@ -11,9 +11,10 @@ import { ayarYaz } from '../src/main/depo/ayar.js';
 import { kalemleriGetir, satisDetayi } from '../src/main/depo/satis.js';
 import { satisBelgesi } from '../src/main/donanim/fis-belge.js';
 import { PosSimulatoru, SIMULATOR_RED_SONEKI } from '../src/main/donanim/pos.js';
-import { posDurumu, posIadesi, posOdemesi } from '../src/main/servis/pos-servis.js';
+import { posDurumu, posIadesi, posIleTahsilat, posIleTahsilatIptal, posOdemesi } from '../src/main/servis/pos-servis.js';
 import { iadeTutariHesapla, iadeYap, kartPosReferansi, satisKesinlestir } from '../src/main/servis/satis-servis.js';
-import { testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
+import { bakiyeOku } from '../src/main/depo/cari.js';
+import { musteriEkle, tedarikciEkle, testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
 
 let ortam: TestOrtami;
 
@@ -101,5 +102,70 @@ describe('karta iade POS ile', () => {
       pos_onay_kodu: '222222',
       pos_referans: 'REF-IADE',
     });
+  });
+});
+
+describe('cari tahsilat POS ile', () => {
+  const simulatorAc = () => {
+    ayarYaz(ortam.uygulama.vt, 'pos.turu', 'SIMULATOR');
+    ayarYaz(ortam.uygulama.vt, 'pos.simulator_gecikme_ms', '0');
+  };
+
+  it('müşterinin kartla tahsilatı POS onayıyla kaydedilir; iptali karta POS iadesiyle yapılır', async () => {
+    simulatorAc();
+    const musteri = musteriEkle(ortam, 'Barış', 1_000_000);
+    const sonuc = await posIleTahsilat(ortam.uygulama.baglam, ortam.admin, {
+      cari_id: musteri,
+      tutar: 5000,
+      odeme_tipi: 'KART',
+      avans_kabul: true,
+    });
+    const satir = ortam.uygulama.vt
+      .hazirla('SELECT pos_onay_kodu, pos_referans, pos_kart FROM cari_hareketler WHERE id = ?')
+      .tek<{ pos_onay_kodu: string; pos_referans: string; pos_kart: string }>(sonuc.hareketId);
+    expect(satir?.pos_onay_kodu).toMatch(/^\d{6}$/);
+    expect(satir?.pos_referans).toBeTruthy();
+    expect(bakiyeOku(ortam.uygulama.vt, musteri)).toBe(-5000);
+
+    await posIleTahsilatIptal(ortam.uygulama.baglam, ortam.admin, sonuc.hareketId, 'karta iade', 'KART');
+    expect(bakiyeOku(ortam.uygulama.vt, musteri)).toBe(0);
+  });
+
+  it('POS reddederse tahsilat kaydedilmez', async () => {
+    simulatorAc();
+    const musteri = musteriEkle(ortam, 'Barış', 1_000_000);
+    await expect(
+      posIleTahsilat(ortam.uygulama.baglam, ortam.admin, {
+        cari_id: musteri,
+        tutar: 5000 + SIMULATOR_RED_SONEKI,
+        odeme_tipi: 'KART',
+        avans_kabul: true,
+      }),
+    ).rejects.toThrow(/POS/);
+    expect(bakiyeOku(ortam.uygulama.vt, musteri)).toBe(0);
+  });
+
+  it('tedarikçiye kartla ödeme POS’a gitmez (o para işletmenin kartından çıkar)', async () => {
+    simulatorAc();
+    const tedarikci = tedarikciEkle(ortam, 'Enis');
+    // Kuruşu 13 ile biten tutar POS'a gitseydi reddedilirdi; gitmediği için kaydedilir.
+    const sonuc = await posIleTahsilat(ortam.uygulama.baglam, ortam.admin, {
+      cari_id: tedarikci,
+      tutar: 1000 + SIMULATOR_RED_SONEKI,
+      odeme_tipi: 'KART',
+      avans_kabul: true,
+    });
+    expect(sonuc.hareketId).toBeTruthy();
+  });
+
+  it('POS kapalıyken tahsilat eskisi gibi doğrudan kaydedilir', async () => {
+    const musteri = musteriEkle(ortam, 'Barış', 1_000_000);
+    await posIleTahsilat(ortam.uygulama.baglam, ortam.admin, {
+      cari_id: musteri,
+      tutar: 1000 + SIMULATOR_RED_SONEKI,
+      odeme_tipi: 'KART',
+      avans_kabul: true,
+    });
+    expect(bakiyeOku(ortam.uygulama.vt, musteri)).toBe(-(1000 + SIMULATOR_RED_SONEKI));
   });
 });

@@ -3,6 +3,7 @@
  */
 
 import { hatalar, paraFormat, simdi, uuid, zTahsilatGirdi, type Kurus } from '@market/shared';
+import type { Vt } from '../db/surucu.js';
 import {
   bakiyeOku,
   cariAnonimlestir,
@@ -191,7 +192,35 @@ export function tahsilatIptal(
   return { yeniBakiye: bakiyeOku(vt, orijinal.cari_id) };
 }
 
-export function tahsilatYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): TahsilatSonucu {
+/**
+ * İptalde POS'tan karta iade gerekiyor mu — POS servisi kayıttan ÖNCE cihaza
+ * gitmek için kullanır. Yalnız MÜŞTERİDEN alınmış tahsilatın karta iadesi
+ * POS'tan yapılır; tedarikçi ödemesi işletmenin kartından çıkmıştı.
+ */
+export function tahsilatIptalPosIhtiyaci(
+  vt: Vt,
+  hareketId: string,
+  paraYolu?: 'NAKIT' | 'KART',
+): { gerekli: boolean; tutar: Kurus; referans: string | null } {
+  const h = vt
+    .hazirla(
+      `SELECT h.hareket_tipi, h.tutar, h.pos_referans, c.tip AS cari_tipi,
+              EXISTS (SELECT 1 FROM kasa_hareketleri k WHERE k.belge_id = h.id) AS nakit
+       FROM cari_hareketler h JOIN cariler c ON c.id = h.cari_id WHERE h.id = ?`,
+    )
+    .tek<{ hareket_tipi: string; tutar: number; pos_referans: string | null; cari_tipi: string; nakit: number }>(hareketId);
+  if (!h || h.hareket_tipi !== 'TAHSILAT' || h.cari_tipi !== 'MUSTERI') return { gerekli: false, tutar: 0, referans: null };
+  const yol = paraYolu ?? (h.nakit ? 'NAKIT' : 'KART');
+  return { gerekli: yol === 'KART', tutar: Math.abs(h.tutar), referans: h.pos_referans ?? null };
+}
+
+export function tahsilatYap(
+  baglam: Baglam,
+  aktor: Aktor,
+  hamGirdi: unknown,
+  /** POS ile alınan kart tahsilatının onay bilgisi (POS açıksa). */
+  pos?: { onay_kodu?: string | null; referans?: string | null; kart_maske?: string | null } | null,
+): TahsilatSonucu {
   yetkiIste(aktor, 'cari.tahsilat');
   const ayrisim = zTahsilatGirdi.safeParse(hamGirdi);
   if (!ayrisim.success) throw hatalar.dogrulama('Tahsilat bilgileri geçerli değil.');
@@ -241,6 +270,9 @@ export function tahsilatYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): Ta
         aciklama: girdi.aciklama ?? (musteriMi ? 'Tahsilat' : 'Tedarikçi ödemesi'),
         belge_tipi: hareketTipi,
         kullanici_id: aktor.kullaniciId,
+        ...(girdi.odeme_tipi === 'KART' && pos
+          ? { pos_onay_kodu: pos.onay_kodu ?? null, pos_referans: pos.referans ?? null, pos_kart: pos.kart_maske ?? null }
+          : {}),
       },
       cihazId,
       zaman,

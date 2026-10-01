@@ -893,6 +893,21 @@ export const GOCLER: readonly Goc[] = [
     `,
     asagi: ``,
   },
+  {
+    surum: 14,
+    ad: 'cari_hareket_pos_bilgisi',
+    /*
+     * Müşteriden kartla tahsilatın POS bilgisi. İptalde "karta iade" seçilirse
+     * orijinal çekimin cihaz referansı buradan bulunur. Defter append-only;
+     * sütun eklemek mevcut satırları değiştirmez.
+     */
+    yukari: `
+      ALTER TABLE cari_hareketler ADD COLUMN pos_onay_kodu TEXT;
+      ALTER TABLE cari_hareketler ADD COLUMN pos_referans TEXT;
+      ALTER TABLE cari_hareketler ADD COLUMN pos_kart TEXT;
+    `,
+    asagi: ``,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */
