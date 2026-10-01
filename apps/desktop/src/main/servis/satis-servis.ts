@@ -19,6 +19,7 @@
 import {
   baskinOdemeTipi,
   fisNo as fisNoUret,
+  fisTurHarfi,
   gunAnahtari,
   hatalar,
   HATA_KODU,
@@ -278,8 +279,10 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
   const gun = gunAnahtari(zaman);
 
   vt.islem(() => {
-    const sira = sonrakiSayac(vt, 'fis');
-    const fisNo = fisNoUret(fisSerisi(vt, cihazId), sira);
+    // Fiş türü numaradan okunsun (NA- nakit, KA- kart, VA- veresiye, PA- karma); her tür kendi sırasında.
+    const tur = fisTurHarfi(odemeler);
+    const sira = sonrakiSayac(vt, `fis_${tur}`);
+    const fisNo = fisNoUret(fisSerisi(vt, cihazId), sira, tur);
 
     satisEkle(
       vt,
@@ -751,8 +754,9 @@ export function iadeYap(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): SatisS
   const gun = gunAnahtari(zaman);
 
   vt.islem(() => {
-    const sira = sonrakiSayac(vt, 'fis');
-    const fisNo = fisNoUret(fisSerisi(vt, cihazId), sira);
+    // İade fişi kendi serisinde: IA-000001.
+    const sira = sonrakiSayac(vt, 'fis_I');
+    const fisNo = fisNoUret(fisSerisi(vt, cihazId), sira, 'I');
 
     satisEkle(
       vt,

@@ -23,12 +23,28 @@ export function uuidMi(deger: unknown): deger is string {
   return typeof deger === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deger);
 }
 
+/** Fiş türü harfi: N nakit, K kart, V veresiye, P karma (parçalı), I iade. */
+export type FisTurHarfi = 'N' | 'K' | 'V' | 'P' | 'I';
+
 /**
- * Fiş numarası: `{seri}-{sıra}` (ör. "A-000512").
- * Seri harfi cihaza özeldir; böylece çok kasalı kurulumda numaralar çakışmaz.
+ * Fiş numarası: `{tür}{seri}-{sıra}` (ör. "NA-000512").
+ *
+ * Seri harfi CİHAZA özeldir (merkez dağıtır); çok kasalı kurulumda numaraların
+ * çakışmamasının güvencesi odur ve kaldırılmaz. Tür harfi fişin nakit, kart,
+ * veresiye, karma ya da iade olduğunu numaradan okunur kılar; her tür kendi
+ * sırasını tutar. Tür verilmezse eski `{seri}-{sıra}` biçimi üretilir.
  */
-export function fisNo(seri: string, sira: number): string {
-  return `${seri}-${String(sira).padStart(6, '0')}`;
+export function fisNo(seri: string, sira: number, tur?: FisTurHarfi): string {
+  return `${tur ?? ''}${seri}-${String(sira).padStart(6, '0')}`;
+}
+
+/** Satışın ödemelerinden fiş türü harfi; iade her zaman "I". */
+export function fisTurHarfi(odemeler: readonly { tip: string; tutar: number }[], iade = false): FisTurHarfi {
+  if (iade) return 'I';
+  const tipler = new Set(odemeler.filter((o) => o.tutar !== 0).map((o) => o.tip));
+  if (tipler.size > 1) return 'P';
+  const tek = [...tipler][0];
+  return tek === 'KART' ? 'K' : tek === 'VERESIYE' ? 'V' : 'N';
 }
 
 /** Cihaz kimliğinden kararlı bir seri harfi türetir ("kasa-01" → "A"). */

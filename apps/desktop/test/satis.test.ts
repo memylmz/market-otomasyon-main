@@ -38,7 +38,8 @@ describe('satış kesinleştirme (§25 Satış kabul kriteri)', () => {
     expect(stokOku(ortam.uygulama.vt, urunId)).toBe(adet(2));
     expect(sonuc.genelToplam).toBe(3000);
     expect(sonuc.paraUstu).toBe(2000);
-    expect(sonuc.fisNo).toMatch(/^[A-Z]-\d{6}$/);
+    // Nakit satış: tür harfi N + kasa serisi + sıra (NA-000001).
+    expect(sonuc.fisNo).toMatch(/^N[A-Z]+-\d{6}$/);
 
     const ozet = oturumOzeti(ortam.uygulama.vt, ortam.admin.kasaOturumId as string);
     expect(ozet.satis_nakit).toBe(3000);
@@ -570,5 +571,44 @@ describe('satış olayında kasiyer adı', () => {
       neden: 'Müşteri beğenmedi',
     });
     expect(olayVerisi('IADE_YAPILDI', iade.satisId).kasiyer_adi).toBe('Test Yönetici');
+  });
+});
+
+describe('fiş numarası ödeme türünü taşır', () => {
+  it('nakit/kart/veresiye/karma/iade ayrı harf ve kendi sırasıyla numaralanır', () => {
+    const urun = urunEkle(ortam, { satisFiyati: 1000, stok: adet(100) });
+    const musteri = musteriEkle(ortam, 'Barış', 1_000_000);
+    const sat = (odemeler: { tip: 'NAKIT' | 'KART' | 'VERESIYE'; tutar: number }[]) =>
+      satisKesinlestir(ortam.uygulama.baglam, ortam.admin, {
+        kalemler: [{ urun_id: urun, miktar: adet(odemeler.reduce((t, o) => t + o.tutar, 0) / 1000), birim_fiyat: 1000 }],
+        odemeler,
+        musteri_id: musteri,
+        limit_asimi_onaylandi: true,
+      });
+    const seri = (no: string) => no.slice(1, no.indexOf('-'));
+
+    const nakit = sat([{ tip: 'NAKIT', tutar: 1000 }]);
+    const kart1 = sat([{ tip: 'KART', tutar: 1000 }]);
+    const kart2 = sat([{ tip: 'KART', tutar: 1000 }]);
+    const veresiye = sat([{ tip: 'VERESIYE', tutar: 1000 }]);
+    const karma = sat([
+      { tip: 'NAKIT', tutar: 1000 },
+      { tip: 'KART', tutar: 1000 },
+    ]);
+    const kalem = kalemleriGetir(ortam.uygulama.vt, nakit.satisId)[0]!;
+    const iade = iadeYap(ortam.uygulama.baglam, ortam.admin, {
+      kaynak_satis_id: nakit.satisId,
+      kalemler: [{ satis_kalemi_id: kalem.id, miktar: adet(1) }],
+      iade_yontemi: 'NAKIT',
+      neden: 'test',
+    });
+
+    const s = seri(nakit.fisNo);
+    expect(nakit.fisNo).toBe(`N${s}-000001`);
+    expect(kart1.fisNo).toBe(`K${s}-000001`);
+    expect(kart2.fisNo).toBe(`K${s}-000002`);
+    expect(veresiye.fisNo).toBe(`V${s}-000001`);
+    expect(karma.fisNo).toBe(`P${s}-000001`);
+    expect(iade.fisNo).toBe(`I${s}-000001`);
   });
 });

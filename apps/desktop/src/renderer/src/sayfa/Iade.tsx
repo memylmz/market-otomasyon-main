@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
+  fisNoSadelestir,
   IADE_YONTEMI_ETIKETI,
   miktarFormat,
   miktarParse,
@@ -76,8 +77,26 @@ export function IadeSayfasi() {
   const bul = async (aranan = fisNo) => {
     if (!aranan.trim()) return;
     try {
-      const liste = await cagir<{ kayitlar: { id: string }[] }>('satis.listele', { filtre: { fisNo: aranan.trim() }, limit: 1 });
-      const ilk = liste.kayitlar[0];
+      const liste = await cagir<{ kayitlar: { id: string; fis_no: string }[] }>('satis.listele', {
+        filtre: { fisNo: aranan.trim() },
+        limit: 5,
+      });
+      /*
+       * Fiş numarası tür harfi taşıdığı için (NA-/KA-/VA-…) yalnız rakamla
+       * aramak birden çok fişe uyabilir; o zaman tam eşleşen seçilir, yoksa
+       * kasiyerden tür harfiyle yazması istenir — yanlış fiş iade edilmesin.
+       */
+      const sade = fisNoSadelestir(aranan);
+      const tam = liste.kayitlar.find((k) => fisNoSadelestir(k.fis_no) === sade);
+      if (!tam && liste.kayitlar.length > 1) {
+        bildir.uyari(
+          'Birden fazla fiş eşleşti',
+          `${liste.kayitlar.map((k) => k.fis_no).join(', ')} — fiş numarasını tür harfiyle yazın (örn. NA-000512).`,
+        );
+        setDetay(null);
+        return;
+      }
+      const ilk = tam ?? liste.kayitlar[0];
       if (!ilk) {
         bildir.uyari('Satış bulunamadı', 'Fiş numarasını kontrol edin.');
         setDetay(null);
@@ -197,7 +216,7 @@ export function IadeSayfasi() {
         <input
           ref={fisAlani}
           className="alan"
-          placeholder="Fiş barkodunu okutun veya numarayı yazın (örn. A-000512)"
+          placeholder="Fiş barkodunu okutun veya numarayı yazın (örn. NA-000512)"
           value={fisNo}
           onChange={(e) => setFisNo(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && void bul()}
