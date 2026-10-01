@@ -204,13 +204,15 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
       [isletmeId],
     );
 
-    const q = istek.query as { kategori_id?: string; siralama?: string; ofset?: string; sadece_kritik?: string };
+    const q = istek.query as { kategori_id?: string; siralama?: string; ofset?: string; sadece_kritik?: string; id?: string };
     const terim = sorgu.q ? aramaNormalize(sorgu.q) : '';
 
     let suzulen = terim
       ? satirlar.filter((u) => aramaNormalize(`${String(u.ad)} ${String(u.marka ?? '')}`).includes(terim))
       : satirlar;
     if (q.kategori_id) suzulen = suzulen.filter((u) => u.kategori_id === q.kategori_id);
+    // Tek ürün (alış faturasında satırdaki ürünün kartını açmak için).
+    if (q.id) suzulen = suzulen.filter((u) => u.id === q.id);
     if (q.sadece_kritik === '1') {
       suzulen = suzulen.filter((u) => Number(u.kritik_stok) > 0 && Number(u.stok) <= Number(u.kritik_stok));
     }

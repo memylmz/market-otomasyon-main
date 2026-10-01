@@ -47,38 +47,65 @@ function miktarKurusHesapla(metin: string): number {
   return Number.isFinite(sayi) ? Math.round(sayi * 1000) : 0;
 }
 
+/**
+ * Henüz kaydedilmemiş ürünün form değerleri — alış faturası satırında taşınır.
+ * Ürün, fatura kasada uygulanınca faturayla aynı işlemde açılır (kasadaki
+ * UrunKartiTaslagi ile aynı alanlar).
+ */
+export interface UrunFormTaslagi {
+  ad: string;
+  marka: string;
+  kategoriId: string;
+  birimTipi: string;
+  alis: Kurus;
+  satis: Kurus;
+  kdv: number;
+  kritikStok: string;
+  rafKonumu: string;
+  kisaKod: string;
+  sktTakibi: boolean;
+  notlar: string;
+}
+
 export function UrunFormu({
   urun,
   kategoriler,
   onKapat,
   onKaydedildi,
+  taslak,
+  stokGizli = false,
 }: {
   urun: Urun | 'yeni';
   kategoriler: Kategori[];
   onKapat: () => void;
   onKaydedildi: () => void;
+  /** Verilirse form kaydetmez; "Uygula" değerleri çağırana (fatura satırına) döndürür. */
+  taslak?: { baslangic: UrunFormTaslagi; onUygula: (deger: UrunFormTaslagi) => void };
+  /** Stok alanı gizlenir — alış faturasında stok faturadan gelir, ikinci kez girilmesin. */
+  stokGizli?: boolean;
 }) {
   const yeniMi = urun === 'yeni';
   const mevcut = yeniMi ? null : urun;
+  const t = taslak?.baslangic;
 
   const [form, setForm] = useState({
-    ad: mevcut?.ad ?? '',
-    marka: mevcut?.marka ?? '',
-    kategoriId: mevcut?.kategori_id ?? '',
-    birimTipi: mevcut?.birim_tipi ?? 'ADET',
-    alis: mevcut ? paraFormat(mevcut.alis_fiyati, { simge: false }) : '',
-    satis: mevcut ? paraFormat(mevcut.satis_fiyati, { simge: false }) : '',
-    kdv: mevcut?.kdv_orani ?? 20,
-    kritikStok: mevcut?.kritik_stok ? String(mevcut.kritik_stok / 1000) : '',
+    ad: mevcut?.ad ?? t?.ad ?? '',
+    marka: mevcut?.marka ?? t?.marka ?? '',
+    kategoriId: mevcut?.kategori_id ?? t?.kategoriId ?? '',
+    birimTipi: mevcut?.birim_tipi ?? t?.birimTipi ?? 'ADET',
+    alis: mevcut ? paraFormat(mevcut.alis_fiyati, { simge: false }) : t?.alis ? paraFormat(t.alis, { simge: false }) : '',
+    satis: mevcut ? paraFormat(mevcut.satis_fiyati, { simge: false }) : t?.satis ? paraFormat(t.satis, { simge: false }) : '',
+    kdv: mevcut?.kdv_orani ?? t?.kdv ?? 20,
+    kritikStok: mevcut?.kritik_stok ? String(mevcut.kritik_stok / 1000) : (t?.kritikStok ?? ''),
     idealStok: mevcut?.ideal_stok ? String(mevcut.ideal_stok / 1000) : '',
-    rafKonumu: mevcut?.raf_konumu ?? '',
-    kisaKod: mevcut?.kisa_kod ?? '',
-    sktTakibi: mevcut?.skt_takibi === 1,
+    rafKonumu: mevcut?.raf_konumu ?? t?.rafKonumu ?? '',
+    kisaKod: mevcut?.kisa_kod ?? t?.kisaKod ?? '',
+    sktTakibi: mevcut ? mevcut.skt_takibi === 1 : (t?.sktTakibi ?? false),
     aktif: mevcut ? mevcut.aktif_mi === 1 : true,
     // Stok miktarı. Yeni üründe "açılış stoğu", mevcutta "yeni sayım" anlamına
     // gelir; ikisi de kasaya TALİMAT olarak iner, hareketi kasa üretir (§11.5).
     stok: mevcut ? String(mevcut.stok / 1000) : '',
-    notlar: mevcut?.notlar ?? '',
+    notlar: mevcut?.notlar ?? t?.notlar ?? '',
   });
   const [gonderiliyor, setGonderiliyor] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
@@ -116,6 +143,27 @@ export function UrunFormu({
 
   const kaydet = async () => {
     const satisKurus = paraParse(form.satis);
+    if (taslak) {
+      if (!form.ad.trim()) {
+        setHata('Ürün adı zorunludur.');
+        return;
+      }
+      taslak.onUygula({
+        ad: form.ad.trim(),
+        marka: form.marka,
+        kategoriId: form.kategoriId,
+        birimTipi: form.birimTipi,
+        alis: paraParse(form.alis) ?? 0,
+        satis: satisKurus ?? 0,
+        kdv: form.kdv,
+        kritikStok: form.kritikStok,
+        rafKonumu: form.rafKonumu,
+        kisaKod: form.kisaKod.trim(),
+        sktTakibi: form.sktTakibi,
+        notlar: form.notlar,
+      });
+      return;
+    }
     if (!form.ad.trim() || satisKurus === null) {
       setHata('Ürün adı ve satış fiyatı zorunludur.');
       return;
@@ -145,7 +193,7 @@ export function UrunFormu({
       });
       // Stok, ürün kaydının bir alanı DEĞİLDİR: kasaya ayrı bir talimat olarak
       // iner ve hareketi kasa üretir. Fark sıfırsa talimat yazılmaz.
-      if (stokFarki !== 0) {
+      if (stokFarki !== 0 && !stokGizli) {
         if (!hedefKasa) {
           // Kasa yoksa stok yazılacak yer de yoktur; kullanıcıya doğru adımı söyle.
           setHata(
@@ -189,12 +237,17 @@ export function UrunFormu({
             Vazgeç
           </button>
           <button type="button" className="tus-birincil flex-1" onClick={kaydet} disabled={gonderiliyor}>
-            {gonderiliyor ? 'Kaydediliyor…' : 'Kaydet'}
+            {taslak ? 'Uygula' : gonderiliyor ? 'Kaydediliyor…' : 'Kaydet'}
           </button>
         </>
       }
     >
       <div className="space-y-3">
+        {taslak && (
+          <p className="rounded-lg border border-bilgi-cizgi bg-bilgi-yumusak px-3 py-2 text-xs text-metin-2">
+            Ürün, alış faturası kasada uygulanınca bu bilgilerle açılır.
+          </p>
+        )}
         <label className="block">
           <span className="etiket">Ürün adı *</span>
           <input className="alan" value={form.ad} onChange={(e) => setForm({ ...form, ad: e.target.value })} autoFocus />
@@ -298,36 +351,38 @@ export function UrunFormu({
             />
             <span className="mt-1 block text-xs text-metin-4">Bu seviyenin altında uyarı verilir.</span>
           </label>
-          <label className="block">
-            <span className="etiket">Stok miktarı</span>
-            <div className="flex items-center gap-2">
-              <input
-                className="alan sayi"
-                inputMode="decimal"
-                placeholder="0"
-                value={form.stok}
-                onChange={(e) => setForm({ ...form, stok: e.target.value })}
-              />
-              <span className="shrink-0 text-sm font-medium text-metin-2">{birimEtiketi}</span>
-            </div>
-            <span className="mt-1 block text-xs text-metin-4">
-              {yeniMi
-                ? 'Gelen miktarı yazın. Kasaya senkronla iner.'
-                : `Şu anki: ${miktarFormat(mevcutStok)} ${birimEtiketi}. Yeni sayımı yazın.`}
-            </span>
-            {bekleyenTalimat > 0 && (
-              <span className="mt-1 block text-xs text-uyari">
-                Bu üründe kasada uygulanmayı bekleyen bir stok girişi var. Yeni değer onun yerine geçer; rakam kasa senkron olunca
-                güncellenir.
+          {!taslak && !stokGizli && (
+            <label className="block">
+              <span className="etiket">Stok miktarı</span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="alan sayi"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={form.stok}
+                  onChange={(e) => setForm({ ...form, stok: e.target.value })}
+                />
+                <span className="shrink-0 text-sm font-medium text-metin-2">{birimEtiketi}</span>
+              </div>
+              <span className="mt-1 block text-xs text-metin-4">
+                {yeniMi
+                  ? 'Gelen miktarı yazın. Kasaya senkronla iner.'
+                  : `Şu anki: ${miktarFormat(mevcutStok)} ${birimEtiketi}. Yeni sayımı yazın.`}
               </span>
-            )}
-          </label>
+              {bekleyenTalimat > 0 && (
+                <span className="mt-1 block text-xs text-uyari">
+                  Bu üründe kasada uygulanmayı bekleyen bir stok girişi var. Yeni değer onun yerine geçer; rakam kasa senkron
+                  olunca güncellenir.
+                </span>
+              )}
+            </label>
+          )}
         </div>
 
         {/* Birden çok kasa varsa hangisine işleneceği sorulur. Tek kasada
             sorulmaz: seçenek olmayan bir soru kasiyere yük olur. Stok tek bir
             kasaya yazılmalıdır, yoksa bulutta çift sayılır (§11.5). */}
-        {stokFarki !== 0 && kasalar.length > 1 && (
+        {stokFarki !== 0 && kasalar.length > 1 && !taslak && !stokGizli && (
           <label className="block">
             <span className="etiket">Hangi kasaya?</span>
             <select className="alan" value={hedefKasa} onChange={(e) => setHedefKasa(e.target.value)}>
@@ -363,10 +418,12 @@ export function UrunFormu({
           </p>
         )}
 
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={form.aktif} onChange={(e) => setForm({ ...form, aktif: e.target.checked })} />
-          Ürün satışa açık
-        </label>
+        {!taslak && (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={form.aktif} onChange={(e) => setForm({ ...form, aktif: e.target.checked })} />
+            Ürün satışa açık
+          </label>
+        )}
 
         {hata && <p className="rounded-lg border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm text-metin">{hata}</p>}
 

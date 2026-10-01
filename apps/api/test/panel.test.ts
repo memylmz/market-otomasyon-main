@@ -1269,3 +1269,13 @@ describe('panelden kısmi iade — perakende satışta müşteri', () => {
     expect(JSON.stringify(pull.json())).toContain(`"musteri_id":"${musteri}"`);
   });
 });
+
+describe('ürün listesi — tek ürün', () => {
+  it('?id= ile yalnız o ürün döner (alış faturasında ürün formunu açmak için)', async () => {
+    const a = (await urunEkle('Defter', 5000, 10_000)).json() as { id: string };
+    await urunEkle('Kalem', 1000, 2000);
+    const v = (await panelGet(`${UCLAR.urunler}?id=${a.id}&limit=1`)).json() as { data: { id: string; ad: string }[] };
+    expect(v.data).toHaveLength(1);
+    expect(v.data[0]).toMatchObject({ id: a.id, ad: 'Defter' });
+  });
+});

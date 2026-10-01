@@ -36,11 +36,14 @@ import {
   type TopluGirisSatiri,
   carpanCoz,
   satiriKat,
+  kisaKodMu,
+  type YeniUrunKarti,
   sktSutunuGerekli,
 } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { api, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
+import { UrunFormu, type Urun as KatalogUrunu, type UrunFormTaslagi } from '@/bilesen/urun-formu';
 
 interface Fatura {
   id: string;
@@ -590,6 +593,8 @@ interface SatirGirdisi {
   urun_id?: string;
   /** Ürün kartında SKT takibi açıksa bu satırda SKT zorunludur. */
   sktZorunlu: boolean;
+  /** Yeni ürün satırında ürün formundan girilen ayrıntılar (kasadaki gibi). */
+  kart?: YeniUrunKarti;
 }
 
 function bosSatir(barkod = ''): SatirGirdisi {
@@ -838,6 +843,78 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
     }
   };
 
+  /**
+   * Satırdaki ürünün formu. Mevcut üründe gerçek form (kaydedince ürün
+   * güncellenir, satırdaki ad/fiyat/KDV tazelenir); yeni üründe TASLAK —
+   * değerler satırda taşınır, ürün fatura kasada uygulanınca açılır.
+   */
+  const [kart, setKart] = useState<{ sira: number; urun: KatalogUrunu } | { sira: number; taslak: UrunFormTaslagi } | null>(null);
+
+  const kartiAc = async (sira: number) => {
+    const s = satirlar[sira];
+    if (!s) return;
+    if (s.urun_id) {
+      try {
+        const v = await api<{ data: KatalogUrunu[] }>(`${uclar.urunler}?id=${encodeURIComponent(s.urun_id)}&limit=1`);
+        const urun = v.data?.[0];
+        if (urun) setKart({ sira, urun });
+      } catch {
+        /* ürün okunamadı: kart açılmaz */
+      }
+      return;
+    }
+    const ek = s.kart?.ek_barkodlar ?? [];
+    setKart({
+      sira,
+      taslak: {
+        ad: s.ad,
+        marka: s.kart?.marka ?? '',
+        kategoriId: s.kart?.kategori_id ?? kategoriId,
+        birimTipi: s.kart?.birim_tipi ?? 'ADET',
+        alis: s.alis,
+        satis: s.satis,
+        kdv: Number(s.kdv) || VARSAYILAN_KDV_ORANI,
+        kritikStok: s.kart?.kritik_stok ?? '',
+        rafKonumu: s.kart?.raf_konumu ?? '',
+        kisaKod: ek.find((b) => kisaKodMu(b)) ?? '',
+        sktTakibi: s.kart?.skt_takibi ?? false,
+        notlar: s.kart?.notlar ?? '',
+      },
+    });
+  };
+
+  const taslagiUygula = (sira: number, t: UrunFormTaslagi) => {
+    guncelle(sira, {
+      ad: t.ad,
+      alis: t.alis,
+      satis: t.satis,
+      kdv: String(t.kdv),
+      sktZorunlu: t.sktTakibi,
+      kart: {
+        marka: t.marka,
+        kategori_id: t.kategoriId || null,
+        birim_tipi: t.birimTipi as 'ADET' | 'KG' | 'LT',
+        kritik_stok: t.kritikStok,
+        raf_konumu: t.rafKonumu,
+        skt_takibi: t.sktTakibi,
+        notlar: t.notlar,
+        ek_barkodlar: t.kisaKod ? [t.kisaKod] : [],
+      },
+    });
+    setKart(null);
+  };
+
+  const kartKaydedildi = async (sira: number, urunId: string) => {
+    setKart(null);
+    try {
+      const v = await api<{ data: KatalogUrunu[] }>(`${uclar.urunler}?id=${encodeURIComponent(urunId)}&limit=1`);
+      const u = v.data?.[0];
+      if (u) guncelle(sira, { ad: u.ad, satis: u.satis_fiyati, kdv: String(u.kdv_orani), sktZorunlu: u.skt_takibi === 1 });
+    } catch {
+      /* tazelenemedi: satır eski hâliyle kalır */
+    }
+  };
+
   const guncelle = (i: number, yama: Partial<SatirGirdisi>) =>
     setSatirlar((liste) => liste.map((x, j) => (j === i ? { ...x, ...yama } : x)));
 
@@ -873,6 +950,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
         skt: s.skt,
         lot: s.lot,
         urun_id: s.urun_id,
+        kart: s.kart,
       })),
     [satirlar],
   );
@@ -891,7 +969,8 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
     // Kategori yalnız YENİ ürünlere uygulanır; bu bir hesap değil, seçilmiş
     // veriyi iliştirmektir — topluGirisKalemleri'nin işini burada tekrarlamaz.
     const kategoriliKalemler = sonuc.kalemler.map((k) =>
-      k.yeni_urun ? { ...k, yeni_urun: { ...k.yeni_urun, kategori_id: kategoriId || null } } : k,
+      // Satırın kartında kategori seçildiyse o kazanır; genel kategori yalnız boş olana gider.
+      k.yeni_urun ? { ...k, yeni_urun: { ...k.yeni_urun, kategori_id: k.yeni_urun.kategori_id ?? (kategoriId || null) } } : k,
     );
     return { kalemler: kategoriliKalemler, hatalar: sonuc.hatalar };
   }, [donusumSatirlari, marjSayi, kategoriId]);
@@ -1215,9 +1294,24 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                             placeholder="Ürün adı *"
                           />
                         ) : (
-                          <span className="font-medium">{s.ad}</span>
+                          <button
+                            type="button"
+                            className="text-left font-medium hover:text-vurgu hover:underline"
+                            onClick={() => void kartiAc(i)}
+                          >
+                            {s.ad}
+                          </button>
                         )}
                         {yeniUrun && <Rozet tur="bilgi">Yeni</Rozet>}
+                        {yeniUrun && (
+                          <button
+                            type="button"
+                            className="whitespace-nowrap text-xs text-vurgu hover:underline"
+                            onClick={() => void kartiAc(i)}
+                          >
+                            {s.kart ? 'kart ✓' : 'kart'}
+                          </button>
+                        )}
                       </div>
                       <button type="button" className="text-tehlike" onClick={() => satirSil(i)} aria-label="Satırı sil">
                         ✕
@@ -1382,10 +1476,26 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                               placeholder="Ürün adı *"
                             />
                             <Rozet tur="bilgi">Yeni</Rozet>
+                            {/* Marka, kategori, birim, raf, SKT, kısa kod… ürün formuyla. */}
+                            <button
+                              type="button"
+                              className="whitespace-nowrap text-xs text-vurgu hover:underline"
+                              onClick={() => void kartiAc(i)}
+                              title="Ürün formunu aç: marka, kategori, birim, raf, SKT takibi, kısa kod"
+                            >
+                              {s.kart ? 'kart ✓' : 'kart'}
+                            </button>
                             {baglaSecici(i)}
                           </div>
                         ) : (
-                          <span className="font-medium">{s.ad}</span>
+                          <button
+                            type="button"
+                            className="text-left font-medium hover:text-vurgu hover:underline"
+                            onClick={() => void kartiAc(i)}
+                            title="Ürün formunu aç"
+                          >
+                            {s.ad}
+                          </button>
                         )}
                       </td>
                       <td>
@@ -1526,6 +1636,21 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
 
         {hata && <p className="rounded-lg border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm">{hata}</p>}
       </div>
+      {kart && (
+        <UrunFormu
+          urun={'urun' in kart ? kart.urun : 'yeni'}
+          kategoriler={((kategoriler.veri?.data ?? []) as { id: string; ad: string }[]).map((k) => ({
+            ...k,
+            sira: 0,
+            aktif_mi: 1,
+          }))}
+          onKapat={() => setKart(null)}
+          onKaydedildi={() => 'urun' in kart && void kartKaydedildi(kart.sira, kart.urun.id)}
+          taslak={'taslak' in kart ? { baslangic: kart.taslak, onUygula: (t) => taslagiUygula(kart.sira, t) } : undefined}
+          // Stok bu faturadan gelir; formdan ayrıca girilirse ikinci kez sayılırdı.
+          stokGizli
+        />
+      )}
     </Modal>
   );
 }
