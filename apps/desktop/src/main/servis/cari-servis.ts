@@ -201,7 +201,7 @@ export function tahsilatIptalPosIhtiyaci(
   vt: Vt,
   hareketId: string,
   paraYolu?: 'NAKIT' | 'KART',
-): { gerekli: boolean; tutar: Kurus; referans: string | null } {
+): { gerekli: boolean; tutar: Kurus; referans: string | null; kartlaAlindi: boolean } {
   const h = vt
     .hazirla(
       `SELECT h.hareket_tipi, h.tutar, h.pos_referans, c.tip AS cari_tipi,
@@ -209,9 +209,12 @@ export function tahsilatIptalPosIhtiyaci(
        FROM cari_hareketler h JOIN cariler c ON c.id = h.cari_id WHERE h.id = ?`,
     )
     .tek<{ hareket_tipi: string; tutar: number; pos_referans: string | null; cari_tipi: string; nakit: number }>(hareketId);
-  if (!h || h.hareket_tipi !== 'TAHSILAT' || h.cari_tipi !== 'MUSTERI') return { gerekli: false, tutar: 0, referans: null };
+  if (!h || h.hareket_tipi !== 'TAHSILAT' || h.cari_tipi !== 'MUSTERI') {
+    return { gerekli: false, tutar: 0, referans: null, kartlaAlindi: false };
+  }
   const yol = paraYolu ?? (h.nakit ? 'NAKIT' : 'KART');
-  return { gerekli: yol === 'KART', tutar: Math.abs(h.tutar), referans: h.pos_referans ?? null };
+  // Tahsilat yalnız NAKİT ya da KART olabilir: kasa hareketi yoksa kartla alınmıştır.
+  return { gerekli: yol === 'KART', tutar: Math.abs(h.tutar), referans: h.pos_referans ?? null, kartlaAlindi: !h.nakit };
 }
 
 export function tahsilatYap(

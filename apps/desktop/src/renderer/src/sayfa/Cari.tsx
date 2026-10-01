@@ -9,6 +9,7 @@ import { MusteriAlisverisleri } from './cari/Alisverisler';
 import { TahsilatDiyalogu } from '../bilesen/TahsilatDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { oturumDurumu, useYetki } from '../durum/oturum';
+import { usePosAktif } from '../kanca/usePosAktif';
 import { cagir } from '../kopru';
 import { EkstreGonderDiyalogu } from './cari/EkstreGonderDiyalogu';
 
@@ -839,6 +840,7 @@ function TahsilatIptalDiyalogu({
   const [neden, setNeden] = useState('');
   const [calisiyor, setCalisiyor] = useState(false);
   const [paraYolu, setParaYolu] = useState<ParaYolu>('KART');
+  const posAktif = usePosAktif(Boolean(hareket));
 
   useEffect(() => {
     if (!hareket) return;
@@ -850,6 +852,8 @@ function TahsilatIptalDiyalogu({
   if (!hareket) return null;
   const odemeMi = hareket.hareket_tipi === 'ODEME';
   const yollar = iptalParaYollari(hareket.hareket_tipi);
+  // POS açıkken nakit alınmış tahsilat karta iade edilemez (cihazda orijinal çekim yok).
+  const kartaKapali = posAktif && !odemeMi && Boolean(hareket.nakit_mi);
 
   const tutar = Math.abs(hareket.tutar);
   const gecerli = neden.trim().length >= 3 && !calisiyor;
@@ -902,8 +906,9 @@ function TahsilatIptalDiyalogu({
               type="button"
               role="radio"
               aria-checked={paraYolu === y}
+              disabled={y === 'KART' && kartaKapali}
               onClick={() => setParaYolu(y)}
-              className={`w-full rounded border px-3 py-2 text-left text-sm ${
+              className={`w-full rounded border px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
                 paraYolu === y ? 'border-vurgu bg-vurgu-yumusak' : 'border-cizgi hover:bg-yuzey-2'
               }`}
             >
@@ -913,7 +918,13 @@ function TahsilatIptalDiyalogu({
                   <span className="text-xs font-normal text-metin-3">orijinal ödeme</span>
                 )}
               </span>
-              <span className="block text-xs text-metin-3">{yollar[y].alt}</span>
+              <span className="block text-xs text-metin-3">
+                {y === 'KART' && posAktif && !odemeMi
+                  ? kartaKapali
+                    ? 'Nakit alınan tahsilat POS ile karta iade edilemez.'
+                    : "İptal Et'e basınca POS cihazından otomatik iade edilir."
+                  : yollar[y].alt}
+              </span>
             </button>
           ))}
         </div>

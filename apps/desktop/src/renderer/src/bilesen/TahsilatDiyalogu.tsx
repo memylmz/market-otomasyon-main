@@ -24,6 +24,7 @@ import { paraFormat, type Kurus } from '@market/shared';
 import { Alan, Diyalog, Kisayol, ParaAlani } from './temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { cagir } from '../kopru';
+import { usePosAktif } from '../kanca/usePosAktif';
 
 export interface TahsilatCarisi {
   id: string;
@@ -44,6 +45,7 @@ export function TahsilatDiyalogu({
   onTamam: () => void;
 }) {
   const musteriMi = cari.tip === 'MUSTERI';
+  const posAktif = usePosAktif(musteriMi);
   const borc = Math.max(0, cari.bakiye);
 
   const [alinan, setAlinan] = useState<Kurus>(0);
@@ -135,6 +137,12 @@ export function TahsilatDiyalogu({
             </button>
           ))}
         </div>
+
+        {musteriMi && odemeTipi === 'KART' && posAktif && (
+          <p className="rounded border border-bilgi-cizgi bg-bilgi-yumusak px-3 py-2 text-sm text-bilgi">
+            Tahsil Et'e basınca tutar POS cihazına gönderilir; müşteri kartını okutsun. Cihaz onaylamadan kaydedilmez.
+          </p>
+        )}
 
         {/* Hesap dökümü: kasiyer kafadan çıkarma yapmasın. */}
         <div className="rounded bg-yuzey-3 px-4 py-3">

@@ -908,6 +908,35 @@ export const GOCLER: readonly Goc[] = [
     `,
     asagi: ``,
   },
+  {
+    surum: 15,
+    ad: 'pos_islemleri',
+    /*
+     * POS işlem günlüğü — cihaza giden HER istek ve sonucu (onay, red, zaman
+     * aşımı, hata). Gün sonunda POS slibiyle karşılaştırma ve "para çekildi mi?"
+     * sorusu için. Yalnız bu kasada tutulur; buluta gitmez.
+     */
+    yukari: `
+      CREATE TABLE pos_islemleri (
+        id            TEXT PRIMARY KEY,
+        zaman         TEXT NOT NULL,
+        tur           TEXT NOT NULL,
+        tutar         INTEGER NOT NULL,
+        sonuc         TEXT NOT NULL,
+        onay_kodu     TEXT,
+        referans      TEXT,
+        kart          TEXT,
+        hata          TEXT,
+        orijinal_referans TEXT,
+        belge_id      TEXT,
+        belge_tipi    TEXT,
+        kullanici_id  TEXT,
+        cihaz_id      TEXT
+      );
+      CREATE INDEX ix_pos_islemleri_zaman ON pos_islemleri (zaman);
+    `,
+    asagi: `DROP TABLE IF EXISTS pos_islemleri;`,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

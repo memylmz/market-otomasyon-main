@@ -19,6 +19,7 @@ import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilese
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
+import { usePosAktif } from '../kanca/usePosAktif';
 import { cagir } from '../kopru';
 
 type Sekme = 'ozet' | 'urun' | 'saatlik' | 'kasa' | 'satislar' | 'banka' | 'suistimal' | 'denetim';
@@ -1462,6 +1463,9 @@ function SatisIptalDiyalogu({
   const veresiye = toplam('VERESIYE');
   const odenen = nakit + kart;
   const karma = nakit > 0 && kart > 0;
+  const posAktif = usePosAktif(acik);
+  // POS ile karta, kartla ödenenden fazlası iade edilemez (banka kabul etmez).
+  const kartaYetmez = posAktif && odenen > kart;
 
   useEffect(() => {
     if (!acik) return;
@@ -1533,8 +1537,17 @@ function SatisIptalDiyalogu({
                   ]
                 : []),
               { deger: 'NAKIT' as const, baslik: '💵 Nakit (kasadan)', alt: 'Tutar şu anki açık kasadan çıkar.' },
-              { deger: 'KART' as const, baslik: '💳 Karta (POS iadesi)', alt: 'POS cihazından iade yapın; kasa nakdi değişmez.' },
+              {
+                deger: 'KART' as const,
+                baslik: '💳 Karta (POS iadesi)',
+                alt: !posAktif
+                  ? 'POS cihazından elle iade yapın; kasa nakdi değişmez.'
+                  : kartaYetmez
+                    ? `POS ile karta en fazla kartla ödenen ${paraFormat(kart)} iade edilebilir.`
+                    : "İptal Et'e basınca POS cihazından otomatik iade edilir.",
+              },
             ].map((s) => {
+              const kapali = s.deger === 'KART' && kartaYetmez;
               const orijinal = karma ? s.deger === 'ORIJINAL' : (kart > 0 ? 'KART' : 'NAKIT') === s.deger;
               return (
                 <button
@@ -1542,8 +1555,9 @@ function SatisIptalDiyalogu({
                   type="button"
                   role="radio"
                   aria-checked={yol === s.deger}
+                  disabled={kapali}
                   onClick={() => setYol(s.deger)}
-                  className={`w-full rounded border px-3 py-2 text-left text-sm ${
+                  className={`w-full rounded border px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
                     yol === s.deger ? 'border-vurgu bg-vurgu-yumusak' : 'border-cizgi hover:bg-yuzey-2'
                   }`}
                 >

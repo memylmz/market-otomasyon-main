@@ -43,6 +43,11 @@ export function App() {
           bildir.bilgi('Senkron tamamlandı', `${sonuc.gonderilen} kayıt buluta gönderildi.`);
         }
         void tazele();
+      } else if (olay === 'pos:uyari') {
+        // Arka planda olan POS olayı (süre aşımından sonra gelen onay vb.).
+        const uyari = veri as { tur: 'uyari' | 'hata'; baslik: string; mesaj: string };
+        if (uyari.tur === 'hata') bildir.hata(uyari.baslik, uyari.mesaj);
+        else bildir.uyari(uyari.baslik, uyari.mesaj);
       } else if (olay === 'fis:yazdirma') {
         // Başarılı yazdırma sessizdir — çıkan kağıdın kendisi zaten geri bildirimdir.
         // Yalnız başarısızlık bildirilir, çünkü kasiyerin fişi elle tekrar

@@ -18,7 +18,6 @@ import {
   uuid,
   type GunAnahtari,
   type Kurus,
-  type PosIslemSonucu,
   type Miktar,
   type Yetki,
 } from '@market/shared';
@@ -49,7 +48,6 @@ import {
   alisFaturalariniListele,
   alisKalemleriniGetir,
   musteriAlisverisleri,
-  odemeleriGetir,
 } from '../depo/satis.js';
 import { cakismalariListele, kaliciHataliOlaylar, olayYaz } from '../depo/senkron.js';
 import { acikSayim, hareketleriListele, sayimFarklari } from '../depo/stok.js';
@@ -92,14 +90,16 @@ import {
   urunRaporu,
 } from '../servis/rapor-servis.js';
 import {
-  iadeTutariHesapla,
-  iadeYap,
-  iptalIadeTutarlari,
-  kartPosReferansi,
-  satisIptal,
-  satisKesinlestir,
-} from '../servis/satis-servis.js';
-import { posDurumu, posIadesi, posIleTahsilat, posIleTahsilatIptal, posOdemesi, posTesti } from '../servis/pos-servis.js';
+  posDurumu,
+  posGunlugu,
+  posIleIade,
+  posIleSatis,
+  posIleSatisIptal,
+  posIleTahsilat,
+  posIleTahsilatIptal,
+  posTesti,
+  posUyariDinleyicisi,
+} from '../servis/pos-servis.js';
 import {
   fireCikisi,
   alisFaturasiGuncelle,
@@ -145,6 +145,8 @@ function araligiCoz(girdi: { from?: GunAnahtari; to?: GunAnahtari } | undefined)
 export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import('electron').BrowserWindow | null) {
   const b = () => uygulama.baglam;
   const a = () => uygulama.aktoruIste();
+  // Arka planda olan POS olayları (geç gelen onay vb.) kasiyere bildirilir.
+  posUyariDinleyicisi((uyari) => uygulama.olayYayinla('pos:uyari', uyari));
 
   /**
    * Fişi arka planda yazdırır ve sonucu olayla bildirir.
@@ -370,46 +372,27 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     },
 
     // ----------------------------------------------------------------- satış
-    'satis.kesinlestir': (girdi: Record<string, unknown>) => {
+    /*
+     * POS açıkken kart tutarı cihazdan çekilir, karta iade cihazdan yapılır —
+     * hepsi pos-servis içinde (kuru deneme → cihaz → kayıt; hata olursa geri alma).
+     */
+    'satis.kesinlestir': async (girdi: Record<string, unknown>) => {
       // `fis_yazdir` satışın bir alanı değildir; yalnız yazdırma kararını ezer.
       const { fis_yazdir: fisYazdir, ...satisGirdisi } = girdi as { fis_yazdir?: boolean };
-      const sonuc = satisKesinlestir(b(), a(), satisGirdisi);
+      const sonuc = await posIleSatis(b(), a(), satisGirdisi);
       uygulama.olayYayinla('satis:kesinlesti', { satisId: sonuc.satisId, fisNo: sonuc.fisNo });
       // Yazdırma BEKLENMEZ — sonucu olayla gelir (§20: kasa yazıcıya bağımlı değildir).
       fisiArkaPlandaYazdir(sonuc.satisId, sonuc.fisNo, fisYazdir);
       return { ...sonuc, yazdirmaBaslatildi: fisYazdir ?? ayarlariOku(b()).otomatikFis };
     },
 
-    /*
-     * POS açıkken karta iade CİHAZA KAYITTAN ÖNCE gönderilir: cihaz onaylamazsa
-     * iptal/iade hiç yazılmaz (müşteriye para dönmeden kayıtta dönmüş görünmesin).
-     */
     'satis.iptal': async (girdi: { satisId: string; neden: string; paraYolu?: 'NAKIT' | 'KART' }) => {
-      let posSonucu: PosIslemSonucu | null = null;
-      if (posDurumu(b()).aktif) {
-        const { kartIade } = iptalIadeTutarlari(odemeleriGetir(b().vt, girdi.satisId), girdi.paraYolu);
-        if (kartIade > 0) {
-          posSonucu = await posIadesi(b(), a(), kartIade, kartPosReferansi(b().vt, girdi.satisId));
-          if (!posSonucu.onaylandi) throw hatalar.dogrulama(`POS iadesi yapılamadı: ${posSonucu.hata ?? 'reddedildi'}`);
-        }
-      }
-      satisIptal(b(), a(), girdi.satisId, girdi.neden, girdi.paraYolu, posSonucu);
+      await posIleSatisIptal(b(), a(), girdi.satisId, girdi.neden, girdi.paraYolu);
       return { basarili: true };
     },
 
     'satis.iade': async (girdi: Record<string, unknown>) => {
-      let posSonucu: PosIslemSonucu | null = null;
-      const iadeGirdisi = girdi as {
-        kaynak_satis_id?: string;
-        iade_yontemi?: string;
-        kalemler?: { satis_kalemi_id: string; miktar: number }[];
-      };
-      if (iadeGirdisi.iade_yontemi === 'KART' && posDurumu(b()).aktif && iadeGirdisi.kaynak_satis_id) {
-        const tutar = iadeTutariHesapla(b().vt, iadeGirdisi.kaynak_satis_id, iadeGirdisi.kalemler ?? []);
-        posSonucu = await posIadesi(b(), a(), tutar, kartPosReferansi(b().vt, iadeGirdisi.kaynak_satis_id));
-        if (!posSonucu.onaylandi) throw hatalar.dogrulama(`POS iadesi yapılamadı: ${posSonucu.hata ?? 'reddedildi'}`);
-      }
-      const sonuc = iadeYap(b(), a(), girdi, posSonucu);
+      const sonuc = await posIleIade(b(), a(), girdi);
       // Satışla aynı kural: iade kaydı kesin, fiş arka planda basılır.
       fisiArkaPlandaYazdir(sonuc.satisId, sonuc.fisNo);
       return { ...sonuc, yazdirmaBaslatildi: ayarlariOku(b()).otomatikFis };
@@ -646,11 +629,8 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       a();
       return posDurumu(b());
     },
-    /** Kart çekimi — satış ekranı onay alınca satışı POS bilgisiyle kesinleştirir. */
-    'pos.odeme': (girdi: { tutar: Kurus; referans?: string }) => posOdemesi(b(), a(), girdi.tutar, girdi.referans ?? ''),
-    /** Onaylanan çekimden sonra satış kaydedilemezse çekimi geri almak için. */
-    'pos.iade': (girdi: { tutar: Kurus; referans: string | null }) => posIadesi(b(), a(), girdi.tutar, girdi.referans),
     'pos.test': () => posTesti(b(), a()),
+    'pos.gunluk': (girdi?: { baslangic?: string; bitis?: string; limit?: number }) => posGunlugu(b(), a(), girdi ?? {}),
 
     'rapor.gunluk': (girdi?: { from?: GunAnahtari; to?: GunAnahtari }) => {
       const { from, to } = araligiCoz(girdi);

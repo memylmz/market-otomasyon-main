@@ -763,6 +763,21 @@ export function kartPosReferansi(vt: Vt, satisId: string): string | null {
   return odemeleriGetir(vt, satisId).find((o) => o.odeme_tipi === 'KART' && o.pos_referans)?.pos_referans ?? null;
 }
 
+/**
+ * Bu satıştan POS ile karta daha ne kadar iade edilebilir: kartla ödenen
+ * tutar eksi önceki karta iadeler. Banka POS'u orijinal çekimi aşan iadeyi
+ * (ya da kartla ödenmemiş satışa karta iadeyi) genellikle kabul etmez.
+ */
+export function kartIadeEdilebilir(vt: Vt, satisId: string): Kurus {
+  const satir = vt
+    .hazirla(
+      `SELECT COALESCE(SUM(o.tutar), 0) AS t FROM odemeler o JOIN satislar s ON s.id = o.satis_id
+       WHERE o.odeme_tipi = 'KART' AND s.iptal_mi = 0 AND (s.id = ? OR (s.kaynak_satis_id = ? AND s.iade_mi = 1))`,
+    )
+    .tek<{ t: number }>(satisId, satisId);
+  return Math.max(0, satir?.t ?? 0);
+}
+
 export function iadeYap(
   baglam: Baglam,
   aktor: Aktor,

@@ -26,6 +26,19 @@ export interface PosSurucusu {
   iade(tutar: Kurus, orijinalReferans: string | null): Promise<PosIslemSonucu>;
   /** Bağlantı testi — Ayarlar → Donanım → POS → "Bağlantıyı Test Et". */
   test(): Promise<{ basarili: boolean; mesaj: string }>;
+  /**
+   * İsteğe bağlı: az önce onaylanan çekimi GERİ ALIR (void / aynı gün iptal).
+   * Satış kaydedilemediğinde kullanılır; müşterinin ekstresinde iade olarak
+   * görünmez. Cihaz desteklemiyorsa yazılmaz, yerine `iade` kullanılır.
+   */
+  geriAl?(tutar: Kurus, referans: string | null): Promise<PosIslemSonucu>;
+  /**
+   * İsteğe bağlı: süre aşımında cihazda bekleyen işlemi durdurur (kart
+   * okutulmadan önce iptal). Hata fırlatmaz; sonuç beklenmez.
+   */
+  bekleyeniIptal?(): Promise<void>;
+  /** İsteğe bağlı: bağlantıyı kapatır (ayar değişince eski sürücü bırakılır). */
+  kapat?(): Promise<void>;
 }
 
 /**
@@ -34,14 +47,25 @@ export interface PosSurucusu {
  * "kart reddedildi" yolu da denenebilsin.
  */
 export const SIMULATOR_RED_SONEKI = 13;
+/** Kuruşu bununla biten tutarda simülatör hiç yanıt vermez — zaman aşımı yolunu denemek için. */
+export const SIMULATOR_YANITSIZ_SONEKI = 14;
 
 export class PosSimulatoru implements PosSurucusu {
   readonly ad = 'Test simülatörü';
+
+  /** Cihazda bekleyen (yanıtsız) işlemi bitirmek için — `bekleyeniIptal` çağırır. */
+  private bekleyen: (() => void) | null = null;
 
   constructor(private readonly gecikmeMs = 1500) {}
 
   private bekle(): Promise<void> {
     return new Promise((coz) => setTimeout(coz, this.gecikmeMs));
+  }
+
+  private yanitsiz(): Promise<PosIslemSonucu> {
+    return new Promise((coz) => {
+      this.bekleyen = () => coz({ onaylandi: false, hata: 'İşlem iptal edildi.' });
+    });
   }
 
   private onay(): PosIslemSonucu {
@@ -57,7 +81,19 @@ export class PosSimulatoru implements PosSurucusu {
     await this.bekle();
     if (tutar <= 0) return { onaylandi: false, hata: 'Geçersiz tutar.' };
     if (tutar % 100 === SIMULATOR_RED_SONEKI) return { onaylandi: false, hata: 'Kart reddedildi (simülatör: yetersiz bakiye).' };
+    if (tutar % 100 === SIMULATOR_YANITSIZ_SONEKI) return this.yanitsiz();
     return this.onay();
+  }
+
+  async geriAl(tutar: Kurus, _referans: string | null = null): Promise<PosIslemSonucu> {
+    await this.bekle();
+    if (tutar <= 0) return { onaylandi: false, hata: 'Geçersiz tutar.' };
+    return this.onay();
+  }
+
+  async bekleyeniIptal(): Promise<void> {
+    this.bekleyen?.();
+    this.bekleyen = null;
   }
 
   async iade(tutar: Kurus, _orijinalReferans: string | null = null): Promise<PosIslemSonucu> {
@@ -67,7 +103,10 @@ export class PosSimulatoru implements PosSurucusu {
   }
 
   async test(): Promise<{ basarili: boolean; mesaj: string }> {
-    return { basarili: true, mesaj: 'Simülatör hazır. Kuruşu 13 ile biten tutarlar reddedilir.' };
+    return {
+      basarili: true,
+      mesaj: `Simülatör hazır. Kuruşu ${SIMULATOR_RED_SONEKI} ile biten tutar reddedilir, ${SIMULATOR_YANITSIZ_SONEKI} ile biten yanıtsız kalır.`,
+    };
   }
 }
 

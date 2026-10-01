@@ -236,6 +236,29 @@ export interface PosIslemSonucu {
   kart_maske?: string | null;
   /** Reddedildiyse ya da hata olduysa okunur açıklama. */
   hata?: string | null;
+  /**
+   * Cihaz süre içinde yanıt vermedi. Çekim yapılıp yapılmadığı BİLİNMEZ:
+   * kasiyer cihaz ekranını / slibini kontrol etmelidir.
+   */
+  zaman_asimi?: boolean;
+}
+
+/**
+ * Kasaya bağlı terazi türleri (etiket basan barkodlu teraziler ayar istemez).
+ * SERI: RS-232 / USB-seri (COM) bağlantı; AG: Ethernet terazi (IP:port).
+ */
+export const TERAZI_TURU = ['KAPALI', 'SIMULATOR', 'SERI', 'AG'] as const;
+export type TeraziTuru = (typeof TERAZI_TURU)[number];
+
+/** Teraziden bir okuma. Ağırlık gram cinsindendir (= KG ürünün miktar birimi). */
+export interface TeraziOkumasi {
+  basarili: boolean;
+  gram?: number;
+  /** Kefe durdu mu — sallanırken okunan değer satışa alınmaz. */
+  kararli?: boolean;
+  hata?: string | null;
+  /** Cihazdan gelen ham metin (ayar/test ekranında gösterilir). */
+  ham?: string | null;
 }
 
 export const BANKA_HAREKET_TURU = ['ACILIS', 'KOMISYON', 'BANKADAN_KASAYA', 'KASADAN_BANKAYA', 'DUZELTME'] as const;
@@ -372,6 +395,19 @@ export const AYAR = {
   POS_ADRES: 'pos.adres',
   /** Cihazdan yanıt beklenecek en uzun süre (saniye). */
   POS_ZAMAN_ASIMI_SN: 'pos.zaman_asimi_sn',
+  /** Kasaya bağlı terazi (TERAZI_TURU) — cihaza özel ayar, merkeze gitmez. */
+  TERAZI_TURU: 'terazi.turu',
+  /** Seri bağlantıda "COM3", ağ terazisinde "192.168.1.60:4001". */
+  TERAZI_ADRES: 'terazi.adres',
+  /** Seri hız (baud), ör. 9600. */
+  TERAZI_BAUD: 'terazi.baud',
+  /** Seri çerçeve: "8N1", "7E1", "7O1"… (veri biti, parite, dur biti). */
+  TERAZI_CERCEVE: 'terazi.cerceve',
+  /**
+   * Ağırlık isteme komutu. Boşsa terazi sürekli gönderiyor kabul edilir.
+   * Kaçış dizileri: \r \n \x05 (ör. "W\r\n" ya da ENQ için "\x05").
+   */
+  TERAZI_KOMUT: 'terazi.komut',
   ISLETME_ADI: 'isletme.ad',
   ISLETME_ADRES: 'isletme.adres',
   ISLETME_TELEFON: 'isletme.telefon',

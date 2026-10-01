@@ -7,13 +7,15 @@
  *  - "Kalanı" düğmesi     → kalan tutarı o satıra ekler (parçalı ödemenin 1 tıkı).
  * En kötü senaryo (nakit+kart+veresiye): iki tutar yaz + bir "Kalanı" = 3 hamle.
  *
- * ⚠️ POS entegrasyonu yoktur (§13): kart tutarı yalnız **işaretlenir**,
- * müşteriden tahsilat ayrı POS cihazından elle alınır. Diyalog bunu açıkça belirtir.
+ * POS entegrasyonu kapalıyken kart tutarı yalnız **işaretlenir**, tahsilat
+ * POS cihazından elle alınır; açıkken Tamamla'ya basınca tutar cihaza gider.
+ * Diyalog hangisinin geçerli olduğunu açıkça belirtir.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { nakitOnerileri, odemeDogrula, paraFormat, type Kurus, type OdemeGirdisi } from '@market/shared';
 import { Diyalog, Kisayol, ParaAlani, Rozet } from '../../bilesen/temel';
+import { usePosAktif } from '../../kanca/usePosAktif';
 
 type OdemeTipi = 'NAKIT' | 'KART' | 'VERESIYE';
 
@@ -67,6 +69,7 @@ export function OdemeDiyalogu({
 }: OdemeDiyaloguOzellikleri) {
   const [tutarlar, setTutarlar] = useState<Record<OdemeTipi, Kurus>>({ NAKIT: 0, KART: 0, VERESIYE: 0 });
   const [alinanNakit, setAlinanNakit] = useState<Kurus>(0);
+  const posAktif = usePosAktif(acik);
 
   // Açılışta tüm tutar seçilen yönteme verilir → Enter tek başına satışı bitirir.
   useEffect(() => {
@@ -241,8 +244,17 @@ export function OdemeDiyalogu({
 
         {tutarlar.KART > 0 && (
           <div className="mt-3 rounded border border-bilgi-cizgi bg-bilgi-yumusak p-3 text-sm text-bilgi">
-            Kart tutarı <strong>{paraFormat(tutarlar.KART)}</strong> manuel işaretlenir: POS cihazına elle girip tahsilatı
-            tamamlayın; bu sistem banka POS'u ile konuşmaz.
+            {posAktif ? (
+              <>
+                Kart tutarı <strong>{paraFormat(tutarlar.KART)}</strong> Tamamla'ya basınca POS cihazına gönderilir; müşteri
+                kartını cihaza okutsun. Cihaz onaylamadan satış kaydedilmez.
+              </>
+            ) : (
+              <>
+                Kart tutarı <strong>{paraFormat(tutarlar.KART)}</strong> manuel işaretlenir: POS cihazına elle girip tahsilatı
+                tamamlayın (POS entegrasyonu kapalı).
+              </>
+            )}
           </div>
         )}
 

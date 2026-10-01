@@ -141,7 +141,7 @@ describe('cari tahsilat POS ile', () => {
         odeme_tipi: 'KART',
         avans_kabul: true,
       }),
-    ).rejects.toThrow(/POS/);
+    ).rejects.toThrow(/onaylanmadı/);
     expect(bakiyeOku(ortam.uygulama.vt, musteri)).toBe(0);
   });
 

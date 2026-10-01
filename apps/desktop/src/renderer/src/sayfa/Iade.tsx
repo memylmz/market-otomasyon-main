@@ -16,6 +16,7 @@ import {
 import { Alan, BosDurum, Diyalog } from '../bilesen/temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useBarkodOdakYakalayici } from '../kanca/useKisayol';
+import { usePosAktif } from '../kanca/usePosAktif';
 import { cagir } from '../kopru';
 import { MusteriSecDiyalogu } from './satis/MusteriSecDiyalogu';
 
@@ -56,6 +57,7 @@ export function IadeSayfasi() {
   const [detay, setDetay] = useState<SatisDetay | null>(null);
   const [secimler, setSecimler] = useState<Record<string, string>>({});
   const [yontem, setYontem] = useState<'NAKIT' | 'KART' | 'VERESIYE'>('NAKIT');
+  const posAktif = usePosAktif();
   const [neden, setNeden] = useState('');
   const [calisiyor, setCalisiyor] = useState(false);
   const [onayAcik, setOnayAcik] = useState(false);
@@ -356,7 +358,13 @@ export function IadeSayfasi() {
                 {(
                   [
                     { deger: 'NAKIT', baslik: '💵 Nakit ver', alt: 'Tutar kasadan çıkar.' },
-                    { deger: 'KART', baslik: '💳 Karta iade', alt: 'POS cihazından iade yapın; kasa etkilenmez.' },
+                    {
+                      deger: 'KART',
+                      baslik: '💳 Karta iade',
+                      alt: posAktif
+                        ? 'Onaylayınca POS cihazından otomatik iade edilir; kartla ödenen tutarı aşamaz.'
+                        : 'POS cihazından elle iade yapın; kasa etkilenmez.',
+                    },
                     { deger: 'VERESIYE', baslik: '📒 Borcundan düş', alt: 'Müşterinin cari hesabına alacak yazılır.' },
                   ] as const
                 ).map((s) => (
@@ -502,7 +510,9 @@ export function IadeSayfasi() {
               {yontem === 'NAKIT'
                 ? 'Nakit (kasadan çıkacak)'
                 : yontem === 'KART'
-                  ? 'Karta iade (manuel)'
+                  ? posAktif
+                    ? "Karta iade (POS'tan otomatik)"
+                    : 'Karta iade (manuel)'
                   : `${hesap?.ad ?? 'Müşterinin'} hesabına alacak — borcundan düşülecek`}
             </strong>
           </p>
