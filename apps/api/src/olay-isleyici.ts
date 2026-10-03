@@ -227,8 +227,8 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       await islem.calistir(
         `INSERT INTO satislar (id, isletme_id, cihaz_id, fis_no, tarih, kullanici_id, kasa_oturum_id,
                                ara_toplam, iskonto_toplam, kdv_toplam, genel_toplam, odeme_ozeti,
-                               musteri_id, brut_kar, iade_mi, kaynak_satis_id, created_at, kasiyer_adi)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               musteri_id, brut_kar, iade_mi, kaynak_satis_id, created_at, kasiyer_adi, notlar)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(isletme_id, id) DO NOTHING`,
         [
           satisId,
@@ -250,6 +250,8 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
           baglam.zaman,
           // Eski kasa sürümleri adı göndermez; boş dize de "yok" sayılır.
           metin(veri.kasiyer_adi) || null,
+          // İade nedeni iade fişinde basılır; panelde de görünsün.
+          (iadeMi ? metin(veri.neden) : '') || null,
         ],
       );
 
@@ -264,8 +266,9 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         else if (odemeTipi === 'KART') kart += tutar;
         else veresiye += tutar;
         await islem.calistir(
-          `INSERT INTO odemeler (id, isletme_id, satis_id, odeme_tipi, tutar, pos_onay_kodu, pos_referans, pos_kart)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO odemeler (id, isletme_id, satis_id, odeme_tipi, tutar, pos_onay_kodu, pos_referans, pos_kart,
+                                 alinan, para_ustu)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
           [
             `${satisId}-o${i}`,
@@ -276,6 +279,9 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
             odeme.pos_onay_kodu ?? null,
             odeme.pos_referans ?? null,
             odeme.pos_kart ?? null,
+            // Eski kasalar göndermez: alınan = tutar, para üstü yok sayılır.
+            odeme.alinan === undefined ? tutar : sayi(odeme.alinan),
+            odeme.para_ustu === undefined ? 0 : sayi(odeme.para_ustu),
           ],
         );
       }

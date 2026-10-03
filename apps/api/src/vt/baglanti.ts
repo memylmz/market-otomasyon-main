@@ -511,6 +511,10 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'odemeler', 'pos_onay_kodu TEXT');
   await sutunEkle(vt, 'odemeler', 'pos_referans TEXT');
   await sutunEkle(vt, 'odemeler', 'pos_kart TEXT');
+  // Panelde fişin yazdırılanın aynısı görünsün: nakitte alınan / para üstü, iadede neden.
+  await sutunEkle(vt, 'odemeler', 'alinan INTEGER');
+  await sutunEkle(vt, 'odemeler', 'para_ustu INTEGER');
+  await sutunEkle(vt, 'satislar', 'notlar TEXT');
 
   /*
    * ONARIM — olaydan türetilen cari satırlarına belge türü (§11.6).

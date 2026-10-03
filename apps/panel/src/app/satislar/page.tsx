@@ -14,7 +14,6 @@ import { useEffect, useState } from 'react';
 import {
   bugun,
   gunEkle,
-  IADE_YONTEMI_ETIKETI,
   miktarFormat,
   paraFormat,
   tarihFormat,
@@ -24,6 +23,7 @@ import {
   type Kurus,
 } from '@market/shared';
 import { CiroTrendi } from '@/bilesen/grafik';
+import { FisDurumNotlari, FisKagidi, IadeDokumu, type FisKagidiVerisi } from '@/bilesen/fis-kagidi';
 import { AralikSecici, BosDurum, HataKutusu, Kabuk, Kutu, Modal, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { api, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
@@ -364,9 +364,19 @@ interface FisDetayVerisi {
       })
     | null;
   kalemler: FisKalemi[];
-  odemeler: { id: string; odeme_tipi: string; tutar: Kurus }[];
+  odemeler: {
+    id: string;
+    odeme_tipi: string;
+    tutar: Kurus;
+    alinan?: Kurus;
+    para_ustu?: Kurus;
+    pos_kart?: string | null;
+    pos_onay_kodu?: string | null;
+  }[];
   /** Bu satıştan yapılmış iadeler. */
   iadeler?: { id: string; fis_no: string; tarih: string; genel_toplam: Kurus }[];
+  /** Fiş başlığı/altı için işletme bilgisi ve yasal uyarı. */
+  fis?: FisKagidiVerisi['fis'];
 }
 
 /** Geçmiş fişin tam dökümü — kasadaki fiş detay diyaloğunun panel karşılığı. */
@@ -374,24 +384,9 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
   const { veri, yukleniyor, hata, tazele } = useVeri<FisDetayVerisi>(`${uclar.satislar}/${satisId}`);
   const [iadeAcik, setIadeAcik] = useState(false);
 
-  // İade fişlerinde tutarlar negatiftir; okunurluk için mutlak değer gösterilir.
-  const mutlak = (d: Kurus) => paraFormat(Math.abs(d), { simge: false });
-  // Orijinal fiş değişmez; iade edilen miktar ve kalan satırın yanında, net tutar altta (kasayla aynı).
-  const iadeVar = Boolean(veri?.satis && !veri.satis.iade_mi && veri.kalemler.some((k) => Number(k.iade_edilen ?? 0) !== 0));
-  const iadeToplami = (veri?.iadeler ?? []).reduce((t, i) => t + Number(i.genel_toplam), 0);
-
-  const kdvDilimleri = new Map<number, { matrah: Kurus; kdv: Kurus }>();
-  for (const k of veri?.kalemler ?? []) {
-    const mevcut = kdvDilimleri.get(k.kdv_orani) ?? { matrah: 0, kdv: 0 };
-    mevcut.kdv += k.kdv_tutar;
-    mevcut.matrah += k.satir_toplam - k.kdv_tutar;
-    kdvDilimleri.set(k.kdv_orani, mevcut);
-  }
-
   return (
     <Modal
-      baslik={veri?.satis ? `Fiş ${veri.satis.fis_no}` : 'Fiş detayı'}
-      genis
+      baslik={veri?.satis ? `Fiş — ${veri.satis.fis_no}` : 'Fiş detayı'}
       onKapat={onKapat}
       altBilgi={
         <>
@@ -435,145 +430,17 @@ function FisDetayi({ satisId, onKapat }: { satisId: string; onKapat: () => void 
           aciklama="Bu fiş henüz buluta senkronlanmamış olabilir. Kasadan senkron yapıldıktan sonra tekrar deneyin."
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-            <span>
-              <span className="text-metin-3">Tarih:</span> {tarihSaatFormat(veri.satis.tarih)}
-            </span>
-            <span>
-              <span className="text-metin-3">Kasiyer:</span> {veri.satis.kullanici_adi}
-            </span>
-            <span>
-              <span className="text-metin-3">Müşteri:</span> {veri.satis.musteri_adi ?? 'Perakende'}
-            </span>
             <span>
               <span className="text-metin-3">Kasa:</span> {veri.satis.cihaz_id}
             </span>
-            {veri.satis.iptal_mi ? <Rozet tur="tehlike">İptal edildi</Rozet> : null}
-            {veri.satis.iade_mi ? <Rozet tur="uyari">İade fişi</Rozet> : null}
+            <span className="text-metin-4">Fiş yeniden yazdırma kasadan yapılır.</span>
           </div>
-
-          {/* İade ile orijinal satış birbirine bağlı görünür — kasadaki fiş detayıyla aynı. */}
-          {veri.satis.iade_mi ? (
-            <p className="rounded-lg border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
-              <strong>İade edilen fiş:</strong> {veri.satis.kaynak_fis_no ?? '—'}
-            </p>
-          ) : null}
-          {(veri.iadeler ?? []).length > 0 && (
-            <p className="rounded-lg border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
-              <strong>Bu satıştan iade yapıldı:</strong>{' '}
-              {veri.iadeler!.map((i) => `${i.fis_no} (${mutlak(i.genel_toplam)})`).join(', ')}
-            </p>
-          )}
-
-          {veri.satis.iptal_mi && veri.satis.iptal_neden && (
-            <p className="rounded-lg border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm">
-              <strong>İptal nedeni:</strong> {veri.satis.iptal_neden}
-            </p>
-          )}
-
-          <div className="tablo-sarmal">
-            <table className="tablo">
-              <thead>
-                <tr>
-                  <th className="text-left">Ürün</th>
-                  <th>{iadeVar ? 'Satılan' : 'Miktar'}</th>
-                  {iadeVar && (
-                    <>
-                      <th>İade</th>
-                      <th>Kalan</th>
-                    </>
-                  )}
-                  <th>Birim fiyat</th>
-                  <th>İskonto</th>
-                  <th>KDV</th>
-                  <th>Tutar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {veri.kalemler.map((k) => (
-                  <tr key={k.id}>
-                    <td className="text-left">
-                      <div className="font-medium">{k.urun_adi}</div>
-                      {k.barkod && <div className="font-mono text-xs text-metin-4">{k.barkod}</div>}
-                    </td>
-                    <td className="sayi">{miktarFormat(Math.abs(k.miktar))}</td>
-                    {iadeVar && (
-                      <>
-                        <td className="sayi text-uyari">{Number(k.iade_edilen) ? miktarFormat(-Number(k.iade_edilen)) : '—'}</td>
-                        <td className="sayi font-medium">{miktarFormat(k.miktar + Number(k.iade_edilen ?? 0))}</td>
-                      </>
-                    )}
-                    <td className="sayi">{mutlak(k.birim_fiyat)}</td>
-                    <td className="sayi text-uyari">{k.iskonto !== 0 ? '-' + mutlak(k.iskonto) : '—'}</td>
-                    <td className="sayi text-metin-3">%{k.kdv_orani}</td>
-                    <td className="sayi font-semibold">{mutlak(k.satir_toplam)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border border-cizgi p-3">
-              <h3 className="mb-2 text-sm font-semibold">KDV Kırılımı</h3>
-              {[...kdvDilimleri.entries()]
-                .sort((a, b) => a[0] - b[0])
-                .map(([oran, d]) => (
-                  <div key={oran} className="flex justify-between text-sm">
-                    <span className="text-metin-3">
-                      KDV %{oran} (matrah {mutlak(d.matrah)})
-                    </span>
-                    <span className="font-mono">{mutlak(d.kdv)}</span>
-                  </div>
-                ))}
-              <div className="mt-2 flex justify-between border-t border-cizgi pt-2 text-sm">
-                <span className="text-metin-3">Ara toplam</span>
-                <span className="font-mono">{mutlak(veri.satis.ara_toplam)}</span>
-              </div>
-              {veri.satis.iskonto_toplam !== 0 && (
-                <div className="flex justify-between text-sm text-uyari">
-                  <span>İskonto</span>
-                  <span className="font-mono">-{mutlak(veri.satis.iskonto_toplam)}</span>
-                </div>
-              )}
-              <div className="mt-1 flex items-baseline justify-between border-t border-cizgi pt-2">
-                <span className="font-semibold">GENEL TOPLAM</span>
-                <span className="font-mono text-xl font-bold text-vurgu">{mutlak(veri.satis.genel_toplam)}</span>
-              </div>
-              {iadeToplami !== 0 && (
-                <>
-                  <div className="mt-1 flex justify-between text-sm text-uyari">
-                    <span>İadeler ({(veri.iadeler ?? []).map((i) => i.fis_no).join(', ')})</span>
-                    <span className="font-mono">-{mutlak(iadeToplami)}</span>
-                  </div>
-                  <div className="mt-1 flex items-baseline justify-between border-t border-cizgi pt-2">
-                    <span className="font-semibold">NET TUTAR</span>
-                    <span className="font-mono text-lg font-bold">{mutlak(veri.satis.genel_toplam + iadeToplami)}</span>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="rounded-lg border border-cizgi p-3">
-              <h3 className="mb-2 text-sm font-semibold">Ödemeler</h3>
-              {veri.odemeler.length === 0 ? (
-                <p className="text-sm text-metin-4">Ödeme kaydı yok.</p>
-              ) : (
-                veri.odemeler.map((o) => (
-                  <div key={o.id} className="flex justify-between text-sm">
-                    <span>
-                      {veri.satis?.iade_mi ? (IADE_YONTEMI_ETIKETI[o.odeme_tipi as IadeYontemi] ?? o.odeme_tipi) : o.odeme_tipi}
-                    </span>
-                    <span className="font-mono">{mutlak(o.tutar)}</span>
-                  </div>
-                ))
-              )}
-              <p className="mt-3 border-t border-cizgi pt-2 text-xs text-metin-4">
-                Fiş yeniden yazdırma kasadan yapılır; panelde yazıcı bağlantısı yoktur.
-              </p>
-            </div>
-          </div>
+          <FisDurumNotlari veri={veri} />
+          {/* Fişin kendisi: kasanın yazdırdığı kağıdın aynısı. */}
+          <FisKagidi veri={veri} />
+          <IadeDokumu veri={veri} />
         </div>
       )}
     </Modal>

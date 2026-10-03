@@ -482,7 +482,14 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
             kdv_tutar: satir.kdvTutar,
             satir_toplam: satir.satirToplam,
           })),
-          odemeler: odemeler.map((o, i) => ({ tip: o.tip, tutar: o.tutar, ...(o.tip === 'KART' ? posBilgisi[i] : {}) })),
+          // Alınan / para üstü panelde fişin aynısını göstermek için gider.
+          odemeler: odemeler.map((o, i) => ({
+            tip: o.tip,
+            tutar: o.tutar,
+            alinan: o.tip === 'NAKIT' ? (o.alinan ?? o.tutar) : o.tutar,
+            para_ustu: o.tip === 'NAKIT' ? (o.alinan ?? o.tutar) - o.tutar : 0,
+            ...(o.tip === 'KART' ? posBilgisi[i] : {}),
+          })),
         },
         olusturma_zamani: zaman,
       },
@@ -1050,7 +1057,15 @@ export function iadeYap(
             kdv_tutar: -s.kdv,
             satir_toplam: -s.tutar,
           })),
-          odemeler: [{ tip: girdi.iade_yontemi, tutar: -toplamIade }],
+          odemeler: [
+            {
+              tip: girdi.iade_yontemi,
+              tutar: -toplamIade,
+              ...(girdi.iade_yontemi === 'KART' && pos
+                ? { pos_onay_kodu: pos.onay_kodu ?? null, pos_referans: pos.referans ?? null, pos_kart: pos.kart_maske ?? null }
+                : {}),
+            },
+          ],
         },
         olusturma_zamani: zaman,
       },

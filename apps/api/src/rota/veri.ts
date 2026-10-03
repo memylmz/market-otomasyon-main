@@ -9,7 +9,17 @@
  * detay sorgusu tek kayıt içindir, dashboard yolunda değildir).
  */
 
-import { UCLAR, bugun, gunBasi, gunEkle, gunSonu, simdi, zSayfaIstegi, zTarihAraligi } from '@market/shared';
+import {
+  UCLAR,
+  VARSAYILAN_YASAL_UYARI,
+  bugun,
+  gunBasi,
+  gunEkle,
+  gunSonu,
+  simdi,
+  zSayfaIstegi,
+  zTarihAraligi,
+} from '@market/shared';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { panelKorumasi } from './koruma.js';
@@ -80,6 +90,8 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
         // iade_edilen: bu satıştan yapılan iadelerde aynı üründen geri alınan miktar (eksi) — kasadaki kuralın aynısı.
         `SELECT k.id, k.urun_id, k.urun_adi, k.barkod, k.miktar, k.birim_fiyat, k.birim_maliyet, k.iskonto,
                 k.kdv_orani, k.kdv_tutar, k.satir_toplam,
+                COALESCE((SELECT u.birim_tipi FROM urunler u WHERE u.isletme_id = k.isletme_id AND u.id = k.urun_id), 'ADET')
+                  AS birim_tipi,
                 COALESCE((
                   SELECT SUM(ik.miktar) FROM satis_kalemleri ik
                   JOIN satislar isa ON isa.isletme_id = ik.isletme_id AND isa.id = ik.satis_id
@@ -89,10 +101,12 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
          FROM satis_kalemleri k WHERE k.isletme_id = ? AND k.satis_id = ?`,
         [isletmeId, istek.params.id],
       ),
-      uygulama.vt.tumu('SELECT id, odeme_tipi, tutar FROM odemeler WHERE isletme_id = ? AND satis_id = ?', [
-        isletmeId,
-        istek.params.id,
-      ]),
+      uygulama.vt.tumu(
+        `SELECT id, odeme_tipi, tutar, COALESCE(alinan, tutar) AS alinan, COALESCE(para_ustu, 0) AS para_ustu,
+                pos_onay_kodu, pos_kart
+         FROM odemeler WHERE isletme_id = ? AND satis_id = ? ORDER BY id`,
+        [isletmeId, istek.params.id],
+      ),
       // Bu satıştan yapılmış iadeler — kasadaki fiş detayıyla aynı liste.
       uygulama.vt.tumu(
         `SELECT id, fis_no, tarih, genel_toplam FROM satislar
@@ -101,9 +115,29 @@ export async function veriRotalari(uygulama: FastifyInstance): Promise<void> {
       ),
     ]);
 
+    // Fiş başlığı ve altı merkezî ayarlardan: panel fişi kasanın yazdırdığının aynısı çizer.
+    const ayarSatirlari = await uygulama.vt.tumu<{ anahtar: string; deger: string }>(
+      `SELECT anahtar, deger FROM ayarlar
+        WHERE isletme_id = ? AND silindi_mi = 0
+          AND anahtar IN ('isletme.ad', 'isletme.adres', 'isletme.telefon', 'isletme.vergi_no', 'fis.alt_metin', 'fis.yasal_uyari')`,
+      [isletmeId],
+    );
+    const ayar = new Map(ayarSatirlari.map((a) => [a.anahtar, a.deger]));
+    const fis = {
+      isletme: {
+        // Varsayılanlar kasanınkiyle aynı (yazdirma-servis → isletmeBilgisiniOku).
+        ad: ayar.get('isletme.ad') || 'Market',
+        adres: ayar.get('isletme.adres') || null,
+        telefon: ayar.get('isletme.telefon') || null,
+        vergiNo: ayar.get('isletme.vergi_no') || null,
+        altMetin: ayar.has('fis.alt_metin') ? ayar.get('fis.alt_metin') || null : 'Bizi tercih ettiğiniz için teşekkürler.',
+      },
+      yasalUyari: ayar.get('fis.yasal_uyari')?.trim() || VARSAYILAN_YASAL_UYARI,
+    };
+
     // Bulunamayan fiş 404 değil boş gövde döner; panel "senkron edilmemiş
     // olabilir" mesajını gösterir (kasada var, buluta henüz gelmemiş olabilir).
-    return { satis, kalemler, odemeler, iadeler, uretim_zamani: simdi() };
+    return { satis, kalemler, odemeler, iadeler, fis, uretim_zamani: simdi() };
   });
 
   // -------------------------------------------------------- STOK HAREKETLERİ

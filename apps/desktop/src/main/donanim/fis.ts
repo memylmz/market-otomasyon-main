@@ -13,6 +13,7 @@ import {
   paraFormat,
   tarihSaatFormat,
   type BirimTipi,
+  VARSAYILAN_YASAL_UYARI,
   type IadeYontemi,
   type Kurus,
 } from '@market/shared';
@@ -28,7 +29,7 @@ import { EscPosYazici } from './escpos.js';
  * `·` orada yoktur; yazıcıdan "BİLGİ FİŞİDİR ? MALİ..." çıkardı. Görüntü
  * fişinde böyle bir sınır yok ama varsayılan her iki yolda da doğru görünmeli.
  */
-export const YASAL_UYARI = 'BİLGİ FİŞİDİR - MALİ DEĞERİ YOKTUR';
+export const YASAL_UYARI = VARSAYILAN_YASAL_UYARI;
 
 export interface IsletmeBilgisi {
   ad: string;

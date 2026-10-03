@@ -21,3 +21,5 @@ export * from './iade.js';
 export * from './alis-ozet.js';
 export * from './api-sozlesme.js';
 export * from './barkod-cizim.js';
+export * from './fis-belge.js';
+export * from './fis-html.js';

@@ -161,6 +161,28 @@ describe('fiş listesi ve detayı (§11.3)', () => {
     expect(govde.odemeler[0]).toMatchObject({ odeme_tipi: 'NAKIT', tutar: 12_000 });
   });
 
+  it('fişin kasadaki gibi çizilmesi için gerekenler döner: işletme bilgisi, birim, alınan/para üstü, POS', async () => {
+    const olay = satisOlayi();
+    (olay.veri as { odemeler: unknown[] }).odemeler = [
+      { tip: 'NAKIT', tutar: 7_000, alinan: 10_000, para_ustu: 3_000 },
+      { tip: 'KART', tutar: 5_000, pos_onay_kodu: '123456', pos_kart: '**** 4242' },
+    ];
+    await push([olay]);
+
+    const govde = (await panelGet(`${UCLAR.satislar}/${olay.veri.id}`)).json() as {
+      kalemler: { birim_tipi: string }[];
+      odemeler: { odeme_tipi: string; alinan: number; para_ustu: number; pos_kart: string | null }[];
+      fis: { isletme: { ad: string }; yasalUyari: string };
+    };
+    expect(govde.kalemler[0]?.birim_tipi).toBe('ADET');
+    expect(govde.odemeler).toEqual([
+      expect.objectContaining({ odeme_tipi: 'NAKIT', alinan: 10_000, para_ustu: 3_000 }),
+      expect.objectContaining({ odeme_tipi: 'KART', pos_kart: '**** 4242' }),
+    ]);
+    expect(govde.fis.isletme.ad).toBeTruthy();
+    expect(govde.fis.yasalUyari).toContain('MALİ DEĞERİ YOKTUR');
+  });
+
   it('bulunamayan fiş 500 değil boş gövde döner (henüz senkronlanmamış olabilir)', async () => {
     const yanit = await panelGet(`${UCLAR.satislar}/${uuid()}`);
     expect(yanit.statusCode).toBe(200);
