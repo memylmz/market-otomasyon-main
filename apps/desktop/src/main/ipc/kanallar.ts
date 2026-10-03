@@ -120,6 +120,7 @@ import {
   etiketKalibrasyonu,
   etiketOnizlemesi,
   fisOnizlemesi,
+  satisFisiGorunumu,
   kalibrasyonOnizlemesi,
   etiketKuyruguYazdir,
   etiketOlcusunuOku,
@@ -404,6 +405,11 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     'satis.detay': (girdi: { satisId: string }) => satisDetayi(b().vt, girdi.satisId),
     'satis.fisYazdir': (girdi: { satisId: string; kopya?: boolean }) =>
       satisFisiYazdir(b(), girdi.satisId, { kopyaMi: girdi.kopya }),
+    /** Geçmiş fişin ekranda gösterimi — yazıcıya gidecek fişin aynısı (görsel ya da metin, KOPYA damgalı). */
+    'satis.fisGorunumu': (girdi: { satisId: string }) => {
+      a();
+      return satisFisiGorunumu(b(), girdi.satisId);
+    },
     'satis.yazdirilamayanlar': () => yazdirilamayanFisler(b()),
 
     'satis.askiyaAl': (girdi: { etiket: string; veri: unknown }) => {

@@ -480,21 +480,51 @@ export function kalibrasyonOnizlemesi(baglam: Baglam, ayarlar?: AyarUstverisi): 
  */
 export function fisOnizlemesi(
   baglam: Baglam,
-  secenekler: { satisId?: string; ayarlar?: AyarUstverisi } = {},
+  secenekler: { satisId?: string; ayarlar?: AyarUstverisi; kopyaMi?: boolean } = {},
 ): FisOnizlemesi & { satirGenisligi: number } {
-  const { satisId, ayarlar } = secenekler;
+  const { satisId, ayarlar, kopyaMi = false } = secenekler;
   const ayar = yaziciAyariniOku(baglam, ayarlar);
   const detay = satisId ? satisDetayi(baglam.vt, satisId) : null;
 
   const baytlar = detay
     ? satisFisi(detay, isletmeBilgisiniOku(baglam, ayarlar), {
         satirGenisligi: ayar.satirGenisligi,
-        kopyaMi: false,
+        kopyaMi,
         kasiyerAdi: detay.satis.kullanici_adi ?? null,
       })
     : testFisi(ayar.satirGenisligi);
 
   return { ...EscPosYazici.onizlemeYapisi(baytlar), satirGenisligi: ayar.satirGenisligi };
+}
+
+/**
+ * Kayıtlı satışın fişi ekranda — yazıcıdan çıkacak fişin AYNISI.
+ *
+ * Görsel fiş açıksa (varsayılan) yazıcıya giden HTML'in kendisi, kapalıysa
+ * metin fişinin geri çözülmüş hali döner. Ekranda ayrı bir fiş tasarımı
+ * yoktur; geçmiş fişe bakan müşterinin elindeki kağıdı görür. Tekrar
+ * yazdırmayla aynı olsun diye KOPYA damgalıdır.
+ */
+export function satisFisiGorunumu(
+  baglam: Baglam,
+  satisId: string,
+): { tur: 'html'; html: string; enNokta: number } | ({ tur: 'metin' } & FisOnizlemesi & { satirGenisligi: number }) {
+  const detay = satisDetayi(baglam.vt, satisId);
+  if (!detay) throw hatalar.bulunamadi('Satış');
+  if (!ustBool(baglam, undefined, AYAR.YAZICI_GORSEL_FIS, true)) {
+    return { tur: 'metin', ...fisOnizlemesi(baglam, { satisId, kopyaMi: true }) };
+  }
+  const ayar = yaziciAyariniOku(baglam);
+  const enNokta = kagitNoktaGenisligi(ayar.satirGenisligi);
+  const html = belgeHtml(
+    satisBelgesi(detay, isletmeBilgisiniOku(baglam), {
+      kopyaMi: true,
+      kasiyerAdi: detay.satis.kullanici_adi ?? null,
+      yasalUyari: yasalUyariyiOku(baglam),
+    }),
+    enNokta,
+  );
+  return { tur: 'html', html, enNokta };
 }
 
 /**

@@ -7,16 +7,15 @@ import {
   gunBasi,
   gunEkle,
   gunSonu,
-  IADE_YONTEMI_ETIKETI,
   miktarFormat,
   paraFormat,
   tarihSaatFormat,
   type GunAnahtari,
-  type IadeYontemi,
   type Kurus,
 } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
-import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
+import { FisGorunumu } from '../bilesen/FisGorunumu';
+import { FisDurumNotlari, FisiTekrarYazdir, IadeDokumu, SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
 import { usePosAktif } from '../kanca/usePosAktif';
@@ -951,44 +950,17 @@ function SatisDetayDiyalogu({
 
   if (!satisId) return null;
 
-  // KDV kırılımını kalemlerden orana göre grupla (fişteki gösterimin aynısı).
-  const kdvDilimleri = new Map<number, { matrah: Kurus; kdv: Kurus }>();
-  for (const k of detay?.kalemler ?? []) {
-    const mevcut = kdvDilimleri.get(k.kdv_orani) ?? { matrah: 0, kdv: 0 };
-    mevcut.kdv += k.kdv_tutar;
-    mevcut.matrah += k.satir_toplam - k.kdv_tutar;
-    kdvDilimleri.set(k.kdv_orani, mevcut);
-  }
-
-  const mutlak = (d: Kurus) => paraFormat(Math.abs(d), { simge: false });
-  /*
-   * Satır bazında iade: orijinal fiş DEĞİŞMEZ, yanında ne kadarının iade
-   * edildiği ve kalanı gösterilir; altta iadeler düşülmüş net tutar.
-   */
-  const iadeVar = Boolean(detay && !detay.satis.iade_mi && detay.kalemler.some((k) => (k.iade_edilen ?? 0) !== 0));
-  const iadeToplami = (detay?.iadeler ?? []).reduce((t, i) => t + i.genel_toplam, 0);
-
   return (
     <Diyalog
       acik
-      baslik={detay ? `Fiş ${detay.satis.fis_no}` : 'Fiş detayı'}
+      baslik={detay ? `Fiş — ${detay.satis.fis_no}` : 'Fiş detayı'}
       aciklama={detay ? tarihSaatFormat(detay.satis.tarih) : undefined}
-      genislik="genis"
       onKapat={onKapat}
       altBilgi={
         <>
-          <button
-            type="button"
-            className="tus-ikincil mr-auto"
-            disabled={!detay}
-            onClick={async () => {
-              const sonuc = await cagir<{ basarili: boolean; hata?: string }>('satis.fisYazdir', { satisId, kopya: true });
-              if (sonuc.basarili) bildir.basari('Fiş kopyası yazdırıldı');
-              else bildir.uyari('Yazdırılamadı', sonuc.hata);
-            }}
-          >
-            Fişi Tekrar Yazdır
-          </button>
+          <span className="mr-auto">
+            <FisiTekrarYazdir satisId={satisId} devreDisi={!detay} />
+          </span>
           {/* İade kendi ekranında yapılır (kalem ve miktar seçimi, yöntem); fiş numarası hazır gider. */}
           {iadeYetkisi && detay && !detay.satis.iptal_mi && !detay.satis.iade_mi && (
             <button
@@ -1014,157 +986,20 @@ function SatisDetayDiyalogu({
       {yukleniyor || !detay ? (
         <Yukleniyor />
       ) : (
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
             <span>
               <span className="text-metin-3">Kasiyer:</span> {detay.satis.kullanici_adi ?? '—'}
             </span>
             <span>
               <span className="text-metin-3">Müşteri:</span> {detay.satis.musteri_adi ?? 'Perakende'}
             </span>
-            <span>
-              <span className="text-metin-3">Ödeme:</span> {detay.satis.odeme_ozeti}
-            </span>
-            {detay.satis.iptal_mi && <Rozet tur="tehlike">İptal edildi</Rozet>}
-            {detay.satis.iade_mi && <Rozet tur="uyari">İade fişi</Rozet>}
             {!detay.satis.fis_yazdirildi && !detay.satis.iptal_mi && <Rozet tur="notr">Fiş basılmadı</Rozet>}
           </div>
-
-          {/* İade ile orijinal satış birbirine bağlı görünür: hangisinin iadesi, neden. */}
-          {detay.satis.iade_mi && (
-            <p className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
-              <strong>İade edilen fiş:</strong> {detay.satis.kaynak_fis_no ?? '—'}
-              {detay.satis.notlar && detay.satis.notlar !== 'Belirtilmedi' && (
-                <>
-                  {' · '}
-                  <strong>Neden:</strong> {detay.satis.notlar}
-                </>
-              )}
-            </p>
-          )}
-          {(detay.iadeler ?? []).length > 0 && (
-            <p className="rounded border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
-              <strong>Bu satıştan iade yapıldı:</strong>{' '}
-              {detay.iadeler!.map((i) => `${i.fis_no} (${paraFormat(Math.abs(i.genel_toplam), { simge: false })})`).join(', ')}
-            </p>
-          )}
-
-          {detay.satis.iptal_mi && detay.satis.iptal_neden && (
-            <p className="rounded border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm">
-              <strong>İptal nedeni:</strong> {detay.satis.iptal_neden}
-            </p>
-          )}
-
-          <table className="tablo">
-            <thead>
-              <tr>
-                <th>Ürün</th>
-                <th className="text-right">{iadeVar ? 'Satılan' : 'Miktar'}</th>
-                {iadeVar && (
-                  <>
-                    <th className="text-right">İade</th>
-                    <th className="text-right">Kalan</th>
-                  </>
-                )}
-                <th className="text-right">Birim fiyat</th>
-                <th className="text-right">İskonto</th>
-                <th className="text-right">KDV</th>
-                <th className="text-right">Tutar</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detay.kalemler.map((k) => (
-                <tr key={k.id}>
-                  <td>
-                    <div className="font-medium">{k.urun_adi}</div>
-                    {k.barkod && <div className="font-mono text-xs text-metin-4">{k.barkod}</div>}
-                  </td>
-                  <td className="sayi text-right">{miktarFormat(Math.abs(k.miktar), k.birim_tipi as never)}</td>
-                  {iadeVar && (
-                    <>
-                      <td className="sayi text-uyari text-right">
-                        {k.iade_edilen ? miktarFormat(-k.iade_edilen, k.birim_tipi as never) : '—'}
-                      </td>
-                      <td className="sayi font-medium text-right">
-                        {miktarFormat(k.miktar + (k.iade_edilen ?? 0), k.birim_tipi as never)}
-                      </td>
-                    </>
-                  )}
-                  <td className="sayi text-right">{mutlak(k.birim_fiyat)}</td>
-                  <td className="sayi text-uyari text-right">{k.iskonto !== 0 ? '-' + mutlak(k.iskonto) : '—'}</td>
-                  <td className="sayi text-metin-3 text-right">%{k.kdv_orani}</td>
-                  <td className="sayi font-semibold text-right">{mutlak(k.satir_toplam)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded border border-cizgi p-3">
-              <h3 className="mb-2 text-sm font-semibold">KDV Kırılımı</h3>
-              {[...kdvDilimleri.entries()]
-                .sort((a, b) => a[0] - b[0])
-                .map(([oran, d]) => (
-                  <div key={oran} className="flex justify-between text-sm">
-                    <span className="text-metin-3">
-                      KDV %{oran} (matrah {mutlak(d.matrah)})
-                    </span>
-                    <span className="sayi">{mutlak(d.kdv)}</span>
-                  </div>
-                ))}
-              <div className="mt-2 flex justify-between border-t border-cizgi pt-2 text-sm">
-                <span className="text-metin-3">Ara toplam</span>
-                <span className="sayi">{mutlak(detay.satis.ara_toplam)}</span>
-              </div>
-              {detay.satis.iskonto_toplam !== 0 && (
-                <div className="flex justify-between text-sm text-uyari">
-                  <span>İskonto</span>
-                  <span className="sayi">-{mutlak(detay.satis.iskonto_toplam)}</span>
-                </div>
-              )}
-              <div className="mt-1 flex items-baseline justify-between border-t border-cizgi pt-2">
-                <span className="font-semibold">GENEL TOPLAM</span>
-                <span className="sayi text-xl font-bold text-vurgu">{mutlak(detay.satis.genel_toplam)}</span>
-              </div>
-              {iadeToplami !== 0 && (
-                <>
-                  <div className="mt-1 flex justify-between text-sm text-uyari">
-                    <span>İadeler ({detay.iadeler!.map((i) => i.fis_no).join(', ')})</span>
-                    <span className="sayi">-{mutlak(iadeToplami)}</span>
-                  </div>
-                  <div className="mt-1 flex items-baseline justify-between border-t border-cizgi pt-2">
-                    <span className="font-semibold">NET TUTAR</span>
-                    <span className="sayi text-lg font-bold">{mutlak(detay.satis.genel_toplam + iadeToplami)}</span>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="rounded border border-cizgi p-3">
-              <h3 className="mb-2 text-sm font-semibold">Ödemeler</h3>
-              {detay.odemeler.map((o) => (
-                <div key={o.id} className="mb-1 text-sm">
-                  <div className="flex justify-between">
-                    <span>
-                      {detay.satis.iade_mi ? (IADE_YONTEMI_ETIKETI[o.odeme_tipi as IadeYontemi] ?? o.odeme_tipi) : o.odeme_tipi}
-                    </span>
-                    <span className="sayi">{mutlak(o.tutar)}</span>
-                  </div>
-                  {o.para_ustu > 0 && (
-                    <div className="flex justify-between text-xs text-metin-3">
-                      <span>Alınan {mutlak(o.alinan)} · Para üstü</span>
-                      <span className="sayi">{mutlak(o.para_ustu)}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {detay.satis.notlar && (
-                <p className="mt-3 border-t border-cizgi pt-2 text-xs text-metin-3">
-                  <strong>Not:</strong> {detay.satis.notlar}
-                </p>
-              )}
-            </div>
-          </div>
+          <FisDurumNotlari detay={detay} />
+          {/* Fişin kendisi: yazıcıdan çıkacak kağıdın aynısı. */}
+          <FisGorunumu satisId={satisId} />
+          <IadeDokumu detay={detay} />
         </div>
       )}
       {detay && (
