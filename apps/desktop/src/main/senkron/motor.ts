@@ -158,7 +158,8 @@ export function pullKaydiniUygula(
       return { uygulandi: true, cakisma: false };
     }
     case 'barkodlar':
-      barkodSunucudanUygula(vt, veri, kayit.versiyon);
+      // Mezar taşı (panelde değiştirilen kısa kod): barkod pasife alınır, artık okutulmaz.
+      barkodSunucudanUygula(vt, kayit.silindi_mi ? { ...veri, aktif_mi: false } : veri, kayit.versiyon);
       return { uygulandi: true, cakisma: false };
     case 'kategoriler': {
       // Mezar taşı: bulutta silinen kategori. Karar yerelde yeniden verilir —

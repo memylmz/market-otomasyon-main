@@ -280,21 +280,49 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
        */
       if (govde.kisa_kod !== undefined) {
         const zamanKisa = simdi();
-        await islem.calistir(
-          `DELETE FROM barkodlar
-           WHERE isletme_id = ? AND urun_id = ? AND LENGTH(barkod) <= 5 AND barkod GLOB '[0-9]*'`,
-          [isletmeId, id],
+        const yeniKod = govde.kisa_kod;
+        /*
+         * Eski kısa kod SİLİNMEZ, mezar taşıyla kapatılır (silindi_mi = 1 + yeni
+         * sürüm). Eskiden satır DELETE ediliyordu: silinen satır pull'da hiç
+         * görünmediği için kasa silindiğini öğrenemiyor, eski kod kasada
+         * okutulmaya devam ediyordu.
+         */
+        const eskiler = await islem.tumu<{ id: string }>(
+          `SELECT id FROM barkodlar
+           WHERE isletme_id = ? AND urun_id = ? AND silindi_mi = 0
+             AND LENGTH(barkod) <= 5 AND barkod GLOB '[0-9]*' AND barkod <> ?`,
+          [isletmeId, id, yeniKod],
         );
-        if (govde.kisa_kod !== '') {
-          const barkodVersiyon = await sonrakiVersiyon(islem, isletmeId);
+        for (const eski of eskiler) {
+          const silmeVersiyonu = await sonrakiVersiyon(islem, isletmeId);
           await islem.calistir(
-            `INSERT INTO barkodlar (id, isletme_id, urun_id, barkod, aktif_mi, created_at, updated_at, cihaz_id, versiyon, silindi_mi)
-             VALUES (?, ?, ?, ?, 1, ?, ?, 'panel', ?, 0)
-             ON CONFLICT(isletme_id, id) DO UPDATE SET
-               urun_id = excluded.urun_id, barkod = excluded.barkod, aktif_mi = 1,
-               updated_at = excluded.updated_at, versiyon = excluded.versiyon, silindi_mi = 0`,
-            [uuid(), isletmeId, id, govde.kisa_kod, zamanKisa, zamanKisa, barkodVersiyon],
+            `UPDATE barkodlar SET silindi_mi = 1, aktif_mi = 0, updated_at = ?, cihaz_id = 'panel', versiyon = ?
+             WHERE isletme_id = ? AND id = ?`,
+            [zamanKisa, silmeVersiyonu, isletmeId, String(eski.id)],
           );
+        }
+
+        if (yeniKod !== '') {
+          const mevcut = await islem.tek<{ urun_id: string; silindi_mi: number }>(
+            'SELECT urun_id, silindi_mi FROM barkodlar WHERE isletme_id = ? AND barkod = ?',
+            [isletmeId, yeniKod],
+          );
+          const canli = mevcut && Number(mevcut.silindi_mi) === 0;
+          if (canli && String(mevcut.urun_id) !== id) {
+            throw hatalar.dogrulama(`${yeniKod} kodu başka bir üründe kullanılıyor.`);
+          }
+          // Kod zaten bu üründe canlıysa dokunulmaz; değilse açılır ya da mezardan geri getirilir.
+          if (!canli) {
+            const barkodVersiyon = await sonrakiVersiyon(islem, isletmeId);
+            await islem.calistir(
+              `INSERT INTO barkodlar (id, isletme_id, urun_id, barkod, aktif_mi, created_at, updated_at, cihaz_id, versiyon, silindi_mi)
+               VALUES (?, ?, ?, ?, 1, ?, ?, 'panel', ?, 0)
+               ON CONFLICT(isletme_id, barkod) DO UPDATE SET
+                 urun_id = excluded.urun_id, aktif_mi = 1, updated_at = excluded.updated_at,
+                 cihaz_id = 'panel', versiyon = excluded.versiyon, silindi_mi = 0`,
+              [uuid(), isletmeId, id, yeniKod, zamanKisa, zamanKisa, barkodVersiyon],
+            );
+          }
         }
       }
 

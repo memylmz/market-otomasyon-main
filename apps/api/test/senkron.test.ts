@@ -305,6 +305,51 @@ describe('PULL — delta çekme (§7.3)', () => {
     expect(ilkBarkod).toBeGreaterThan(sonUrun);
   });
 
+  it('panelde kısa kod değişince eski kod kasaya mezar taşı olarak iner', async () => {
+    const giris = await uygulama.inject({
+      method: 'POST',
+      url: UCLAR.giris,
+      payload: { kullanici_adi: 'patron', sifre: 'Sifre1234' },
+    });
+    const token = giris.json().access_token as string;
+    const urunKaydet = (kisaKod: string, id: string) =>
+      uygulama.inject({
+        method: 'POST',
+        url: UCLAR.urunler,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { id, ad: 'Simit', satis_fiyati: 1500, kdv_orani: 1, kisa_kod: kisaKod },
+      });
+    const pull = async (since: number) =>
+      zPullYaniti.parse(
+        (
+          await uygulama.inject({
+            method: 'GET',
+            url: `${UCLAR.senkronPull}?since=${since}&limit=500&imlec=0:${since}`,
+            headers: { 'x-device-token': CIHAZ_TOKEN },
+          })
+        ).json(),
+      );
+
+    const id = uuid();
+    expect((await urunKaydet('111', id)).statusCode).toBe(200);
+    const ilk = await pull(0);
+    expect((await urunKaydet('222', id)).statusCode).toBe(200);
+
+    const barkodlar = (await pull(ilk.sunucu_versiyonu)).kayitlar.filter((k) => k.varlik === 'barkodlar');
+    expect(
+      barkodlar
+        .map((k) => ({ barkod: k.veri.barkod, silindi: k.silindi_mi }))
+        .sort((a, b) => String(a.barkod).localeCompare(String(b.barkod))),
+    ).toEqual([
+      { barkod: '111', silindi: true },
+      { barkod: '222', silindi: false },
+    ]);
+
+    // Eski koda geri dönülebilir (mezardan geri gelir) ve başka ürün aynı kodu alamaz.
+    expect((await urunKaydet('111', id)).statusCode).toBe(200);
+    expect((await urunKaydet('111', uuid())).statusCode).toBe(400);
+  });
+
   it('panelden eklenen ürün kasaya delta olarak iner', async () => {
     const giris = await uygulama.inject({
       method: 'POST',
