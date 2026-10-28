@@ -262,6 +262,49 @@ describe('PUSH — idempotency (§7.1, §25)', () => {
 });
 
 describe('PULL — delta çekme (§7.3)', () => {
+  it('imleçli sayfalama: sınır tablonun ortasında dolsa da hiçbir kayıt atlanmaz', async () => {
+    const giris = await uygulama.inject({
+      method: 'POST',
+      url: UCLAR.giris,
+      payload: { kullanici_adi: 'patron', sifre: 'Sifre1234' },
+    });
+    const token = giris.json().access_token as string;
+    // Her ürün ardından kısa kodunu (barkod) yazar: sürümler tablolar arasında iç içe geçer.
+    for (let i = 0; i < 6; i++) {
+      const yanit = await uygulama.inject({
+        method: 'POST',
+        url: UCLAR.urunler,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { ad: `Ürün ${i}`, satis_fiyati: 100, kdv_orani: 20, kisa_kod: String(100 + i) },
+      });
+      expect(yanit.statusCode).toBe(200);
+    }
+
+    const since = 0;
+    let imlec: string | null | undefined = `0:${since}`;
+    const gelen: { varlik: string }[] = [];
+    for (let sayfa = 0; sayfa < 20 && imlec; sayfa++) {
+      const yanit = zPullYaniti.parse(
+        (
+          await uygulama.inject({
+            method: 'GET',
+            url: `${UCLAR.senkronPull}?since=${since}&limit=4&imlec=${imlec}`,
+            headers: { 'x-device-token': CIHAZ_TOKEN },
+          })
+        ).json(),
+      );
+      gelen.push(...yanit.kayitlar);
+      imlec = yanit.has_more ? yanit.imlec : null;
+    }
+
+    expect(gelen.filter((k) => k.varlik === 'urunler')).toHaveLength(6);
+    expect(gelen.filter((k) => k.varlik === 'barkodlar')).toHaveLength(6);
+    // Bağımlılık sırası korunur: hiçbir barkod ürünlerden önce inmez.
+    const ilkBarkod = gelen.findIndex((k) => k.varlik === 'barkodlar');
+    const sonUrun = gelen.map((k) => k.varlik).lastIndexOf('urunler');
+    expect(ilkBarkod).toBeGreaterThan(sonUrun);
+  });
+
   it('panelden eklenen ürün kasaya delta olarak iner', async () => {
     const giris = await uygulama.inject({
       method: 'POST',

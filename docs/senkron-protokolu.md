@@ -78,14 +78,22 @@ güncelleyin" mesajı gösterilir; kasa yerelde çalışmaya devam eder.
 Sunucudaki her yönetimsel kayıt monoton artan bir `versiyon` taşır.
 
 ```
-GET /v1/sync/pull?since=84213&limit=500
-→ { kayitlar: [{ varlik, versiyon, silindi_mi, veri }], sunucu_versiyonu, has_more }
+GET /v1/sync/pull?since=84213&limit=500&imlec=0:84213
+→ { kayitlar: [{ varlik, versiyon, silindi_mi, veri }], sunucu_versiyonu, has_more, imlec }
 ```
 
 Kasa yalnız `versiyon > since` olanları alır — tüm tablo hiç taranmaz. Bu, blueprint
 §6.5'teki "sadece delta çek" kuralıdır ve bulut okuma maliyetini düşük tutar.
 
-`has_more: true` ise kasa yeni `since` ile devam eder.
+**Sayfalama imleçledir.** `has_more: true` ise kasa `since`'i DEĞİŞTİRMEDEN yanıttaki
+`imlec`'i (`<varlık sırası>:<o varlıktaki son sürüm>`) geri gönderir. Sayfalama
+bitince yerel imleç **ilk sayfanın** `sunucu_versiyonu`na taşınır; sayfalama sürerken
+değişen kayıtlar daha büyük sürüm alır ve bir sonraki senkronda gelir.
+
+Neden: sürüm sayacı tüm tablolarda ortaktır (ürün 1, barkodu 2, sonraki ürün 3…).
+Eskiden kasa bir sonraki sayfayı gelen kayıtların en yüksek sürümünden istiyordu;
+sınır ürünlerin ortasında dolunca daha küçük sürümlü barkodlar hiç inmiyordu.
+İmleç göndermeyen eski kasalar için sunucu eski davranışı sürdürür.
 
 **Pull edilen varlıklar:** ürünler, barkodlar, kategoriler, kampanyalar,
 kullanıcılar, cariler. Satış/stok/kasa hareketleri **hiçbir zaman** buluttan

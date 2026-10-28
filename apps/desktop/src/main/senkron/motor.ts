@@ -420,8 +420,32 @@ export async function senkronCalistir(baglam: Baglam, secenekler: SenkronSecenek
     // ---------------- PULL ----------------
     if (!secenekler.sadecePush) {
       let versiyon = durumOku(vt).last_pull_version;
-      for (let sayfa = 0; sayfa < 200; sayfa++) {
-        const yanit = await istemci.pull(versiyon, SINIRLAR.PULL_LIMIT);
+      /*
+       * İMLEÇLİ SAYFALAMA. `since` sayfalama boyunca SABİT kalır, sunucu
+       * "hangi tablodayız" bilgisini imleçle taşır. Eskiden bir sonraki sayfa
+       * gelen kayıtların en yüksek sürümünden isteniyordu: sürüm sayacı tüm
+       * tablolarda ortak olduğu için sınır ürünlerin ortasında dolunca daha
+       * küçük sürümlü barkodlar bir daha hiç inmiyordu.
+       *
+       * Bitince imleç ilk sayfanın `sunucu_versiyonu`na taşınır: sayfalama
+       * sürerken değişen kayıtların yeni sürümü bundan büyüktür, bir sonraki
+       * senkronda gelir. Arada kesilirse imleç ilerlemez; sayfalar baştan
+       * tekrar iner (uygulama idempotenttir).
+       *
+       * İmleç göndermeyen (eski) sunucuda eski yola düşülür.
+       */
+      const sabitSince = versiyon;
+      let imlec: string | undefined = `0:${sabitSince}`;
+      let imlecDestekli: boolean | null = null;
+      let anlik = 0;
+      for (let sayfa = 0; sayfa < 2000; sayfa++) {
+        const yanit = await istemci.pull(imlecDestekli === false ? versiyon : sabitSince, SINIRLAR.PULL_LIMIT, imlec);
+        if (imlecDestekli === null) {
+          imlecDestekli = yanit.imlec !== undefined;
+          anlik = yanit.sunucu_versiyonu;
+          if (!imlecDestekli) imlec = undefined;
+        }
+        const bitisVersiyonu = imlecDestekli ? anlik : yanit.sunucu_versiyonu;
 
         /*
          * Fiş serisi merkezden gelir (§10.2). Aktivasyonda da gelir ama
@@ -435,8 +459,9 @@ export async function senkronCalistir(baglam: Baglam, secenekler: SenkronSecenek
           baglam.kayit.bilgi('Fiş serisi merkezden alındı', { seri: yanit.seri });
         }
 
-        if (yanit.kayitlar.length === 0) {
-          versiyon = Math.max(versiyon, yanit.sunucu_versiyonu);
+        if (yanit.kayitlar.length === 0 && !yanit.has_more) {
+          versiyon = Math.max(versiyon, bitisVersiyonu);
+          durumYaz(vt, { last_pull_version: versiyon });
           break;
         }
 
@@ -446,15 +471,20 @@ export async function senkronCalistir(baglam: Baglam, secenekler: SenkronSecenek
             if (uygulama.uygulandi) sonuc.cekilen++;
             if (uygulama.cakisma) sonuc.cakisma++;
             if (uygulama.birlesme) (sonuc.birlesenKullanicilar ??= []).push(uygulama.birlesme);
-            versiyon = Math.max(versiyon, kayitSatiri.versiyon);
+            // İmleçli yolda sürüm sayfa ortasında ilerletilmez (yukarıdaki not).
+            if (!imlecDestekli) versiyon = Math.max(versiyon, kayitSatiri.versiyon);
           }
           durumYaz(vt, { last_pull_version: versiyon, last_pull_at: simdi() });
         });
 
         if (!yanit.has_more) {
-          versiyon = Math.max(versiyon, yanit.sunucu_versiyonu);
+          versiyon = Math.max(versiyon, bitisVersiyonu);
           durumYaz(vt, { last_pull_version: versiyon });
           break;
+        }
+        if (imlecDestekli) {
+          if (!yanit.imlec) break;
+          imlec = yanit.imlec;
         }
       }
 

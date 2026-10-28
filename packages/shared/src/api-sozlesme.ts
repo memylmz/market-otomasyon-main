@@ -117,6 +117,20 @@ export const zPullIstegi = z.object({
   since: z.coerce.number().int().nonnegative().default(0),
   limit: z.coerce.number().int().positive().max(SINIRLAR.PULL_LIMIT).default(SINIRLAR.PULL_LIMIT),
   sema_surumu: z.coerce.number().int().optional(),
+  /**
+   * Sayfa imleci — bir önceki yanıtın `imlec` alanı, olduğu gibi geri gönderilir.
+   *
+   * İmleçsiz sayfalamada kasa bir sonraki sayfaya gelen kayıtların EN YÜKSEK
+   * sürümünden devam ediyordu. Sürüm sayacı tüm tablolarda ortak olduğu için
+   * (ürün 1, barkodu 2, sonraki ürün 3…) sınır bir tablonun ortasında dolunca
+   * sonraki tabloların daha küçük sürümlü kayıtları bir daha hiç inmiyordu.
+   * İmleç "hangi tabloda, o tablonun hangi sürümündeyiz" bilgisini taşır;
+   * sayfalama boyunca `since` sabit kalır.
+   */
+  imlec: z
+    .string()
+    .regex(/^\d+:\d+$/)
+    .optional(),
 });
 export type PullIstegi = z.infer<typeof zPullIstegi>;
 
@@ -134,6 +148,12 @@ export const zPullYaniti = z.object({
   kayitlar: z.array(zPullKaydi),
   sunucu_versiyonu: z.number().int().nonnegative(),
   has_more: z.boolean(),
+  /**
+   * Devam sayfasının imleci (`has_more` iken dolu). İmleçle sayfalayan kasa
+   * sayfalama bitene kadar `since`'i DEĞİŞTİRMEZ; bittiğinde ilk sayfanın
+   * `sunucu_versiyonu`na geçer. Eski sunucular göndermez.
+   */
+  imlec: z.string().nullable().optional(),
   /**
    * Bu kasaya merkezce ayrılmış fiş serisi (§10.2).
    *

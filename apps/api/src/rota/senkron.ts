@@ -146,18 +146,30 @@ export async function senkronRotalari(uygulama: FastifyInstance): Promise<void> 
       [cihaz.isletmeId, cihaz.cihazId],
     );
 
+    /*
+     * Sayfa imleci "<varlık sırası>:<o varlıktaki son sürüm>" biçimindedir.
+     * İmleçli istekte o varlık imleçteki sürümden, sonrakiler `since`'ten
+     * devam eder; böylece sürüm sayacı tablolar arasında iç içe geçse de
+     * hiçbir kayıt atlanmaz ve varlıklar bağımlılık sırasıyla iner.
+     */
+    const imlecli = sorgu.imlec !== undefined;
+    const [baslangicSira, imlecVersiyonu] = imlecli ? (sorgu.imlec as string).split(':').map(Number) : [0, sorgu.since];
+    let sonrakiImlec: string | null = null;
+
     // Delta çekme (§6.5 kural 2): tüm tablo değil, yalnız `versiyon > since`.
-    for (const varlik of PULL_VARLIKLARI) {
+    for (const [sira, varlik] of PULL_VARLIKLARI.entries()) {
+      if (imlecli && sira < (baslangicSira ?? 0)) continue;
       if (kayitlar.length >= sorgu.limit) break;
       const tanim = PULL_TABLOLARI[varlik];
       if (!tanim.tablo) continue;
 
+      const alt = imlecli && sira === baslangicSira ? (imlecVersiyonu ?? sorgu.since) : sorgu.since;
       const kalan = sorgu.limit - kayitlar.length;
       const satirlar = await uygulama.vt.tumu<Record<string, unknown>>(
         `SELECT ${tanim.sutunlar}, versiyon, silindi_mi FROM ${tanim.tablo}
          WHERE isletme_id = ? AND versiyon > ?
          ORDER BY versiyon LIMIT ?`,
-        [cihaz.isletmeId, sorgu.since, kalan],
+        [cihaz.isletmeId, alt, kalan],
       );
 
       for (const satir of satirlar) {
@@ -169,12 +181,21 @@ export async function senkronRotalari(uygulama: FastifyInstance): Promise<void> 
           veri: normalizeVeri(veri),
         });
       }
+      // Sınır bu varlığın içinde doldu: devamı aynı varlıktan, son sürümden sonra.
+      if (kayitlar.length >= sorgu.limit) {
+        const son = kayitlar[kayitlar.length - 1];
+        sonrakiImlec = `${sira}:${son?.versiyon ?? alt}`;
+      }
     }
 
     const sunucuVersiyonu = await mevcutVersiyon(uygulama.vt, cihaz.isletmeId);
     const enYuksek = kayitlar.reduce((m, k) => Math.max(m, k.versiyon), sorgu.since);
-    // Limit dolduysa aynı `since`'ten devam edilecek daha veri olabilir.
-    const hasMore = kayitlar.length >= sorgu.limit && enYuksek < sunucuVersiyonu;
+    /*
+     * İmleçsiz (eski kasa) istekte eski davranış korunur: kasa en yüksek
+     * sürümden devam eder. Bu yol tablolar arası kayıt atlayabilir; kasalar
+     * güncellendikçe imleçli yola geçer.
+     */
+    const hasMore = imlecli ? sonrakiImlec !== null : kayitlar.length >= sorgu.limit && enYuksek < sunucuVersiyonu;
 
     await uygulama.vt.calistir('UPDATE cihazlar SET son_pull = ?, updated_at = ? WHERE id = ?', [zaman, zaman, cihaz.id]);
 
@@ -194,7 +215,14 @@ export async function senkronRotalari(uygulama: FastifyInstance): Promise<void> 
       ]);
     }
 
-    return { kayitlar, sunucu_versiyonu: sunucuVersiyonu, has_more: hasMore, seri, sunucu_zamani: zaman };
+    return {
+      kayitlar,
+      sunucu_versiyonu: sunucuVersiyonu,
+      has_more: hasMore,
+      ...(imlecli ? { imlec: sonrakiImlec } : {}),
+      seri,
+      sunucu_zamani: zaman,
+    };
   });
 
   // --------------------------------------------------------------- DURUM

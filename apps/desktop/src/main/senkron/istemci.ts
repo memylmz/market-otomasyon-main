@@ -137,8 +137,10 @@ export class SenkronIstemcisi {
     });
   }
 
-  async pull(since: number, limit: number): Promise<PullYaniti> {
-    const sorgu = `?since=${encodeURIComponent(String(since))}&limit=${encodeURIComponent(String(limit))}&sema_surumu=${SEMA_SURUMU}`;
+  async pull(since: number, limit: number, imlec?: string): Promise<PullYaniti> {
+    const sorgu =
+      `?since=${encodeURIComponent(String(since))}&limit=${encodeURIComponent(String(limit))}&sema_surumu=${SEMA_SURUMU}` +
+      (imlec ? `&imlec=${encodeURIComponent(imlec)}` : '');
     return this.istek(UCLAR.senkronPull + sorgu, { sema: zPullYaniti });
   }
 
