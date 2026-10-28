@@ -12,9 +12,10 @@
  * çalıştığı için talimat yerelde bekletilir ve kasa açıldığında işlenir.
  */
 
-import { simdi } from '@market/shared';
+import { simdi, uuid } from '@market/shared';
 import type { Vt } from '../db/surucu.js';
 import { kalemleriGetir } from '../depo/satis.js';
+import { olayYaz } from '../depo/senkron.js';
 import { iadeYap } from './satis-servis.js';
 import { yetkisiVarMi, type Aktor, type Baglam } from './baglam.js';
 
@@ -52,6 +53,36 @@ export function iadeTalimatiniSakla(vt: Vt, veri: Record<string, unknown>, zaman
   );
 }
 
+/**
+ * Talimatın sonucunu buluta bildirir (alış talimatıyla aynı olay).
+ *
+ * Sonuç dönmediği için merkezde talimat sonsuza kadar "bekliyor" kalıyor,
+ * panel de aynı satışa ikinci bir iade talimatını kalıcı olarak reddediyordu.
+ */
+function sonucuBildir(vt: Vt, cihazId: string, talimatId: string, satisId: string | null, hata: string | null): void {
+  const zaman = simdi();
+  olayYaz(
+    vt,
+    {
+      id: uuid(),
+      olay_tipi: 'TALIMAT_SONUCLANDI',
+      entity: 'iade_talimatlari',
+      entity_id: talimatId,
+      veri: {
+        varlik: 'iade_talimatlari',
+        talimat_id: talimatId,
+        uygulandi_mi: hata === null,
+        sonuc_satis_id: satisId,
+        hata,
+        sonuc_zamani: zaman,
+      },
+      olusturma_zamani: zaman,
+    },
+    cihazId,
+    zaman,
+  );
+}
+
 export interface IslemSonucu {
   uygulanan: number;
   basarisiz: number;
@@ -72,10 +103,10 @@ export function bekleyenIadeleriIsle(baglam: Baglam, aktor: Aktor): IslemSonucu 
   const { vt, cihazId } = baglam;
   const bekleyenler = vt
     .hazirla(
-      `SELECT id, satis_id, kalemler, iade_yontemi, neden, hedef_cihaz_id, musteri_id
+      `SELECT id, satis_id, kalemler, iade_yontemi, neden, hedef_cihaz_id, musteri_id, hata
        FROM iade_talimatlari WHERE uygulandi_mi = 0 ORDER BY created_at`,
     )
-    .tumu<IadeTalimati>();
+    .tumu<IadeTalimati & { hata: string | null }>();
 
   let uygulanan = 0;
   let basarisiz = 0;
@@ -131,13 +162,20 @@ export function bekleyenIadeleriIsle(baglam: Baglam, aktor: Aktor): IslemSonucu 
         vt.hazirla(
           'UPDATE iade_talimatlari SET uygulandi_mi = 1, sonuc_satis_id = ?, hata = NULL, updated_at = ? WHERE id = ?',
         ).calistir(sonuc.satisId, simdi(), talimat.id);
+        // Sonuç olayı uygulamayla AYNI işlemde: biri yazılıp öteki kaybolamaz.
+        sonucuBildir(vt, cihazId, talimat.id, sonuc.satisId, null);
         return sonuc.satisId;
       });
       uygulanan++;
       baglam.kayit.bilgi('Panelden gelen iade uygulandı', { talimat_id: talimat.id, satis_id: satisId });
     } catch (hata) {
       const mesaj = hata instanceof Error ? hata.message : String(hata);
-      vt.hazirla('UPDATE iade_talimatlari SET hata = ?, updated_at = ? WHERE id = ?').calistir(mesaj, simdi(), talimat.id);
+      vt.islem(() => {
+        vt.hazirla('UPDATE iade_talimatlari SET hata = ?, updated_at = ? WHERE id = ?').calistir(mesaj, simdi(), talimat.id);
+        // Hata yalnız DEĞİŞTİYSE bildirilir: her senkron turunda aynı olayı üretmesin.
+        // Talimat beklemeye devam eder; kasa sonraki turda yeniden dener.
+        if (talimat.hata !== mesaj) sonucuBildir(vt, cihazId, talimat.id, null, mesaj);
+      });
       basarisiz++;
       baglam.kayit.uyari('Panelden gelen iade uygulanamadı', { talimat_id: talimat.id, mesaj });
     }

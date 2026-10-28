@@ -956,9 +956,10 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
         throw hatalar.dogrulama('Borçtan düşmek için müşteri seçin; satış perakende yapılmış.');
       }
 
-      // Aynı satışa bekleyen ikinci talimat, iadeyi iki kez uygulatırdı.
+      // Aynı satışa bekleyen ikinci talimat, iadeyi iki kez uygulatırdı. Kasada
+      // UYGULANMIŞ talimat beklemiyor sayılmaz; yoksa ikinci panel iadesi kalıcı kilitlenirdi.
       const bekleyen = await islem.tek<{ id: string }>(
-        'SELECT id FROM iade_talimatlari WHERE isletme_id = ? AND satis_id = ? AND silindi_mi = 0',
+        'SELECT id FROM iade_talimatlari WHERE isletme_id = ? AND satis_id = ? AND silindi_mi = 0 AND uygulandi_mi = 0',
         [isletmeId, govde.satis_id],
       );
       if (bekleyen) throw hatalar.dogrulama('Bu satış için zaten bekleyen bir iade talimatı var.');

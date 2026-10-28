@@ -937,6 +937,33 @@ export const GOCLER: readonly Goc[] = [
     `,
     asagi: `DROP TABLE IF EXISTS pos_islemleri;`,
   },
+  {
+    surum: 16,
+    ad: 'iade_kaynak_kalemi',
+    /*
+     * İade kaleminin hangi SATIŞ KALEMİNDEN geldiği. Eskiden "bu satırdan ne
+     * kadar iade edildi" ürün kimliğiyle bulunuyordu; aynı ürün fişte birden
+     * fazla satırda olunca (farklı adlı muhtelif kalemler, iskontolu ve
+     * iskontosuz iki satır) bir satırın iadesi ötekinden de düşülüyordu.
+     *
+     * Eski iadeler, kaynak satışta o üründen TEK satır varsa geriye dönük
+     * bağlanır; belirsiz olanlar boş kalır ve eski (ürün bazlı) kurala düşer.
+     */
+    yukari: `
+      ALTER TABLE satis_kalemleri ADD COLUMN kaynak_kalem_id TEXT;
+      UPDATE satis_kalemleri SET kaynak_kalem_id = (
+        SELECT k.id FROM satis_kalemleri k JOIN satislar isa ON isa.id = satis_kalemleri.satis_id
+        WHERE k.satis_id = isa.kaynak_satis_id AND k.urun_id = satis_kalemleri.urun_id
+      )
+      WHERE satis_id IN (SELECT id FROM satislar WHERE iade_mi = 1)
+        AND (
+          SELECT COUNT(*) FROM satis_kalemleri k JOIN satislar isa ON isa.id = satis_kalemleri.satis_id
+          WHERE k.satis_id = isa.kaynak_satis_id AND k.urun_id = satis_kalemleri.urun_id
+        ) = 1;
+      CREATE INDEX ix_satis_kalem_kaynak ON satis_kalemleri(kaynak_kalem_id);
+    `,
+    asagi: `DROP INDEX IF EXISTS ix_satis_kalem_kaynak;`,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

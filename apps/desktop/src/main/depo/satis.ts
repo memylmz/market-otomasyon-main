@@ -143,7 +143,10 @@ export function satisEkle(vt: Vt, satis: SatisYazma, cihazId: string, zaman = si
 
 export function kalemEkle(
   vt: Vt,
-  kalem: Omit<SatisKalemiKaydi, 'id' | 'iade_edilen'> & { id?: string },
+  kalem: Omit<SatisKalemiKaydi, 'id' | 'iade_edilen'> & {
+    id?: string;
+    /** İade kaleminde kaynak satış kalemi. */ kaynak_kalem_id?: string | null;
+  },
   cihazId: string,
   zaman = simdi(),
 ): string {
@@ -151,8 +154,8 @@ export function kalemEkle(
   vt.hazirla(
     `INSERT INTO satis_kalemleri (id, satis_id, urun_id, urun_adi, barkod, miktar, birim_tipi, birim_fiyat,
                                   birim_maliyet, iskonto, kdv_orani, kdv_tutar, satir_toplam, kampanya_id,
-                                  sira, created_at, updated_at, cihaz_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                  sira, created_at, updated_at, cihaz_id, kaynak_kalem_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).calistir(
     id,
     kalem.satis_id,
@@ -172,6 +175,7 @@ export function kalemEkle(
     zaman,
     zaman,
     cihazId,
+    kalem.kaynak_kalem_id ?? null,
   );
   return id;
 }
@@ -250,7 +254,9 @@ export function kalemleriGetir(vt: Vt, satisId: string): SatisKalemiKaydi[] {
               COALESCE((
                 SELECT SUM(ik.miktar) FROM satis_kalemleri ik
                 JOIN satislar isa ON isa.id = ik.satis_id
-                WHERE isa.kaynak_satis_id = k.satis_id AND isa.iptal_mi = 0 AND ik.urun_id = k.urun_id
+                WHERE isa.kaynak_satis_id = k.satis_id AND isa.iptal_mi = 0
+                  -- Kalem bazında; kaynağı bilinmeyen eski iadeler ürün bazlı eski kurala düşer.
+                  AND (ik.kaynak_kalem_id = k.id OR (ik.kaynak_kalem_id IS NULL AND ik.urun_id = k.urun_id))
               ), 0) AS iade_edilen
        FROM satis_kalemleri k WHERE k.satis_id = ? ORDER BY k.sira, k.rowid`,
     )

@@ -303,10 +303,33 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         const birimMaliyet = sayi(kalem.birim_maliyet);
         const kar = satirToplam - kdvTutar - Math.round((miktar * birimMaliyet) / 1000);
 
+        /*
+         * İade kaleminin kaynak satış kalemi. Kasa kendi kalem kimliğini
+         * gönderir; eski satışlarda merkezdeki kimlik "<satış>-k<sıra>" olduğu
+         * için kimlik bulunamazsa sırayla eşlenir.
+         */
+        let kaynakKalemId: string | null = null;
+        if (iadeMi && metin(kalem.kaynak_kalem_id) && veri.kaynak_satis_id) {
+          const kaynakSatis = metin(veri.kaynak_satis_id);
+          const adaylar = [metin(kalem.kaynak_kalem_id)];
+          if (kalem.kaynak_kalem_sira !== undefined) adaylar.push(`${kaynakSatis}-k${sayi(kalem.kaynak_kalem_sira)}`);
+          for (const aday of adaylar) {
+            const var_ = await islem.tek<{ id: string }>(
+              'SELECT id FROM satis_kalemleri WHERE isletme_id = ? AND satis_id = ? AND id = ?',
+              [isletmeId, kaynakSatis, aday],
+            );
+            if (var_) {
+              kaynakKalemId = String(var_.id);
+              break;
+            }
+          }
+        }
+
         await islem.calistir(
           `INSERT INTO satis_kalemleri (id, isletme_id, satis_id, urun_id, urun_adi, barkod, miktar,
-                                        birim_fiyat, birim_maliyet, iskonto, kdv_orani, kdv_tutar, satir_toplam)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        birim_fiyat, birim_maliyet, iskonto, kdv_orani, kdv_tutar, satir_toplam,
+                                        kaynak_kalem_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
           [
             // Kasadaki kalem kimliği (panelin kısmi iadesi bunu gönderir); eski kasalar göndermez.
@@ -323,6 +346,7 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
             sayi(kalem.kdv_orani, 20),
             kdvTutar,
             satirToplam,
+            kaynakKalemId,
           ],
         );
         await urunOzetEkle(islem, baglam, urunId, gun, { adet: miktar, ciro: satirToplam, kar });
@@ -1074,9 +1098,29 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
      */
     case 'TALIMAT_SONUCLANDI': {
       const talimatId = metin(veri.talimat_id);
-      // Bilinmeyen tabloya yazmak SQL enjeksiyonu demektir; beyaz liste dışına çıkılmaz.
-      if (!talimatId || metin(veri.varlik, 'alis_talimatlari') !== 'alis_talimatlari') return;
+      const varlik = metin(veri.varlik, 'alis_talimatlari');
       const uygulandi = veri.uygulandi_mi ? 1 : 0;
+      if (!talimatId) return;
+      // İade talimatı: sonuç panelin "bekleyen talimat" kilidini açar.
+      if (varlik === 'iade_talimatlari') {
+        await islem.calistir(
+          `UPDATE iade_talimatlari SET uygulandi_mi = ?, sonuc_satis_id = COALESCE(?, sonuc_satis_id),
+                  hata = ?, sonuc_zamani = ?, updated_at = ?
+            WHERE isletme_id = ? AND id = ?`,
+          [
+            uygulandi,
+            (veri.sonuc_satis_id as string | null) ?? null,
+            (veri.hata as string | null) ?? null,
+            metin(veri.sonuc_zamani, baglam.zaman),
+            baglam.zaman,
+            isletmeId,
+            talimatId,
+          ],
+        );
+        return;
+      }
+      // Bilinmeyen tabloya yazmak SQL enjeksiyonu demektir; beyaz liste dışına çıkılmaz.
+      if (varlik !== 'alis_talimatlari') return;
       await islem.calistir(
         `UPDATE alis_talimatlari SET uygulandi_mi = ?, sonuc_fatura_id = COALESCE(?, sonuc_fatura_id),
                 hata = ?, sonuc_zamani = ?, updated_at = ?

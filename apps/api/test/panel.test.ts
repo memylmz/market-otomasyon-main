@@ -1253,6 +1253,84 @@ describe('fiş detayında satır bazında iade (kasayla aynı kural)', () => {
     };
     expect(detay.kalemler[0]).toMatchObject({ miktar: 4000, iade_edilen: -2000 });
   });
+
+  it('aynı ürün iki satırdaysa iade yalnız kaynak satırdan düşülür (eski satışta sırayla eşlenir)', async () => {
+    // Kalem kimliği göndermeyen eski kasa satışı: merkez kimlikleri "<satış>-k<sıra>" üretir.
+    const satis = satisOlayi({ tutar: 24_000 });
+    const kalem = satis.veri.kalemler[0]!;
+    satis.veri.kalemler = [
+      { ...kalem, urun_adi: 'Pil', satir_toplam: 12_000 },
+      { ...kalem, urun_adi: 'Gazete', satir_toplam: 12_000 },
+    ];
+    const iadeId = uuid();
+    await push([
+      satis,
+      {
+        uuid: uuid(),
+        tip: 'IADE_YAPILDI' as const,
+        entity: 'satis',
+        entity_id: iadeId,
+        olusturma_zamani: simdi(),
+        veri: {
+          id: iadeId,
+          fis_no: 'IA-000002',
+          tarih: simdi(),
+          kaynak_satis_id: satis.veri.id,
+          genel_toplam: -12_000,
+          iade_yontemi: 'NAKIT',
+          kalemler: [
+            {
+              id: uuid(),
+              kaynak_kalem_id: uuid(), // kasadaki kimlik; merkezde karşılığı yok
+              kaynak_kalem_sira: 1,
+              urun_id: URUN_ID,
+              urun_adi: 'Gazete',
+              miktar: -2000,
+              satir_toplam: -12_000,
+            },
+          ],
+        },
+      },
+    ]);
+    const detay = (await panelGet(`${UCLAR.satislar}/${satis.veri.id}`)).json() as {
+      kalemler: { urun_adi: string; iade_edilen: number }[];
+    };
+    expect(detay.kalemler.find((k) => k.urun_adi === 'Pil')?.iade_edilen).toBe(0);
+    expect(detay.kalemler.find((k) => k.urun_adi === 'Gazete')?.iade_edilen).toBe(-2000);
+  });
+});
+
+describe('panelden kısmi iade — talimat sonucu', () => {
+  it('kasa uyguladığını bildirince aynı satışa ikinci panel iadesi verilebilir', async () => {
+    const satis = satisOlayi();
+    await push([satis]);
+    const detay = (await panelGet(`${UCLAR.satislar}/${satis.veri.id}`)).json() as { kalemler: { id: string }[] };
+    const cihaz = (await vt.tek<{ id: string }>('SELECT id FROM cihazlar WHERE isletme_id = ? LIMIT 1', [ISLETME_ID]))!.id;
+    const govde = {
+      satis_id: satis.veri.id,
+      kalemler: [{ satis_kalemi_id: detay.kalemler[0]!.id, miktar: 1000 }],
+      iade_yontemi: 'NAKIT',
+      neden: 'bir tanesi bozuk',
+      hedef_cihaz_id: cihaz,
+    };
+
+    const ilk = await panelPost(UCLAR.iadeTalimatlari, govde);
+    expect(ilk.statusCode).toBe(200);
+    // Kasa henüz uygulamadı: ikinci talimat çift iadeye yol açar, reddedilir.
+    expect((await panelPost(UCLAR.iadeTalimatlari, govde)).statusCode).toBe(400);
+
+    await push([
+      {
+        uuid: uuid(),
+        tip: 'TALIMAT_SONUCLANDI' as const,
+        entity: 'iade_talimatlari',
+        entity_id: ilk.json().id,
+        olusturma_zamani: simdi(),
+        veri: { varlik: 'iade_talimatlari', talimat_id: ilk.json().id, uygulandi_mi: true, sonuc_satis_id: uuid(), hata: null },
+      },
+    ]);
+    expect((await panelPost(UCLAR.iadeTalimatlari, govde)).statusCode).toBe(200);
+  });
 });
 
 describe('panelden kısmi iade — perakende satışta müşteri', () => {

@@ -903,8 +903,9 @@ export function iadeYap(
     );
 
     let brutKar = 0;
+    const iadeKalemIdleri: string[] = [];
     iadeSatirlari.forEach((satir, i) => {
-      kalemEkle(
+      iadeKalemIdleri[i] = kalemEkle(
         vt,
         {
           satis_id: satisId,
@@ -921,6 +922,7 @@ export function iadeYap(
           satir_toplam: -satir.tutar,
           kampanya_id: satir.kaynak.kampanya_id,
           sira: i,
+          kaynak_kalem_id: satir.kaynak.id,
         },
         cihazId,
         zaman,
@@ -1045,7 +1047,11 @@ export function iadeYap(
           neden: girdi.neden,
           kullanici_id: aktor.kullaniciId,
           kasiyer_adi: aktor.ad,
-          kalemler: iadeSatirlari.map((s) => ({
+          kalemler: iadeSatirlari.map((s, i) => ({
+            id: iadeKalemIdleri[i],
+            // Merkez "bu satırdan ne kadar iade edildi"yi kalem bazında kurar; eski satışlarda kimlik sırayla eşlenir.
+            kaynak_kalem_id: s.kaynak.id,
+            kaynak_kalem_sira: s.kaynak.sira,
             urun_id: s.kaynak.urun_id,
             urun_adi: s.kaynak.urun_adi,
             barkod: s.kaynak.barkod,

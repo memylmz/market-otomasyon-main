@@ -440,13 +440,16 @@ export function sqlIfadeleriniAyir(sql: string): string[] {
  * sütunları burada tek tek ve idempotent biçimde uyguluyoruz — kurulum her
  * açılışta çalıştığı için sürüm defteri tutmaya gerek kalmıyor.
  */
-async function sutunEkle(vt: MerkezVt, tablo: string, tanim: string): Promise<void> {
+/** Sütunu ekler; yeni eklendiyse true (tek seferlik onarımlar buna bağlanır). */
+async function sutunEkle(vt: MerkezVt, tablo: string, tanim: string): Promise<boolean> {
   try {
     await vt.calistir(`ALTER TABLE ${tablo} ADD COLUMN ${tanim}`);
+    return true;
   } catch (hata) {
     const mesaj = hata instanceof Error ? hata.message.toLowerCase() : '';
     // "duplicate column name" = sütun zaten var; başka hata gerçekten hatadır.
     if (!mesaj.includes('duplicate column')) throw hata;
+    return false;
   }
 }
 
@@ -480,6 +483,27 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'alis_talimatlari', 'sonuc_fatura_id TEXT');
   await sutunEkle(vt, 'alis_talimatlari', 'hata TEXT');
   await sutunEkle(vt, 'alis_talimatlari', 'sonuc_zamani TEXT');
+
+  /*
+   * İade talimatının kasadaki sonucu — alıştakiyle aynı döngü. Sonuç hiç
+   * dönmediği için panel "bekleyen talimat var" diyerek aynı satışa İKİNCİ
+   * panel iadesini kalıcı olarak engelliyordu.
+   *
+   * Tek seferlik onarım: sütun yeni açıldıysa, ardından bu satıştan bir iade
+   * fişi gelmiş talimatlar uygulanmış sayılır (eski kasalar sonuç göndermez).
+   */
+  const iadeSonucuYeni = await sutunEkle(vt, 'iade_talimatlari', 'uygulandi_mi INTEGER NOT NULL DEFAULT 0');
+  await sutunEkle(vt, 'iade_talimatlari', 'sonuc_satis_id TEXT');
+  await sutunEkle(vt, 'iade_talimatlari', 'hata TEXT');
+  await sutunEkle(vt, 'iade_talimatlari', 'sonuc_zamani TEXT');
+  if (iadeSonucuYeni) {
+    await vt.calistir(
+      `UPDATE iade_talimatlari SET uygulandi_mi = 1
+       WHERE EXISTS (SELECT 1 FROM satislar s
+                     WHERE s.isletme_id = iade_talimatlari.isletme_id AND s.kaynak_satis_id = iade_talimatlari.satis_id
+                       AND s.iade_mi = 1 AND s.tarih >= iade_talimatlari.created_at)`,
+    );
+  }
 
   await sutunEkle(vt, 'stok_hareketleri', 'skt TEXT');
   await sutunEkle(vt, 'stok_hareketleri', 'lot_no TEXT');
@@ -515,6 +539,8 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'odemeler', 'alinan INTEGER');
   await sutunEkle(vt, 'odemeler', 'para_ustu INTEGER');
   await sutunEkle(vt, 'satislar', 'notlar TEXT');
+  // İade kaleminin kaynak satış kalemi: "bu satırdan ne kadar iade edildi" kalem bazında (kasayla aynı).
+  await sutunEkle(vt, 'satis_kalemleri', 'kaynak_kalem_id TEXT');
 
   /*
    * ONARIM — olaydan türetilen cari satırlarına belge türü (§11.6).
