@@ -143,3 +143,14 @@ describe('imleçli pull', () => {
     expect(durumOku(ortam.uygulama.baglam.vt).last_pull_version).toBe(6);
   });
 });
+
+describe('göç 17 — bir kerelik tam pull', () => {
+  it('senkron imlecini sıfırlar; eski sayfalamanın atladığı kayıtlar yeniden iner', async () => {
+    const { GOCLER } = await import('../src/main/db/gocler.js');
+    const { durumYaz } = await import('../src/main/depo/senkron.js');
+    const vt = ortam.uygulama.baglam.vt;
+    durumYaz(vt, { last_pull_version: 9876 });
+    vt.ham(GOCLER.find((g) => g.surum === 17)!.yukari);
+    expect(durumOku(vt).last_pull_version).toBe(0);
+  });
+});

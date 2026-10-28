@@ -964,6 +964,23 @@ export const GOCLER: readonly Goc[] = [
     `,
     asagi: `DROP INDEX IF EXISTS ix_satis_kalem_kaynak;`,
   },
+  {
+    surum: 17,
+    ad: 'pull_imleci_sifirla',
+    /*
+     * Bir kerelik TAM PULL. Eski sayfalama, sınır bir tablonun ortasında
+     * dolunca sonraki tabloların daha küçük sürümlü kayıtlarını (çoğunlukla
+     * barkodları) atlıyordu ve imleç onların ötesine geçmişti; yeni imleçli
+     * sayfalama o kayıtları kendiliğinden geri getiremez. İmleç sıfırlanınca
+     * kasa bir sonraki senkronda her şeyi baştan çeker.
+     *
+     * Güvenli: ürün/cari LWW ile uygulanır (yerel daha yeniyse dokunulmaz),
+     * talimatlar ON CONFLICT DO NOTHING ile saklanır ve uygulanmış olanlar
+     * işaretli kalır, stok talimatı kendi hareket kimliğiyle tekrar edilmez.
+     */
+    yukari: `UPDATE sync_state SET last_pull_version = 0;`,
+    asagi: ``,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */
