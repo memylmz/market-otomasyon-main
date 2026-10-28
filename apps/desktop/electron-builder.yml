@@ -1,5 +1,11 @@
 # Masaüstü paketleme (§22.2, §22.5)
 appId: com.marketotomasyon.kasa
+# Electron sürümü AÇIKÇA yazılır. Çalışma alanında (npm workspaces) electron
+# kökteki node_modules'a kurulur; electron-builder onu apps/desktop altında
+# bulamayınca "Cannot compute electron version" hatasıyla duruyor ve Windows
+# kurulum paketi hiç üretilmiyordu. Electron yükseltilince burası da güncellenir
+# (test/electron-surumu.test.ts farkı yakalar).
+electronVersion: 33.4.11
 productName: Market Otomasyon
 copyright: © 2026 Market Otomasyon
 
