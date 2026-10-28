@@ -178,63 +178,6 @@ export function oluStok(
     .tumu<{ urun_id: string; ad: string; stok: number; alis_fiyati: number; bagli_sermaye: number }>(baslangic, bitis, limit);
 }
 
-/**
- * Rollup tablolarını ham verilerden yeniden inşa eder (mutabakat / onarım).
- * Kâr, satış anında dondurulan `birim_maliyet` üzerinden hesaplanır.
- */
-export function ozetleriYenidenHesapla(vt: Vt, zaman: ZamanDamgasi = simdi()): { gun: number; urun: number } {
-  return vt.islem(() => {
-    vt.ham('DELETE FROM gunluk_ozet');
-    vt.ham('DELETE FROM urun_satis_ozet');
-
-    // Yerel gün anahtarı: UTC damgasına Europe/Istanbul ofseti (+3 saat) eklenir.
-    // SQLite'ta zaman dilimi veritabanı yoktur; TR 2016'dan beri sabit UTC+3 kullanır.
-    const yerelGun = `date(s.tarih, '+3 hours')`;
-
-    const gun = vt
-      .hazirla(
-        `INSERT INTO gunluk_ozet (tarih, cihaz_id, ciro, iade_toplam, iptal_toplam, islem_sayisi,
-                                  nakit, kart, veresiye, tahsilat, gider, brut_kar, kdv_toplam, updated_at)
-         SELECT ${yerelGun} AS tarih,
-                COALESCE(s.cihaz_id, '') AS cihaz_id,
-                SUM(CASE WHEN s.iptal_mi = 0 AND s.iade_mi = 0 THEN s.genel_toplam ELSE 0 END),
-                SUM(CASE WHEN s.iptal_mi = 0 AND s.iade_mi = 1 THEN -s.genel_toplam ELSE 0 END),
-                SUM(CASE WHEN s.iptal_mi = 1 THEN s.genel_toplam ELSE 0 END),
-                SUM(CASE WHEN s.iptal_mi = 0 AND s.iade_mi = 0 THEN 1 ELSE 0 END),
-                COALESCE((SELECT SUM(o.tutar) FROM odemeler o WHERE o.satis_id = s.id AND o.odeme_tipi = 'NAKIT' AND s.iptal_mi = 0), 0),
-                COALESCE((SELECT SUM(o.tutar) FROM odemeler o WHERE o.satis_id = s.id AND o.odeme_tipi = 'KART' AND s.iptal_mi = 0), 0),
-                COALESCE((SELECT SUM(o.tutar) FROM odemeler o WHERE o.satis_id = s.id AND o.odeme_tipi = 'VERESIYE' AND s.iptal_mi = 0), 0),
-                0, 0,
-                COALESCE((SELECT SUM(k.satir_toplam - k.kdv_tutar - CAST(k.miktar * k.birim_maliyet / 1000.0 AS INTEGER))
-                          FROM satis_kalemleri k WHERE k.satis_id = s.id AND s.iptal_mi = 0), 0),
-                SUM(CASE WHEN s.iptal_mi = 0 THEN s.kdv_toplam ELSE 0 END),
-                ?
-         FROM satislar s
-         GROUP BY tarih, cihaz_id`,
-      )
-      .calistir(zaman).changes;
-
-    const urun = vt
-      .hazirla(
-        `INSERT INTO urun_satis_ozet (urun_id, donem, cihaz_id, adet, ciro, kar, updated_at)
-         SELECT k.urun_id,
-                ${yerelGun} AS donem,
-                COALESCE(s.cihaz_id, '') AS cihaz_id,
-                SUM(k.miktar),
-                SUM(k.satir_toplam),
-                SUM(k.satir_toplam - k.kdv_tutar - CAST(k.miktar * k.birim_maliyet / 1000.0 AS INTEGER)),
-                ?
-         FROM satis_kalemleri k
-         JOIN satislar s ON s.id = k.satis_id
-         WHERE s.iptal_mi = 0
-         GROUP BY k.urun_id, donem, cihaz_id`,
-      )
-      .calistir(zaman).changes;
-
-    return { gun, urun };
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Denetim logu (§8.3, §15.1)
 // ---------------------------------------------------------------------------

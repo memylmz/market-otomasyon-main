@@ -90,8 +90,10 @@ Tatbikat sonucunu tarih ve süreyle birlikte kayıt altına alın.
 - Her yedekten sonra `PRAGMA integrity_check`.
 - Açılışta şema sürümü kontrolü; veritabanı koddan yeniyse uygulama güvenli durur.
 - `stokMutabakati()` — özet tablo ile hareket toplamı arasında sapma var mı?
-- `stogYenidenHesapla()` / `ozetleriYenidenHesapla()` — özetleri hareketlerden
-  sıfırdan yeniden üretir. Sapma bulunursa onarım yolu budur.
+- `stogYenidenHesapla()` — stok özetini hareketlerden sıfırdan yeniden üretir.
+  Sapma bulunursa onarım yolu budur. (Günlük/ürün satış özeti için bir yeniden
+  hesaplama aracı yoktur; eski `ozetleriYenidenHesapla()` artımlı kurallarla
+  tutarsız sonuç verdiği için kaldırıldı.)
 
 ---
 

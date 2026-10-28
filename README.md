@@ -132,8 +132,8 @@ satislar/kalemler ──(servis)───▶  gunluk_ozet, urun_satis_ozet
 her yerel yazma   ──(aynı tx)──▶  sync_outbox
 ```
 
-`stogYenidenHesapla()` ve `ozetleriYenidenHesapla()` her an gerçeği hareketlerden
-yeniden üretebilir — özet tabloları yalnız hızlandırıcıdır, kaynak doğruluk değildir.
+`stogYenidenHesapla()` stok özetini her an hareketlerden yeniden üretebilir — özet
+tabloları yalnız hızlandırıcıdır, kaynak doğruluk değildir.
 
 ---
 
