@@ -56,7 +56,7 @@ import { mutabakatYap, senkronCalistir, senkronDurumu } from '../senkron/motor.j
 import { bekleyenAlisTalimatlariniIsle } from '../servis/alis-talimat-servis.js';
 import { bekleyenCariTalimatlariniIsle } from '../servis/cari-talimat-servis.js';
 import { bekleyenIadeleriIsle } from '../servis/iade-talimat-servis.js';
-import { ayarlariOku } from '../servis/baglam.js';
+import { ayarlariOku, yetkiIste } from '../servis/baglam.js';
 import { acilisBakiyesi, bakiyeDuzelt, cariKaydet, kvkkAnonimlestir, kvkkDisaAktar } from '../servis/cari-servis.js';
 import { gunSonu, kasaAc, kasaDurumu, kasaHareketi, vardiyaRaporu } from '../servis/kasa-servis.js';
 import {
@@ -267,13 +267,22 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     },
 
     // ------------------------------------------------------------------ ürün
-    'urun.barkodOku': (girdi: { barkod: string }) => barkodOku(b(), girdi.barkod),
-    'urun.ara': (girdi: { terim: string; limit?: number }) => urunArama(b(), girdi.terim, girdi.limit),
-    'urun.listele': (girdi: { filtre?: Parameters<typeof urunListesi>[1]; limit?: number; ofset?: number }) =>
-      urunListesi(b(), girdi?.filtre ?? {}, { limit: girdi?.limit, ofset: girdi?.ofset }),
-    'urun.detay': (girdi: { urunId: string }) => urunDetayi(b(), girdi.urunId),
+    /*
+     * OTURUM ŞARTI (§15.4). Aşağıdaki okuma ve yazdırma kanallarının çoğu
+     * oturum açılmadan da çalışıyordu: alış fiyatlı ürün listesi dışa
+     * aktarılabiliyor, müşteri ekstresi yazdırılabiliyor, fişler okunup
+     * askıdaki satış silinebiliyordu. Giriş ekranı yalnız `oturum.*`,
+     * `sistem.durum` ve `kurulum.tamamla` kullanır; gerisi oturum ister.
+     */
+    'urun.barkodOku': (girdi: { barkod: string }) => (a(), barkodOku(b(), girdi.barkod)),
+    'urun.ara': (girdi: { terim: string; limit?: number }) => (a(), urunArama(b(), girdi.terim, girdi.limit)),
+    'urun.listele': (girdi: { filtre?: Parameters<typeof urunListesi>[1]; limit?: number; ofset?: number }) => (
+      a(),
+      urunListesi(b(), girdi?.filtre ?? {}, { limit: girdi?.limit, ofset: girdi?.ofset })
+    ),
+    'urun.detay': (girdi: { urunId: string }) => (a(), urunDetayi(b(), girdi.urunId)),
     // Muhtelif kalem satış yetkisiyle kullanılır; katalog düzenleme yetkisi istemez.
-    'urun.muhtelif': () => muhtelifUrunu(b()),
+    'urun.muhtelif': () => (a(), muhtelifUrunu(b())),
     'urun.kaydet': (girdi: Record<string, unknown>) => ({ id: urunuKaydet(b(), a(), girdi) }),
     'urun.pasiflestir': (girdi: { urunId: string; pasif: boolean }) => {
       urunuPasiflestir(b(), a(), girdi.urunId, girdi.pasif);
@@ -285,44 +294,59 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     },
     'urun.icBarkod': (girdi: { urunId: string }) => ({ barkod: icBarkodOlustur(b(), a(), girdi.urunId) }),
     // Barkodsuz ürünler için 2-4 haneli kısa kod (PLU) — kasiyer yazıp Enter'lar.
-    'urun.kisaKodOner': () => ({ kod: kisaKodOner(b()) }),
+    'urun.kisaKodOner': () => (a(), { kod: kisaKodOner(b()) }),
     'urun.topluFiyat': (girdi: { islem: Parameters<typeof topluFiyatIslemi>[2]; uygula: boolean }) =>
       topluFiyatIslemi(b(), a(), girdi.islem, girdi.uygula),
     'urun.iceAktar': (girdi: { icerik: string; uygula: boolean }) => urunleriIceAktar(b(), a(), girdi.icerik, girdi.uygula),
-    'urun.disaAktar': () => ({ icerik: urunleriDisaAktar(b()) }),
-    'urun.etiketYazdir': (girdi: { urunId: string; adet?: number }) => etiketYazdir(b(), girdi.urunId, girdi.adet ?? 1),
+    // Dışa aktarılan liste alış fiyatlarını içerir: içe aktarmayla aynı yetki.
+    'urun.disaAktar': () => {
+      yetkiIste(a(), 'urun.toplu_islem');
+      return { icerik: urunleriDisaAktar(b()) };
+    },
+    'urun.etiketYazdir': (girdi: { urunId: string; adet?: number }) => (a(), etiketYazdir(b(), girdi.urunId, girdi.adet ?? 1)),
 
     // ---------------------------------------------------------- etiket (§13.3)
     /** Etiket kuyruğunu tek gönderimde basar. */
-    'etiket.yazdir': (girdi: { satirlar: { urunId: string; adet: number }[] }) => etiketKuyruguYazdir(b(), girdi.satirlar),
+    'etiket.yazdir': (girdi: { satirlar: { urunId: string; adet: number }[] }) => (a(), etiketKuyruguYazdir(b(), girdi.satirlar)),
     /** Ölçü doğru mu — çerçeveli tek etiket basar. */
-    'etiket.kalibrasyon': () => etiketKalibrasyonu(b()),
+    'etiket.kalibrasyon': () => (a(), etiketKalibrasyonu(b())),
     /** Arayüzün yazıcı tanımlı mı diye bakabilmesi için. */
-    'etiket.ayar': () => ({ yazici: etiketYaziciAyariniOku(b()), olcu: etiketOlcusunuOku(b()) }),
+    'etiket.ayar': () => (a(), { yazici: etiketYaziciAyariniOku(b()), olcu: etiketOlcusunuOku(b()) }),
     /**
      * Etiket önizlemesi — yazıcıya gidecek YERLEŞİMİN aynısı.
      * Ekranda çizilen ile kağıda basılan tek hesaptan çıkar.
      */
-    'etiket.onizleme': (girdi?: { urunId?: string; ayarlar?: Record<string, string> }) => etiketOnizlemesi(b(), girdi ?? {}),
-    'etiket.kalibrasyonOnizleme': (girdi?: { ayarlar?: Record<string, string> }) => kalibrasyonOnizlemesi(b(), girdi?.ayarlar),
+    'etiket.onizleme': (girdi?: { urunId?: string; ayarlar?: Record<string, string> }) => (
+      a(),
+      etiketOnizlemesi(b(), girdi ?? {})
+    ),
+    'etiket.kalibrasyonOnizleme': (girdi?: { ayarlar?: Record<string, string> }) => (
+      a(),
+      kalibrasyonOnizlemesi(b(), girdi?.ayarlar)
+    ),
     /** Fiş önizlemesi — gerçek fiş baytları üretilip geri çözülür. */
-    'ayar.fisOnizleme': (girdi?: { satisId?: string; ayarlar?: Record<string, string> }) => fisOnizlemesi(b(), girdi ?? {}),
+    'ayar.fisOnizleme': (girdi?: { satisId?: string; ayarlar?: Record<string, string> }) => (
+      a(),
+      fisOnizlemesi(b(), girdi ?? {})
+    ),
     /**
      * Fiyatı değişen ürünler — kuyruğu doldurmak için.
      * Rafta yanlış fiyat kalmasın diye en çok kullanılacak yol budur.
      */
-    'etiket.fiyatiDegisenler': (girdi?: { gun?: number }) =>
-      fiyatiDegisenler(b().vt, gunBasi(gunEkle(bugun(), -(girdi?.gun ?? 7)))),
+    'etiket.fiyatiDegisenler': (girdi?: { gun?: number }) => (
+      a(),
+      fiyatiDegisenler(b().vt, gunBasi(gunEkle(bugun(), -(girdi?.gun ?? 7))))
+    ),
     /** Alış faturasındaki ürünler ve miktarları — kuyruğa hazır. */
     'etiket.faturadanDoldur': (girdi: { faturaId: string }) =>
-      alisKalemleriniGetir(b().vt, girdi.faturaId).map((k) => ({
+      (a(), alisKalemleriniGetir(b().vt, girdi.faturaId)).map((k) => ({
         urunId: k.urun_id,
         ad: k.urun_adi,
         // Miktar bindebir ölçekte tutulur; etiket ADET olarak basılır.
         adet: Math.max(1, Math.round(k.miktar / 1000)),
       })),
 
-    'kategori.listele': (girdi?: { tumu?: boolean }) => kategorileriListele(b().vt, !girdi?.tumu),
+    'kategori.listele': (girdi?: { tumu?: boolean }) => (a(), kategorileriListele(b().vt, !girdi?.tumu)),
     // Kullanılmayan kategori gerçekten silinir, ürünü olan pasife alınır (§10.5).
     'kategori.sil': (girdi: { kategoriId: string }) => kategoriSil(b(), a(), girdi.kategoriId),
     'kategori.kaydet': (girdi: {
@@ -400,24 +424,28 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       return { ...sonuc, yazdirmaBaslatildi: ayarlariOku(b()).otomatikFis };
     },
 
-    'satis.listele': (girdi: { filtre?: Parameters<typeof satislariListele>[1]; limit?: number; ofset?: number }) =>
-      satislariListele(b().vt, girdi?.filtre ?? {}, { limit: girdi?.limit, ofset: girdi?.ofset }),
-    'satis.detay': (girdi: { satisId: string }) => satisDetayi(b().vt, girdi.satisId),
-    'satis.fisYazdir': (girdi: { satisId: string; kopya?: boolean }) =>
-      satisFisiYazdir(b(), girdi.satisId, { kopyaMi: girdi.kopya }),
+    'satis.listele': (girdi: { filtre?: Parameters<typeof satislariListele>[1]; limit?: number; ofset?: number }) => (
+      a(),
+      satislariListele(b().vt, girdi?.filtre ?? {}, { limit: girdi?.limit, ofset: girdi?.ofset })
+    ),
+    'satis.detay': (girdi: { satisId: string }) => (a(), satisDetayi(b().vt, girdi.satisId)),
+    'satis.fisYazdir': (girdi: { satisId: string; kopya?: boolean }) => (
+      a(),
+      satisFisiYazdir(b(), girdi.satisId, { kopyaMi: girdi.kopya })
+    ),
     /** Geçmiş fişin ekranda gösterimi — yazıcıya gidecek fişin aynısı (görsel ya da metin, KOPYA damgalı). */
     'satis.fisGorunumu': (girdi: { satisId: string }) => {
       a();
       return satisFisiGorunumu(b(), girdi.satisId);
     },
-    'satis.yazdirilamayanlar': () => yazdirilamayanFisler(b()),
+    'satis.yazdirilamayanlar': () => (a(), yazdirilamayanFisler(b())),
 
     'satis.askiyaAl': (girdi: { etiket: string; veri: unknown }) => {
       const aktor = a();
       if (!aktor.yetkiler.has('satis.askiya_al')) throw hatalar.yetki();
       return { id: b().vt.islem(() => askiyaAl(b().vt, girdi.etiket, girdi.veri, aktor.kullaniciId, uygulama.cihazId)) };
     },
-    'satis.askidakiler': () => askidakileriListele(b().vt),
+    'satis.askidakiler': () => (a(), askidakileriListele(b().vt)),
 
     /*
      * Sepet kurtarma noktası (§10.3). Sepet sekmeleri yalnız bellekteydi;
@@ -434,6 +462,7 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       return { basarili: true };
     },
     'satis.askidanSil': (girdi: { id: string }) => {
+      if (!a().yetkiler.has('satis.askiya_al')) throw hatalar.yetki();
       b().vt.islem(() => askidakiSil(b().vt, girdi.id));
       return { basarili: true };
     },
@@ -453,7 +482,7 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       limit?: number;
     }) =>
       hareketleriListele(
-        b().vt,
+        (a(), b().vt),
         {
           urunId: girdi?.urunId,
           belgeId: girdi?.belgeId,
@@ -465,11 +494,14 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       ),
     'stok.malKabul': (girdi: Record<string, unknown>) => malKabulOnayla(b(), a(), girdi),
     'stok.tedarikciIade': (girdi: Record<string, unknown>) => tedarikciIade(b(), a(), girdi),
-    'stok.alisFaturalari': (girdi?: { tedarikciId?: string }) => alisFaturalariniListele(b().vt, girdi?.tedarikciId),
-    'stok.alisFaturasi': (girdi: { faturaId: string }) => ({
-      fatura: alisFaturasiBul(b().vt, girdi.faturaId),
-      kalemler: alisKalemleriniGetir(b().vt, girdi.faturaId),
-    }),
+    'stok.alisFaturalari': (girdi?: { tedarikciId?: string }) => (a(), alisFaturalariniListele(b().vt, girdi?.tedarikciId)),
+    'stok.alisFaturasi': (girdi: { faturaId: string }) => (
+      a(),
+      {
+        fatura: alisFaturasiBul(b().vt, girdi.faturaId),
+        kalemler: alisKalemleriniGetir(b().vt, girdi.faturaId),
+      }
+    ),
     'stok.alisFaturasiIptal': (girdi: { faturaId: string; neden: string }) =>
       alisFaturasiIptal(b(), a(), girdi.faturaId, girdi.neden),
     'stok.alisFaturasiGuncelle': (girdi: {
@@ -483,13 +515,13 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     },
     'stok.rapor': (girdi?: { sktGun?: number }) => stokRaporu(b(), a(), girdi?.sktGun ?? 30),
 
-    'sayim.acik': () => acikSayim(b().vt),
+    'sayim.acik': () => (a(), acikSayim(b().vt)),
     'sayim.baslat': (girdi: { ad: string }) => ({ id: sayimBaslat(b(), a(), girdi.ad) }),
     'sayim.satir': (girdi: { sayimId: string; urunId: string; sayilan: Miktar }) => {
       sayimSatiriGir(b(), a(), girdi.sayimId, girdi.urunId, girdi.sayilan);
       return { basarili: true };
     },
-    'sayim.farklar': (girdi: { sayimId: string }) => sayimFarklari(b().vt, girdi.sayimId),
+    'sayim.farklar': (girdi: { sayimId: string }) => (a(), sayimFarklari(b().vt, girdi.sayimId)),
     'sayim.tamamla': (girdi: { sayimId: string }) => sayimTamamla(b(), a(), girdi.sayimId),
     'sayim.iptal': (girdi: { sayimId: string }) => {
       sayimIptal(b(), a(), girdi.sayimId);
@@ -539,13 +571,16 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
         bitis: girdi.to ? gunSonuDamgasi(girdi.to) : undefined,
       });
     },
-    'cari.ekstreYazdir': (girdi: { cariId: string; from?: GunAnahtari; to?: GunAnahtari }) =>
-      cariEkstresiYazdir(
+    // Müşteri ekstresi kişisel veridir (KVKK): cari görüntüleme yetkisi ister.
+    'cari.ekstreYazdir': (girdi: { cariId: string; from?: GunAnahtari; to?: GunAnahtari }) => {
+      yetkiIste(a(), 'cari.goruntule');
+      return cariEkstresiYazdir(
         b(),
         girdi.cariId,
         girdi.from ? gunBasi(girdi.from) : undefined,
         girdi.to ? gunSonuDamgasi(girdi.to) : undefined,
-      ),
+      );
+    },
     'cari.rapor': () => cariRaporu(b(), a()),
     'cari.kvkkAnonimlestir': (girdi: { cariId: string; gerekce: string }) => {
       kvkkAnonimlestir(b(), a(), girdi.cariId, girdi.gerekce);
@@ -686,7 +721,7 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
      * hesaplar, arayüze güvenilmez (§15.4).
      */
     'kampanya.etkin': () =>
-      etkinKampanyalar(b().vt).map((k) => ({
+      etkinKampanyalar((a(), b().vt)).map((k) => ({
         id: k.id,
         tip: k.tip,
         kapsam: k.kapsam,
@@ -698,7 +733,7 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
         aktifMi: k.aktif_mi,
         oncelik: k.oncelik,
       })),
-    'kampanya.listele': () => kampanyalariListele(b().vt),
+    'kampanya.listele': () => (a(), kampanyalariListele(b().vt)),
     'kampanya.kaydet': (girdi: Parameters<typeof kampanyaKaydet>[1]) => {
       const aktor = a();
       if (!aktor.yetkiler.has('kampanya.yonet')) throw hatalar.yetki();
@@ -757,6 +792,7 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
      * bağlamından verebildiği için pencere getirici enjekte edilir.
      */
     'ayar.yazicilariListele': async () => {
+      a();
       const pencere = pencereGetir?.();
       if (!pencere) return { yazicilar: [] as { ad: string; aciklama: string; varsayilan: boolean }[] };
       const liste = await pencere.webContents.getPrintersAsync();
@@ -768,7 +804,7 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
         })),
       };
     },
-    'ayar.yaziciTest': () => yaziciTesti(b()),
+    'ayar.yaziciTest': () => (a(), yaziciTesti(b())),
 
     // ---------------------------------------------------------------- senkron
     'senkron.durum': () => senkronDurumu(b(), Boolean(ayarlariOku(b()).senkronUrl)),
@@ -804,12 +840,13 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       return { ...sonuc, iade: iadeSonucu, cariTalimat: cariSonucu };
     },
     'senkron.mutabakat': async () => {
+      a();
       const secenekler = uygulama.senkronSecenekleri();
       if (!secenekler) throw hatalar.dogrulama('Senkron sunucusu ayarlanmamış.');
       return mutabakatYap(b(), secenekler);
     },
-    'senkron.cakismalar': () => cakismalariListele(b().vt),
-    'senkron.hataliOlaylar': () => kaliciHataliOlaylar(b().vt),
+    'senkron.cakismalar': () => (a(), cakismalariListele(b().vt)),
+    'senkron.hataliOlaylar': () => (a(), kaliciHataliOlaylar(b().vt)),
     'senkron.aktivasyon': (girdi: { sunucuUrl: string; lisansAnahtari: string; cihazAdi: string }) =>
       cihaziAktiveEt(b(), a(), girdi),
     'senkron.cevrimdisiAktivasyon': (girdi: { kod: string }) => cevrimdisiAktivasyon(b(), a(), girdi.kod),
@@ -829,7 +866,7 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       a();
       return yedekleriListele(b());
     },
-    'yedek.dogrula': (girdi: { yol: string }) => yedegiDogrula(girdi.yol),
+    'yedek.dogrula': (girdi: { yol: string }) => (a(), yedegiDogrula(girdi.yol)),
     'yedek.geriYukle': async (girdi: { yol: string }) => {
       const sonuc = await yedektenGeriYukle(b(), a(), girdi.yol);
       uygulama.olayYayinla('yedek:geriYuklendi', sonuc);
