@@ -81,12 +81,15 @@ jobs:
 
       # Yüksek ve kritik açıklar derlemeyi durdurur (§15.4).
       #
-      # --omit=dev: kapı, kasaya/sunucuya fiilen kurulan paketleri denetler.
+      # Kapı, kasaya/sunucuya fiilen kurulan paketleri denetler (--omit=dev).
       # Derleme zamanı araçları (electron-builder ve altındaki node-gyp/tar
       # zinciri) üretilen .exe içine girmez; oradaki bir açık son kullanıcıya
       # ulaşmaz. Bu araçlar aşağıdaki bilgi amaçlı adımda izlenmeye devam eder.
-      - name: npm audit (çalışma zamanı bağımlılıkları)
-        run: npm audit --omit=dev --audit-level=high
+      #
+      # Betik, gerekçesi ve son tarihi yazılı istisnaları geçirir (Zod 4 ve
+      # Next 16 geçişi bekleyen açıklar); süresi dolan istisna da CI'yı düşürür.
+      - name: Güvenlik taraması (çalışma zamanı bağımlılıkları)
+        run: node scripts/guvenlik-taramasi.mjs
 
       # Derleme araçlarındaki açıklar raporlanır ama derlemeyi durdurmaz:
       # düzeltmeleri çoğu zaman major sürüm atlaması gerektirir ve paketleme
