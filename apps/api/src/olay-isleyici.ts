@@ -821,6 +821,32 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
     case 'KULLANICI_KAYDEDILDI': {
       const id = metin(veri.id);
       const kullaniciAdi = metin(veri.kullanici_adi);
+
+      /*
+       * YALNIZ YENİ HESAP. Bu olay kasadan yalnız kurulumdaki sahip hesabı için
+       * gelir; kullanıcı yönetimi paneldedir. Eskiden LWW ile her alan
+       * güncelleniyordu: tek bir kasa (ya da çalınmış cihaz token'ı) var olan
+       * herhangi bir kullanıcının rolünü, PIN'ini ve şifresini ezebiliyor,
+       * değişiklik pull ile bütün kasalara yayılıyordu.
+       */
+      const mevcutKullanici = await islem.tek<{ id: string }>('SELECT id FROM kullanicilar WHERE isletme_id = ? AND id = ?', [
+        baglam.isletmeId,
+        id,
+      ]);
+      if (mevcutKullanici) {
+        await islem.calistir(
+          `INSERT INTO sync_cakismalar (id, isletme_id, entity, entity_id, kaynak_a, kaynak_b, cozum, cozum_zamani, detay)
+           VALUES (?, ?, 'kullanicilar', ?, 'bulut', 'kasa', 'BULUT_KAZANDI', ?, ?)`,
+          [
+            crypto.randomUUID(),
+            baglam.isletmeId,
+            id,
+            baglam.zaman,
+            JSON.stringify({ neden: 'kasa mevcut kullaniciyi degistiremez', cihaz: baglam.cihazId }),
+          ],
+        );
+        return;
+      }
       const adSahibi = await islem.tek<{ id: string }>(
         'SELECT id FROM kullanicilar WHERE isletme_id = ? AND kullanici_adi = ? AND id <> ? AND silindi_mi = 0',
         [baglam.isletmeId, kullaniciAdi, id],

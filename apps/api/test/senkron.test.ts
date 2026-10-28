@@ -398,6 +398,31 @@ describe('PULL — delta çekme (§7.3)', () => {
   });
 });
 
+describe('kasadan gelen kullanıcı kaydı (§12.1)', () => {
+  const kullaniciOlayi = (id: string, rol: string, pinHash: string, zaman: string) => ({
+    uuid: uuid(),
+    tip: 'KULLANICI_KAYDEDILDI' as const,
+    entity: 'kullanici',
+    entity_id: id,
+    olusturma_zamani: zaman,
+    veri: { id, ad: 'Ali', kullanici_adi: 'ali', rol, pin_hash: pinHash, created_at: zaman, updated_at: zaman },
+  });
+
+  it("yeni hesabı açar ama var olan kullanıcının rolünü ve PIN'ini ezemez", async () => {
+    const id = uuid();
+    await push([kullaniciOlayi(id, 'KASIYER', 'pin-1', simdi())]);
+    const sonra = new Date(Date.now() + 60_000).toISOString();
+    const yanit = await push([kullaniciOlayi(id, 'ADMIN', 'pin-2', sonra)]);
+    expect(zPushYaniti.parse(yanit.json()).kabul_edilen).toHaveLength(1);
+
+    const kullanici = await vt.tek<{ rol: string; pin_hash: string }>(
+      'SELECT rol, pin_hash FROM kullanicilar WHERE isletme_id = ? AND id = ?',
+      [ISLETME_ID, id],
+    );
+    expect(kullanici).toMatchObject({ rol: 'KASIYER', pin_hash: 'pin-1' });
+  });
+});
+
 describe('LWW çakışma çözümü (§7.4)', () => {
   it('bulut kaydı daha yeniyse kasadan gelen eski veri uygulanmaz ve çakışma loglanır', async () => {
     const urunId = '55555555-5555-4555-8555-555555555555';
