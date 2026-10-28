@@ -560,41 +560,6 @@ export function kampanyalariListele(vt: Vt): KampanyaKaydi[] {
     .map((s) => ({ ...s, aktif_mi: sayiToBool(s.aktif_mi) }));
 }
 
-export function kampanyaKaydet(
-  vt: Vt,
-  kampanya: Omit<KampanyaKaydi, 'id'> & { id?: string },
-  cihazId: string,
-  zaman = simdi(),
-): string {
-  const id = kampanya.id ?? uuid();
-  vt.hazirla(
-    `INSERT INTO kampanyalar (id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi,
-                              created_at, updated_at, cihaz_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       ad = excluded.ad, tip = excluded.tip, kapsam = excluded.kapsam, hedef_id = excluded.hedef_id,
-       deger = excluded.deger, esik_miktar = excluded.esik_miktar,
-       baslangic = excluded.baslangic, bitis = excluded.bitis,
-       oncelik = excluded.oncelik, aktif_mi = excluded.aktif_mi, updated_at = excluded.updated_at`,
-  ).calistir(
-    id,
-    kampanya.ad,
-    kampanya.tip,
-    kampanya.kapsam,
-    kampanya.hedef_id,
-    kampanya.deger,
-    kampanya.esik_miktar ?? null,
-    kampanya.baslangic,
-    kampanya.bitis,
-    kampanya.oncelik,
-    boolToSayi(kampanya.aktif_mi),
-    zaman,
-    zaman,
-    cihazId,
-  );
-  return id;
-}
-
 // ---------------------------------------------------------------------------
 // Bulut → yerel uygulama (pull) yardımcıları — §7.2
 // ---------------------------------------------------------------------------

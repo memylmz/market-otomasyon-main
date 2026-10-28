@@ -29,7 +29,6 @@ import {
   etkinKampanyalar,
   fiyatiDegisenler,
   kampanyalariListele,
-  kampanyaKaydet,
   kategoriBul,
   kategorileriListele,
   kategoriKaydet,
@@ -734,11 +733,12 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
         oncelik: k.oncelik,
       })),
     'kampanya.listele': () => (a(), kampanyalariListele(b().vt)),
-    'kampanya.kaydet': (girdi: Parameters<typeof kampanyaKaydet>[1]) => {
-      const aktor = a();
-      if (!aktor.yetkiler.has('kampanya.yonet')) throw hatalar.yetki();
-      return { id: b().vt.islem(() => kampanyaKaydet(b().vt, girdi, uygulama.cihazId)) };
-    },
+    /*
+     * Kampanya KASADA YAZILMAZ: panelden yönetilir ve pull ile iner (§11.4).
+     * Burada bir `kampanya.kaydet` kanalı vardı ama olay üretmiyordu; kasada
+     * açılan kampanya buluta ve diğer kasalara hiç gitmiyor, yalnız o kasada
+     * kalıyordu. Hiçbir ekran da onu kullanmıyordu; kaldırıldı.
+     */
 
     // ------------------------------------------------------------------ ayar
     'ayar.tumu': () => {
