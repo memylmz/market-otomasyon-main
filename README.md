@@ -202,6 +202,7 @@ Ayrıntı: [`docs/kvkk.md`](docs/kvkk.md)
 ## Belgeler
 
 - [Kurulum ve ilk çalıştırma](docs/kurulum.md)
+- [Yeni market için kurulum (ayrı işletme, ayrı lisans)](docs/yeni-market-kurulumu.md)
 - [Senkron protokolü](docs/senkron-protokolu.md)
 - [Yedekleme ve felaket kurtarma](docs/yedekleme-dr.md)
 - [Güvenlik](docs/guvenlik.md)

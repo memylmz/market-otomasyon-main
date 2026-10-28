@@ -130,7 +130,9 @@ Kasada *Ayarlar → Senkron*:
 
 1. **Senkron sunucu adresi**: `https://api.sizinalanadi.com`
 2. **Kaydet**
-3. **Cihazı Aktive Et** → lisans anahtarını ve cihaz adını girin (örn. "Kasa 1")
+3. **Cihazı Aktive Et** → lisans anahtarını ve cihaz adını girin (örn. "Kasa 1").
+   Başka bir market kuruyorsanız kendi anahtarınızı **kullanmayın**: bkz.
+   [Yeni market için kurulum](yeni-market-kurulumu.md).
 4. **Senkron modu** seçin:
    - *Manuel* — yalnız düğmeye basınca
    - *Gün sonu* — kasa kapanışında otomatik
