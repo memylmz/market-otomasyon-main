@@ -53,6 +53,18 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
   `ozetleriYenidenHesapla` kaldırıldı; nakit birimleri gerçek banknotlarla
   düzeltildi.
 - **CI etiketle tetiklenmiyordu;** Windows kurulum paketi işi hiç çalışmıyordu.
+- **Windows kurulum paketi üretilemiyordu:** çalışma alanında electron-builder
+  Electron sürümünü bulamıyor ve paylaşılan paketi pakete koymaya çalışıyordu.
+
+### Güvenlik
+
+- **Panel Next.js 15.5.28'e yükseltildi.** Next 14'te görsel optimizasyon
+  üzerinden kimlik doğrulamasız uzaktan kod çalıştırma (kritik) ve SSRF/DoS
+  açıkları vardı; 14 hattında yama yok.
+- Kırıcı olmayan bağımlılık yamaları (fast-uri, fast-jwt, source-map-js).
+- CI güvenlik taraması gerekçeli ve süreli istisna tanıyor
+  (`scripts/guvenlik-taramasi.mjs`). Açık kalan iki istisna 2027-01-31'de
+  dolar: Zod 4 geçişi ve Next içindeki derleme zamanı postcss kopyası.
 - **Panelden inen talimat iki kez uygulanabiliyordu.** Uygulama ile "uygulandı"
   işareti ayrı yazmalardı; arada kesinti olursa iş yapılmış ama talimat bekliyor
   kalıyor ve sonraki senkronda yineleniyordu (stok 10→20, borç 120→240).
