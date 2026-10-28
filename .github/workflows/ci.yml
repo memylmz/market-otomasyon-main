@@ -6,6 +6,10 @@ name: CI
 on:
   push:
     branches: [main, develop]
+    # Sürüm etiketi (v2.1.0 gibi) Windows kurulum paketini üretir. Bu satır
+    # yokken etiket gönderimi iş akışını hiç tetiklemiyordu; aşağıdaki
+    # `masaustu-paket` işinin koşulu hiçbir zaman sağlanmıyordu.
+    tags: ['v*']
   pull_request:
     branches: [main, develop]
 
