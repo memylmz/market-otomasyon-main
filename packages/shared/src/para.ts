@@ -224,8 +224,14 @@ export function dagit(toplam: Kurus, agirliklar: readonly number[]): Kurus[] {
   return tam;
 }
 
-/** Türkiye tedavüldeki banknot/madeni para birimleri (kuruş). */
-export const NAKIT_BIRIMLERI: readonly Kurus[] = [20000_0, 10000_0, 5000_0, 2000_0, 1000_0, 500_0, 200_0, 100_0, 50, 25] as const;
+/**
+ * Türkiye'de tedavüldeki banknot ve madeni paralar (kuruş): 200, 100, 50, 20,
+ * 10, 5 ₺ banknot; 1 ₺, 50, 25, 10, 5, 1 kuruş.
+ *
+ * Eski liste 10 kat kaymıştı (2000, 1000, 500 ₺ gibi olmayan banknotlar vardı;
+ * 5 ₺ ve 1 ₺ yoktu) ve 25 kuruşun altını bozamıyordu.
+ */
+export const NAKIT_BIRIMLERI: readonly Kurus[] = [20000, 10000, 5000, 2000, 1000, 500, 100, 50, 25, 10, 5, 1] as const;
 
 /** Para üstünü en az sayıda banknot/bozukluk olacak şekilde ayrıştırır (kasiyer yardımı). */
 export function paraUstuBoz(tutar: Kurus): { birim: Kurus; adet: number }[] {

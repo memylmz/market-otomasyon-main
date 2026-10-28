@@ -154,6 +154,24 @@ describe('para üstü yardımcıları', () => {
     const parcalar = paraUstuBoz(18775); // 187,75 ₺
     const toplam = parcalar.reduce((t, p) => t + p.birim * p.adet, 0);
     expect(toplam).toBe(18775);
+    // 100 + 50 + 20 + 10 + 5 + 2 × 1 ₺ + 50 kr + 25 kr — yalnız gerçek birimler.
+    expect(parcalar).toEqual([
+      { birim: 10000, adet: 1 },
+      { birim: 5000, adet: 1 },
+      { birim: 2000, adet: 1 },
+      { birim: 1000, adet: 1 },
+      { birim: 500, adet: 1 },
+      { birim: 100, adet: 2 },
+      { birim: 50, adet: 1 },
+      { birim: 25, adet: 1 },
+    ]);
+  });
+
+  it('25 kuruşun altını da bozar', () => {
+    expect(paraUstuBoz(7)).toEqual([
+      { birim: 5, adet: 1 },
+      { birim: 1, adet: 2 },
+    ]);
   });
 
   it('nakit önerileri genel toplamı içerir ve artan sıralıdır', () => {
