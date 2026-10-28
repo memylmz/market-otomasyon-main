@@ -7,7 +7,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { goreliZaman, paraFormat, type Yetki } from '@market/shared';
+import { goreliZaman, paraFormat, URUN_SURUMU, type Yetki } from '@market/shared';
 import { cagir } from '../kopru';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { oturumDurumu } from '../durum/oturum';
@@ -102,7 +102,7 @@ export function Kabuk({ children }: { children: ReactNode }) {
       <nav className="flex w-52 shrink-0 flex-col border-r border-cizgi bg-yuzey" aria-label="Ana menü">
         <div className="border-b border-cizgi px-4 py-3">
           <p className="text-sm font-semibold text-vurgu">Market Otomasyon</p>
-          <p className="text-xs text-metin-4">v{sistem?.surum ?? '2.0.0'}</p>
+          <p className="text-xs text-metin-4">v{sistem?.surum ?? URUN_SURUMU}</p>
         </div>
 
         <ul className="flex-1 overflow-y-auto py-2">

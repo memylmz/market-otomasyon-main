@@ -1,6 +1,6 @@
 {
   "name": "@market/panel",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Market otomasyonu — mobil öncelikli web admin paneli (Next.js)",
   "scripts": {

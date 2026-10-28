@@ -1,6 +1,6 @@
 {
   "name": "@market/shared",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "Masaüstü, API ve panel arasında paylaşılan tipler, Zod şemaları, para/miktar aritmetiği ve iş kuralı hesaplamaları",

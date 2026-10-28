@@ -4,6 +4,21 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ## Yayımlanmamış
 
+## [2.1.0] — 2026-10-28
+
+### Yükseltme notları
+
+- **Önce bulutu (API), sonra kasaları güncelleyin.** Yeni API eski kasalarla
+  uyumludur; yeni kasa eski API ile de çalışır ama pull düzeltmesi ancak ikisi
+  de güncellenince devreye girer. Güncellenmemiş kasa eski (kayıt atlayabilen)
+  sayfalamayı kullanmaya devam eder.
+- Kasa açılışta şema göçü 16'yı uygular (`satis_kalemleri.kaynak_kalem_id`);
+  göçten önce otomatik yedek alınır. API yeni sütunları açılışta kendisi ekler.
+- Kasa güncellendiğinde göç 17 senkron imlecini **bir kez sıfırlar**: ilk
+  senkronda kasa bütün yönetimsel kayıtları baştan çeker ve eski sayfalamanın
+  atladığı barkod/kayıtlar kendiliğinden geri gelir. Büyük katalogda bu ilk
+  senkron normalden uzun sürebilir.
+
 ### Değişenler
 
 - **Fiş ve ekstre yazdırma görüntüye çevrildi.** Yazıcının kod sayfası artık
@@ -17,6 +32,27 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Düzeltilenler
 
+- **Kasa buluttan kayıt çekerken barkodları kaybediyordu.** Sürüm sayacı tüm
+  tablolarda ortak olduğu için sayfa sınırı ürünlerin ortasında dolunca daha
+  küçük sürümlü barkodlar hiç inmiyordu. Pull artık imleçli sayfalıyor.
+- **Panelde değiştirilen kısa kod kasada geçerli kalıyordu.** Eski kod artık
+  mezar taşıyla kapanıyor, kasada pasife düşüyor.
+- **İade edilen miktar ürün bazında sayılıyordu;** aynı ürün fişte iki satırda
+  olunca bir satırın iadesi ötekini kilitliyordu. Artık kalem bazında.
+- **Aynı satışa panelden ikinci iade verilemiyordu;** kasa iade talimatının
+  sonucunu artık buluta bildiriyor.
+- **Günlük nakit kasada ve panelde farklıydı** (para giriş/çıkışı, mal kabul
+  nakit ödemesi, tedarikçi nakit iadesi, alış ve tahsilat iptali). Özet etkisi
+  artık kasada belirlenip olayla aynen gidiyor.
+- **Parça parça iadede kuruş kayması;** son parça artık kalanı alıyor.
+- **Bazı kasa işlemleri oturum açmadan çalışıyordu** (alış fiyatlı ürün dışa
+  aktarma, müşteri ekstresi yazdırma, fiş okuma); artık oturum ve yetki istiyor.
+- **Bir kasa, kullanıcıların rolünü ve PIN'ini merkezden ezebiliyordu;** kasadan
+  gelen kullanıcı kaydı artık yalnız yeni hesap açıyor.
+- Kasada buluta gitmeyen kampanya yazma kanalı ve hatalı, kullanılmayan
+  `ozetleriYenidenHesapla` kaldırıldı; nakit birimleri gerçek banknotlarla
+  düzeltildi.
+- **CI etiketle tetiklenmiyordu;** Windows kurulum paketi işi hiç çalışmıyordu.
 - **Panelden inen talimat iki kez uygulanabiliyordu.** Uygulama ile "uygulandı"
   işareti ayrı yazmalardı; arada kesinti olursa iş yapılmış ama talimat bekliyor
   kalıyor ve sonraki senkronda yineleniyordu (stok 10→20, borç 120→240).

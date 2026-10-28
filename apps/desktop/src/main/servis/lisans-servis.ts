@@ -8,7 +8,7 @@
  * Market işi asla durmamalıdır.
  */
 
-import { AYAR, hatalar, simdi, uuid, type GunAnahtari } from '@market/shared';
+import { AYAR, hatalar, simdi, URUN_SURUMU, uuid, type GunAnahtari } from '@market/shared';
 import { bugun, gunFarki } from '@market/shared';
 import { ayarMetin, ayarSayi, ayarSayiYaz, ayarYaz } from '../depo/ayar.js';
 import { denetimYaz } from '../depo/ozet.js';
@@ -147,7 +147,7 @@ export async function cihaziAktiveEt(
       cihaz_id: cihazId,
       cihaz_adi: girdi.cihazAdi,
       platform: `${process.platform} ${process.arch}`,
-      uygulama_surumu: process.env.npm_package_version ?? '2.0.0',
+      uygulama_surumu: URUN_SURUMU,
     });
 
     const zaman = simdi();

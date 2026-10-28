@@ -12,7 +12,7 @@ export const SEMA_SURUMU = 2;
 export const SENKRON_PROTOKOL_SURUMU = 1;
 
 /** Uygulama ürün sürümü (SemVer). */
-export const URUN_SURUMU = '2.0.0';
+export const URUN_SURUMU = '2.1.0';
 
 // ---------------------------------------------------------------------------
 // Numaralandırmalar

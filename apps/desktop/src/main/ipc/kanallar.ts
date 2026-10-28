@@ -20,6 +20,7 @@ import {
   type Kurus,
   type Miktar,
   type Yetki,
+  URUN_SURUMU,
 } from '@market/shared';
 import { ayarMetin, ayarYaz, elleYazilabilirMi, tumAyarlar } from '../depo/ayar.js';
 import { bankaDefteri } from '../depo/banka.js';
@@ -192,7 +193,7 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       const senkronAcik = Boolean(ayarlar.senkronUrl);
       return {
         cihazId: uygulama.cihazId,
-        surum: '2.0.0',
+        surum: URUN_SURUMU,
         kurulumGerekli: uygulama.kurulumGerekliMi(),
         oturum: uygulama.aktor
           ? {
