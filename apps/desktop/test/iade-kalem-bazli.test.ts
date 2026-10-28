@@ -98,3 +98,25 @@ describe('panel iade talimatının sonucu', () => {
     });
   });
 });
+
+describe('parça parça iadede kuruş kayması', () => {
+  it('satırın tamamı tek tek iade edilince dönen toplam satış tutarına eşittir', () => {
+    const urunId = urunEkle(ortam, { ad: 'Kalem', satisFiyati: 1000, stok: adet(5) });
+    // 2 × 10,00 − 0,01 iskonto = 19,99 ₺: yarısı 9,995 → her parça ayrı yuvarlanınca 20,00 dönüyordu.
+    const satis = satisKesinlestir(ortam.uygulama.baglam, ortam.admin, {
+      kalemler: [{ urun_id: urunId, miktar: adet(2), birim_fiyat: 1000, iskonto_tutar: 1 }],
+      odemeler: [{ tip: 'NAKIT', tutar: 1999 }],
+    }).satisId;
+    const kalemId = kalemleriGetir(ortam.uygulama.vt, satis)[0]!.id;
+    const birer = () =>
+      iadeYap(ortam.uygulama.baglam, ortam.admin, {
+        kaynak_satis_id: satis,
+        kalemler: [{ satis_kalemi_id: kalemId, miktar: adet(1) }],
+        iade_yontemi: 'NAKIT',
+        neden: 'Müşteri vazgeçti',
+      });
+
+    const toplam = -birer().genelToplam - birer().genelToplam;
+    expect(toplam).toBe(1999);
+  });
+});

@@ -55,6 +55,7 @@ import {
   odemeEkle,
   satisDetayi,
   satisEkle,
+  type SatisKalemiKaydi,
   satisIptalEt as satisIptalIsaretle,
   kalemleriGetir,
   satisBul,
@@ -761,8 +762,36 @@ export function iadeTutariHesapla(
   const harita = new Map(kalemleriGetir(vt, kaynakSatisId).map((k) => [k.id, k]));
   return kalemler.reduce((t, istek) => {
     const k = harita.get(istek.satis_kalemi_id);
-    return k ? t + Math.round(k.satir_toplam * (istek.miktar / k.miktar)) : t;
+    return k ? t + iadeSatirTutari(vt, k, istek.miktar).tutar : t;
   }, 0);
+}
+
+/**
+ * Bir satış kaleminden `miktar` iade edilince dönecek tutar ve KDV.
+ *
+ * Oran hesabı her iadede ayrı yuvarlandığı için parça parça iade toplamı
+ * satır toplamını tutmuyordu: 19,99 ₺'lik 2 adetlik satır tek tek iade
+ * edilince 10,00 + 10,00 = 20,00 ₺ dönüyordu. Satırın KALANININ TAMAMI iade
+ * edilirken tutar artık "satır toplamı − önceki iadeler"dir; toplam kuruşu
+ * kuruşuna satış tutarına eşit olur. Önceki iadelerden biri kaynağı
+ * bilinmeyen eski kayıtsa oran hesabına düşülür.
+ */
+function iadeSatirTutari(vt: Vt, k: SatisKalemiKaydi, miktar: Miktar): { tutar: Kurus; kdv: Kurus } {
+  const dahaOnce = k.iade_edilen ?? 0;
+  if (miktar === k.miktar + dahaOnce) {
+    const onceki = vt
+      .hazirla(
+        `SELECT COALESCE(SUM(ik.miktar), 0) AS m, COALESCE(SUM(ik.satir_toplam), 0) AS t, COALESCE(SUM(ik.kdv_tutar), 0) AS kdv
+         FROM satis_kalemleri ik JOIN satislar isa ON isa.id = ik.satis_id
+         WHERE ik.kaynak_kalem_id = ? AND isa.iade_mi = 1 AND isa.iptal_mi = 0`,
+      )
+      .tek<{ m: number; t: number; kdv: number }>(k.id);
+    if (onceki && onceki.m === dahaOnce) {
+      return { tutar: k.satir_toplam + onceki.t, kdv: k.kdv_tutar + onceki.kdv };
+    }
+  }
+  const oran = miktar / k.miktar;
+  return { tutar: Math.round(k.satir_toplam * oran), kdv: Math.round(k.kdv_tutar * oran) };
 }
 
 /** Kaynak satışın kart çekiminin POS referansı (karta iadede orijinal işlem). */
@@ -836,10 +865,8 @@ export function iadeYap(
       );
     }
 
-    // Orantılı iade: satır toplamı ve KDV, iade edilen miktar oranında dağıtılır.
-    const oran = istek.miktar / kaynakKalem.miktar;
-    const tutar = Math.round(kaynakKalem.satir_toplam * oran);
-    const kdv = Math.round(kaynakKalem.kdv_tutar * oran);
+    // Orantılı iade: satır toplamı ve KDV, iade edilen miktar oranında dağıtılır (son parça kalanı alır).
+    const { tutar, kdv } = iadeSatirTutari(vt, kaynakKalem, istek.miktar);
     return { kaynak: kaynakKalem, miktar: istek.miktar, tutar, kdv, matrah: tutar - kdv };
   });
 
