@@ -14,9 +14,8 @@ import {
   type CariYazma,
 } from '../depo/cari.js';
 import { kasaHareketEkle } from '../depo/kasa.js';
-import { denetimYaz, gunlukOzetEkle } from '../depo/ozet.js';
+import { denetimYaz } from '../depo/ozet.js';
 import { olayYaz } from '../depo/senkron.js';
-import { gunAnahtari } from '@market/shared';
 import { kasaOturumuIste, yetkiIste, type Aktor, type Baglam } from './baglam.js';
 
 export interface TahsilatSonucu {
@@ -140,15 +139,9 @@ export function tahsilatIptal(
         },
         cihazId,
         zaman,
-      );
-      // Günlük özet, orijinalin yazdığının tersini yazar: mal kabul ödemesi yalnız nakdi,
-      // cari ekranındaki tahsilat/ödeme nakit + tahsilat alanını etkilemişti.
-      gunlukOzetEkle(
-        vt,
-        gunAnahtari(zaman),
-        cihazId,
+        // Günlük özet, orijinalin yazdığının tersini yazar: mal kabul ödemesi yalnız nakdi,
+        // cari ekranındaki tahsilat/ödeme nakit + tahsilat alanını etkilemişti.
         faturaOdemesi ? { nakit: kasaTutari } : { tahsilat: kasaTutari, nakit: kasaTutari },
-        zaman,
       );
     }
 
@@ -295,8 +288,8 @@ export function tahsilatYap(
         },
         cihazId,
         zaman,
+        { tahsilat: kasaTutari, nakit: kasaTutari },
       );
-      gunlukOzetEkle(vt, gunAnahtari(zaman), cihazId, { tahsilat: kasaTutari, nakit: kasaTutari }, zaman);
     }
 
     olayYaz(
@@ -316,6 +309,8 @@ export function tahsilatYap(
           // tekrar iptal edilebilir sanır.
           belge_tipi: hareketTipi,
           odeme_tipi: girdi.odeme_tipi,
+          // Günlük özet etkisi kasa hareketi olayıyla gider; merkez bunu buradan TEKRAR türetmesin.
+          gunluk_ozet_kasada: true,
           tarih: zaman,
           kullanici_id: aktor.kullaniciId,
         },

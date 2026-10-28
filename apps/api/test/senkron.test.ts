@@ -611,6 +611,55 @@ describe('kasa-panel uyumu — mal kabul ve tedarikçi hareketleri', () => {
     expect(Number(ozet?.tahsilat)).toBe(0);
   });
 
+  it('kasa hareketindeki günlük özet etkisi aynen uygulanır; tahsilat ikinci kez türetilmez', async () => {
+    const zaman = simdi();
+    const oturumId = uuid();
+    const kasaHareketi = (tip: string, tutar: number, etki: Record<string, number>) => ({
+      uuid: uuid(),
+      tip: 'KASA_HAREKETI' as const,
+      entity: 'kasa_hareketi',
+      entity_id: uuid(),
+      olusturma_zamani: zaman,
+      veri: { id: uuid(), kasa_oturum_id: oturumId, tip, tutar, created_at: zaman, gunluk_ozet: etki },
+    });
+    const cariId = uuid();
+    const tahsilatCari = {
+      uuid: uuid(),
+      tip: 'CARI_HAREKETI' as const,
+      entity: 'cari_hareketi',
+      entity_id: uuid(),
+      olusturma_zamani: zaman,
+      veri: {
+        id: uuid(),
+        cari_id: cariId,
+        hareket_tipi: 'TAHSILAT',
+        tutar: -1500,
+        odeme_tipi: 'NAKIT',
+        gunluk_ozet_kasada: true,
+        tarih: zaman,
+      },
+    };
+
+    const yanit = await push([
+      kasaHareketi('GIRIS', 5000, { nakit: 5000 }),
+      kasaHareketi('ODEME', -3000, { nakit: -3000 }), // mal kabulde nakit ödeme
+      kasaHareketi('GIDER', -700, { gider: 700, nakit: -700 }),
+      tahsilatCari,
+      kasaHareketi('TAHSILAT', 1500, { tahsilat: 1500, nakit: 1500 }),
+    ]);
+    expect(zPushYaniti.parse(yanit.json()).kabul_edilen).toHaveLength(5);
+
+    const ozet = await vt.tek<{ nakit: number; tahsilat: number; gider: number }>(
+      'SELECT SUM(nakit) nakit, SUM(tahsilat) tahsilat, SUM(gider) gider FROM gunluk_ozet WHERE isletme_id = ?',
+      [ISLETME_ID],
+    );
+    expect({ nakit: Number(ozet?.nakit), tahsilat: Number(ozet?.tahsilat), gider: Number(ozet?.gider) }).toEqual({
+      nakit: 5000 - 3000 - 700 + 1500,
+      tahsilat: 1500,
+      gider: 700,
+    });
+  });
+
   it('nakit tahsilat rollup işareti kasayla aynıdır: müşteri +, tedarikçi −, kart hariç', async () => {
     const MUSTERI_ID = '44444444-4444-4444-8444-444444444444';
     const zaman = simdi();

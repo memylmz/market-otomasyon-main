@@ -26,7 +26,7 @@ import {
 import { cariBul, cariHareketEkle } from '../depo/cari.js';
 import { kasaHareketEkle } from '../depo/kasa.js';
 import { barkodEkle, barkodSahibi, urunBul, urunKaydet } from '../depo/katalog.js';
-import { denetimYaz, gunlukOzetEkle } from '../depo/ozet.js';
+import { denetimYaz } from '../depo/ozet.js';
 import { alisFaturasiBul, alisFaturasiEkle, alisKalemiEkle, alisKalemleriniGetir } from '../depo/satis.js';
 import { olayYaz } from '../depo/senkron.js';
 import {
@@ -612,8 +612,8 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
           },
           cihazId,
           kayitZamani,
+          { nakit: -odenen },
         );
-        gunlukOzetEkle(vt, gunAnahtari(kayitZamani), cihazId, { nakit: -odenen }, kayitZamani);
       }
     }
 
@@ -785,8 +785,8 @@ export function tedarikciIade(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): 
         },
         cihazId,
         zaman,
+        { nakit: genelToplam },
       );
-      gunlukOzetEkle(vt, gunAnahtari(zaman), cihazId, { nakit: genelToplam }, zaman);
     } else {
       // Varsayılan: tedarikçiye olan borç azalır. Borç yoksa bakiye eksiye düşer
       // (tedarikçi bize borçlanır) — ekstrede açıkça görünür.
@@ -1058,8 +1058,8 @@ export function alisFaturasiIptal(
           },
           cihazId,
           zaman,
+          { nakit: -kasaHareketi.tutar },
         );
-        gunlukOzetEkle(vt, gunAnahtari(zaman), cihazId, { nakit: -kasaHareketi.tutar }, zaman);
       }
     }
 

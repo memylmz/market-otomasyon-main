@@ -5,7 +5,7 @@
  * nakit ile karşılaştırılır ve kasa farkı kalıcı olarak kaydedilir.
  */
 
-import { gunAnahtari, hatalar, HATA_KODU, simdi, uuid, type Kurus } from '@market/shared';
+import { hatalar, HATA_KODU, simdi, uuid, type Kurus } from '@market/shared';
 import {
   acikOturum,
   kasaHareketEkle,
@@ -18,7 +18,7 @@ import {
   type KasaHareketiKaydi,
   type KasaOzeti,
 } from '../depo/kasa.js';
-import { denetimYaz, gunlukOzetEkle } from '../depo/ozet.js';
+import { denetimYaz } from '../depo/ozet.js';
 import { olayYaz } from '../depo/senkron.js';
 import { ayarlariOku, kasaOturumuIste, yetkiIste, type Aktor, type Baglam } from './baglam.js';
 
@@ -175,12 +175,8 @@ export function kasaHareketi(baglam: Baglam, aktor: Aktor, tip: KasaEkHareketTip
       { kasa_oturum_id: oturumId, tip, tutar: isaretli, aciklama, kullanici_id: aktor.kullaniciId },
       cihazId,
       zaman,
+      tip === 'GIDER' ? { gider: tutar, nakit: isaretli } : { nakit: isaretli },
     );
-    if (tip === 'GIDER') {
-      gunlukOzetEkle(vt, gunAnahtari(zaman), cihazId, { gider: tutar, nakit: isaretli }, zaman);
-    } else {
-      gunlukOzetEkle(vt, gunAnahtari(zaman), cihazId, { nakit: isaretli }, zaman);
-    }
     // KASA_HAREKETI olayı `kasaHareketEkle` içinde yayınlanır (§7.3).
     denetimYaz(
       vt,

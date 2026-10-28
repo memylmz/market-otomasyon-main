@@ -570,7 +570,9 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
        */
       const hareketTipi = metin(veri.hareket_tipi);
       const odemeTipi = metin(veri.odeme_tipi);
-      if ((hareketTipi === 'TAHSILAT' || hareketTipi === 'ODEME') && odemeTipi === 'NAKIT') {
+      // Yeni kasalar özet etkisini KASA_HAREKETI olayıyla gönderir; burada tekrar türetilirse iki kez sayılır.
+      const ozetKasada = veri.gunluk_ozet_kasada === true;
+      if (!ozetKasada && (hareketTipi === 'TAHSILAT' || hareketTipi === 'ODEME') && odemeTipi === 'NAKIT') {
         const delta = hareketTipi === 'TAHSILAT' ? -tutar : tutar;
         await gunlukOzetEkle(islem, baglam, gunAnahtari(tarih), { tahsilat: delta, nakit: delta });
       }
@@ -633,7 +635,22 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
           zaman,
         ],
       );
-      if (metin(veri.tip) === 'GIDER') {
+      /*
+       * Günlük özet etkisi kasada belirlenir ve olayla AYNEN gelir: para
+       * giriş/çıkışı, mal kabulde nakit ödeme, tedarikçinin nakit iadesi, alış
+       * iptali ve tahsilat iptali. Eskiden merkez yalnız gideri türetiyordu ve
+       * aynı günün nakdi kasada ve panelde farklı görünüyordu. Satış/iade/iptal
+       * hareketleri bunu taşımaz; onların özeti kendi olaylarından kurulur.
+       */
+      const etki = veri.gunluk_ozet as Record<string, unknown> | undefined;
+      if (etki && typeof etki === 'object') {
+        await gunlukOzetEkle(islem, baglam, gunAnahtari(zaman), {
+          nakit: sayi(etki.nakit),
+          tahsilat: sayi(etki.tahsilat),
+          gider: sayi(etki.gider),
+        });
+      } else if (metin(veri.tip) === 'GIDER') {
+        // Eski kasalar etki göndermez: eski kural.
         await gunlukOzetEkle(islem, baglam, gunAnahtari(zaman), { gider: Math.abs(tutar), nakit: tutar });
       }
       return;

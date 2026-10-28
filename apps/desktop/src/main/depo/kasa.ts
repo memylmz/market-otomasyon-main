@@ -5,8 +5,9 @@
  * hiçbir yerde saklanmaz, her seferinde hareketlerden hesaplanır.
  */
 
-import { KASA_NAKIT_ETKISI, simdi, uuid, type Kurus, type ZamanDamgasi } from '@market/shared';
+import { gunAnahtari, KASA_NAKIT_ETKISI, simdi, uuid, type Kurus, type ZamanDamgasi } from '@market/shared';
 import type { Vt } from '../db/surucu.js';
+import { gunlukOzetEkle } from './ozet.js';
 import { olayYaz } from './senkron.js';
 
 export type KasaHareketTipiDb =
@@ -112,8 +113,32 @@ export interface KasaHareketiYazma {
  * Hareketle olayı burada ayrılmaz kılıyoruz: para hareketi yazıp senkronu
  * unutmak artık mümkün değil (§7.3).
  */
-export function kasaHareketEkle(vt: Vt, hareket: KasaHareketiYazma, cihazId: string, zaman: ZamanDamgasi = simdi()): string {
+/**
+ * Hareketin günlük özete etkisi — yalnız satış/iade/iptal DIŞI nakit
+ * hareketlerinde verilir (onların özeti kendi olaylarından kurulur).
+ */
+export interface KasaOzetEtkisi {
+  nakit?: Kurus;
+  tahsilat?: Kurus;
+  gider?: Kurus;
+}
+
+export function kasaHareketEkle(
+  vt: Vt,
+  hareket: KasaHareketiYazma,
+  cihazId: string,
+  zaman: ZamanDamgasi = simdi(),
+  /**
+   * Günlük özete etkisi. Özet burada yazılır ve AYNI değer olayla buluta
+   * gider; merkez bunu olduğu gibi uygular. Eskiden kasa ile merkez özeti
+   * ayrı kurallarla kuruyordu: para giriş/çıkışı, mal kabulde nakit ödeme,
+   * tedarikçinin nakit iadesi, alış iptali ve tahsilat iptali kasada nakde
+   * yazılıyor, merkezde hiç yazılmıyordu — aynı günün nakdi iki yerde farklıydı.
+   */
+  ozet?: KasaOzetEtkisi,
+): string {
   const id = uuid();
+  if (ozet) gunlukOzetEkle(vt, gunAnahtari(zaman), cihazId, ozet, zaman);
   vt.hazirla(
     `INSERT INTO kasa_hareketleri (id, kasa_oturum_id, tip, tutar, aciklama, belge_id, kullanici_id,
                                    created_at, updated_at, cihaz_id)
@@ -147,6 +172,7 @@ export function kasaHareketEkle(vt: Vt, hareket: KasaHareketiYazma, cihazId: str
         belge_id: hareket.belge_id ?? null,
         kullanici_id: hareket.kullanici_id ?? null,
         created_at: zaman,
+        ...(ozet ? { gunluk_ozet: ozet } : {}),
       },
       olusturma_zamani: zaman,
     },
