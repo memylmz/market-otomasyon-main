@@ -116,9 +116,7 @@ export default function CariSayfasi() {
                   setTip(t);
                   setSeciliId(null);
                 }}
-                className={`rounded-lg px-3 py-2 text-sm ${
-                  tip === t ? 'bg-vurgu font-medium text-vurgu-uzeri' : 'text-metin-2'
-                }`}
+                className={`rounded-lg px-3 py-2 text-sm ${tip === t ? 'bg-vurgu font-medium text-vurgu-uzeri' : 'text-metin-2'}`}
               >
                 {t === 'MUSTERI' ? 'Müşteri Alacakları' : 'Tedarikçi Borçları'}
               </button>

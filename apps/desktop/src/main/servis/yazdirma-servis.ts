@@ -266,12 +266,11 @@ export async function cariEkstresiYazdir(
     baytlar,
     ayar.satirGenisligi,
     ekstreHtml(
-      ekstreBelgesi(
-        { ad_unvan: cari.ad_unvan, telefon: cari.telefon, bakiye: cari.bakiye },
-        hareketler,
-        isletme,
-        { yasalUyari: yasalUyariyiOku(baglam), baslangic, bitis },
-      ),
+      ekstreBelgesi({ ad_unvan: cari.ad_unvan, telefon: cari.telefon, bakiye: cari.bakiye }, hareketler, isletme, {
+        yasalUyari: yasalUyariyiOku(baglam),
+        baslangic,
+        bitis,
+      }),
       kagitNoktaGenisligi(ayar.satirGenisligi),
     ),
   ).catch((hata) => ({

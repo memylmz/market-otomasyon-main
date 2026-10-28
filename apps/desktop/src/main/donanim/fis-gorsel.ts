@@ -71,7 +71,7 @@ function kacir(metin: string): string {
 export function fisHtml(onizleme: FisOnizlemesi, enNokta: number, satirGenisligi: number): string {
   // Kağıda tam oturması için punto ölçüden hesaplanır; %3 pay bırakılır ki
   // font ailesi değişirse satır sağdan taşıp kırpılmasın.
-  const punto = ((enNokta / satirGenisligi) / TEK_ARALIK_ORANI) * 0.97;
+  const punto = (enNokta / satirGenisligi / TEK_ARALIK_ORANI) * 0.97;
 
   const govde = onizleme.ogeler
     .map((oge) => {

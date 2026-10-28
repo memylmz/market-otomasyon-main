@@ -79,7 +79,13 @@ export default function StokSayfasi() {
   // useSearchParams açılış sekmesini (?sekme=alis) okumak için gerekir; Next.js
   // bunu bir Suspense sınırı içinde ister, aksi hâlde derleme hata verir.
   return (
-    <Suspense fallback={<Kabuk baslik="Stok"><Yukleniyor /></Kabuk>}>
+    <Suspense
+      fallback={
+        <Kabuk baslik="Stok">
+          <Yukleniyor />
+        </Kabuk>
+      }
+    >
       <StokIcerigi />
     </Suspense>
   );

@@ -412,10 +412,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
    * sonra fark ediliyordu. Hesap `satirOzeti` (ortak) ile yapılır — ekranda
    * görünen tutarla kaydedilen tutarın ayrışma ihtimali kalmasın.
    */
-  const ozetler = useMemo(
-    () => donusumSatirlari.map((satir) => satirOzeti(satir, marjSayi)),
-    [donusumSatirlari, marjSayi],
-  );
+  const ozetler = useMemo(() => donusumSatirlari.map((satir) => satirOzeti(satir, marjSayi)), [donusumSatirlari, marjSayi]);
 
   /** Hangi satır numaraları hatalı — satırı kırmızı işaretlemek için. */
   const hataliSatirlar = useMemo(() => new Set(hatalar.map((h) => h.satir)), [hatalar]);
@@ -676,9 +673,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                 devreDisi={odemeDurumu === 'BORC'}
                 sinif={odenenTutarAsimi ? 'border-tehlike' : ''}
               />
-              {odenenTutarAsimi && (
-                <span className="mt-1 block text-xs text-tehlike">Ödenen tutar genel toplamı aşamaz.</span>
-              )}
+              {odenenTutarAsimi && <span className="mt-1 block text-xs text-tehlike">Ödenen tutar genel toplamı aşamaz.</span>}
             </Alan>
             <Alan etiket="Kategori" ipucu="Yalnız bu faturada açılacak yeni ürünlere uygulanır.">
               <select className="alan" value={kategoriId} onChange={(e) => setKategoriId(e.target.value)}>
@@ -714,8 +709,8 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
           <div className="mt-2 rounded border border-bilgi bg-bilgi-yumusak p-2">
             <div className="mb-1 flex items-center justify-between text-xs text-metin-2">
               <span>
-                Barkod <strong>{satirlar[baglanacak]?.barkod || '—'}</strong> hangi ürüne ait? Seçtiğiniz ürünün kartına
-                bu barkod eklenecek.
+                Barkod <strong>{satirlar[baglanacak]?.barkod || '—'}</strong> hangi ürüne ait? Seçtiğiniz ürünün kartına bu barkod
+                eklenecek.
               </span>
               <button type="button" className="text-xs text-metin-3 hover:underline" onClick={() => setBaglanacak(null)}>
                 Vazgeç
@@ -906,9 +901,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                             aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
                             onChange={(e) => guncelle(i, { skt: e.target.value })}
                           />
-                          {s.sktZorunlu && !s.skt && (
-                            <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>
-                          )}
+                          {s.sktZorunlu && !s.skt && <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>}
                         </td>
                         <td>
                           <input className="alan py-1" value={s.lot} onChange={(e) => guncelle(i, { lot: e.target.value })} />
@@ -944,9 +937,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
       <div className="shrink-0 space-y-2 pt-2">
         {silinen && (
           <div className="flex items-center justify-between rounded border border-cizgi bg-yuzey-2 px-3 py-1.5 text-xs">
-            <span className="text-metin-3">
-              &laquo;{silinen.satir.ad || silinen.satir.barkod || 'Boş satır'}&raquo; silindi.
-            </span>
+            <span className="text-metin-3">&laquo;{silinen.satir.ad || silinen.satir.barkod || 'Boş satır'}&raquo; silindi.</span>
             <button type="button" className="font-medium text-vurgu hover:underline" onClick={silmeyiGeriAl}>
               Geri al
             </button>

@@ -5,27 +5,14 @@
     "ecmaVersion": 2023,
     "sourceType": "module"
   },
-  "plugins": [
-    "@typescript-eslint",
-    "react-hooks"
-  ],
-  "extends": [
-    "eslint:recommended",
-    "plugin:@typescript-eslint/recommended"
-  ],
+  "plugins": ["@typescript-eslint", "react-hooks"],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
   "env": {
     "node": true,
     "browser": true,
     "es2023": true
   },
-  "ignorePatterns": [
-    "node_modules",
-    "dist",
-    "out",
-    ".next",
-    "*.config.*",
-    "packages/shared/dist"
-  ],
+  "ignorePatterns": ["node_modules", "dist", "out", ".next", "*.config.*", "packages/shared/dist"],
   "rules": {
     "@typescript-eslint/no-unused-vars": [
       "error",
@@ -49,10 +36,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "apps/desktop/src/renderer/**/*.ts",
-        "apps/desktop/src/renderer/**/*.tsx"
-      ],
+      "files": ["apps/desktop/src/renderer/**/*.ts", "apps/desktop/src/renderer/**/*.tsx"],
       "rules": {
         "no-restricted-globals": [
           "error",
@@ -72,11 +56,7 @@
       }
     },
     {
-      "files": [
-        "**/test/**/*.ts",
-        "**/*.test.ts",
-        "**/scripts/**/*.ts"
-      ],
+      "files": ["**/test/**/*.ts", "**/*.test.ts", "**/scripts/**/*.ts"],
       "rules": {
         "@typescript-eslint/no-non-null-assertion": "off"
       }

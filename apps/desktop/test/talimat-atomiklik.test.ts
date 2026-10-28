@@ -76,10 +76,7 @@ describe('alış talimatı atomikliği', () => {
     expect(sonuc, 'talimat başarısız sayılmalı').toEqual({ uygulanan: 0, basarisiz: 1 });
     expect(stokOku(vt, urunId), 'stok artmamalı').toBe(0);
     expect(cariBul(vt, tedarikciId)?.bakiye, 'tedarikçiye borç doğmamalı').toBe(0);
-    expect(
-      vt.hazirla('SELECT COUNT(*) AS adet FROM alis_faturalari').tek<{ adet: number }>()!.adet,
-      'fatura oluşmamalı',
-    ).toBe(0);
+    expect(vt.hazirla('SELECT COUNT(*) AS adet FROM alis_faturalari').tek<{ adet: number }>()!.adet, 'fatura oluşmamalı').toBe(0);
   });
 
   it('normal akışta tam olarak bir kez uygulanır', () => {

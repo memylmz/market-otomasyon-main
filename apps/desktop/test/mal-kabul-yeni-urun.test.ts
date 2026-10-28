@@ -147,11 +147,12 @@ describe('faturada yeni ürün', () => {
     const tedarikciId = tedarikciEkle(ortam);
     const kisitliAktor: Aktor = { ...ortam.admin, yetkiler: new Set<Yetki>(['stok.giris']) };
 
-    expect(() =>
-      malKabulOnayla(ortam.uygulama.baglam, kisitliAktor, {
-        tedarikci_id: tedarikciId,
-        kalemler: [{ yeni_urun: { ad: 'Kaçak Ürün 2', satis_fiyati: 1000 }, miktar: adet(1), birim_fiyat: 500, kdv_orani: 20 }],
-      }),
+    expect(
+      () =>
+        malKabulOnayla(ortam.uygulama.baglam, kisitliAktor, {
+          tedarikci_id: tedarikciId,
+          kalemler: [{ yeni_urun: { ad: 'Kaçak Ürün 2', satis_fiyati: 1000 }, miktar: adet(1), birim_fiyat: 500, kdv_orani: 20 }],
+        }),
       // Mesaj, ikinci kapının kendi açıklamasını taşır — reddin stok.giris'ten
       // değil, urun.duzenle'den geldiğini kanıtlar.
     ).toThrow(/faturada yeni ürün açma/);
@@ -190,7 +191,6 @@ describe('faturada yeni ürün', () => {
     expect(kasaHareketi?.adet).toBe(0);
   });
 });
-
 
 /**
  * Katalogda olan ama barkodu kartına kayıtlı OLMAYAN ürün (§11.8).

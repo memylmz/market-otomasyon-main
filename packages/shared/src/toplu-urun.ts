@@ -72,7 +72,14 @@ export interface TopluGirisSonucu {
 }
 
 function bosMu(satir: TopluGirisSatiri): boolean {
-  return !satir.urun_id && !satir.ad.trim() && !satir.barkod.trim() && !satir.alis.trim() && !satir.miktar.trim() && !satir.satis.trim();
+  return (
+    !satir.urun_id &&
+    !satir.ad.trim() &&
+    !satir.barkod.trim() &&
+    !satir.alis.trim() &&
+    !satir.miktar.trim() &&
+    !satir.satis.trim()
+  );
 }
 
 /** Satırın raf fiyatı: elle yazılmışsa o, yoksa marjdan hesaplanan. */

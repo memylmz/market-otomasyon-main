@@ -37,7 +37,16 @@ export interface DiyalogOzellikleri {
  */
 const diyalogYigini: symbol[] = [];
 
-export function Diyalog({ acik, baslik, aciklama, genislik = 'orta', kaydirma = true, onKapat, children, altBilgi }: DiyalogOzellikleri) {
+export function Diyalog({
+  acik,
+  baslik,
+  aciklama,
+  genislik = 'orta',
+  kaydirma = true,
+  onKapat,
+  children,
+  altBilgi,
+}: DiyalogOzellikleri) {
   const kutu = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,13 +82,7 @@ export function Diyalog({ acik, baslik, aciklama, genislik = 'orta', kaydirma = 
   if (!acik) return null;
 
   const genislikSinifi =
-    genislik === 'dar'
-      ? 'max-w-md'
-      : genislik === 'genis'
-        ? 'max-w-5xl'
-        : genislik === 'tam'
-          ? 'max-w-[96vw]'
-          : 'max-w-2xl';
+    genislik === 'dar' ? 'max-w-md' : genislik === 'genis' ? 'max-w-5xl' : genislik === 'tam' ? 'max-w-[96vw]' : 'max-w-2xl';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ortu/50 p-4" role="presentation">
@@ -101,9 +104,7 @@ export function Diyalog({ acik, baslik, aciklama, genislik = 'orta', kaydirma = 
         >
           {children}
         </div>
-        {altBilgi && (
-          <footer className="flex shrink-0 justify-end gap-2 border-t border-cizgi px-5 py-3">{altBilgi}</footer>
-        )}
+        {altBilgi && <footer className="flex shrink-0 justify-end gap-2 border-t border-cizgi px-5 py-3">{altBilgi}</footer>}
       </div>
     </div>
   );

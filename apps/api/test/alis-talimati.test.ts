@@ -295,9 +295,17 @@ describe('talimat sonucunun buluta dönmesi', () => {
       url: UCLAR.alisTalimatlari,
       headers: { authorization: `Bearer ${token}` },
     });
-    const kayit = (liste.json() as {
-      data: { tedarikci_adi: string | null; fatura_no: string | null; kalem_sayisi: number; tutar: number; yeni_urun_sayisi: number }[];
-    }).data[0]!;
+    const kayit = (
+      liste.json() as {
+        data: {
+          tedarikci_adi: string | null;
+          fatura_no: string | null;
+          kalem_sayisi: number;
+          tutar: number;
+          yeni_urun_sayisi: number;
+        }[];
+      }
+    ).data[0]!;
 
     // Kullanıcı gönderdiği faturayı tanıyabilmeli: kim, kaç kalem, ne kadar.
     expect(kayit.tedarikci_adi).toBe('Toptancı A');

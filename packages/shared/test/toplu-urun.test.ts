@@ -69,9 +69,7 @@ describe('topluGirisKalemleri', () => {
   });
 
   it('sadece satış fiyatı dolu olan satırı hata verir', () => {
-    const { kalemler, hatalar } = topluGirisKalemleri([
-      { barkod: '', ad: '', miktar: '', alis: '', satis: '25,00', kdv: '20' },
-    ]);
+    const { kalemler, hatalar } = topluGirisKalemleri([{ barkod: '', ad: '', miktar: '', alis: '', satis: '25,00', kdv: '20' }]);
     expect(kalemler).toEqual([]);
     expect(hatalar).toHaveLength(1);
     expect(hatalar[0]!.mesaj).toContain('Ürün adı');

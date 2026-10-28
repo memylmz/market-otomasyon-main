@@ -122,10 +122,7 @@ export function AyarlarSayfasi() {
                 onChange={(e) => ayarla(AYAR.FIS_ALT_METIN, e.target.value)}
               />
             </Alan>
-            <Alan
-              etiket="Yasal uyarı"
-              ipucu="Mali değeri olmayan belgeye zorunludur; boş bırakırsanız varsayılan ifade basılır."
-            >
+            <Alan etiket="Yasal uyarı" ipucu="Mali değeri olmayan belgeye zorunludur; boş bırakırsanız varsayılan ifade basılır.">
               <input
                 className="alan"
                 placeholder="BİLGİ FİŞİDİR · MALİ DEĞERİ YOKTUR"
@@ -651,8 +648,8 @@ function DonanimSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; 
           <span>
             Fişi görüntü olarak bas (Türkçe karakterler için)
             <span className="mt-0.5 block text-xs text-metin-4">
-              Harfleri uygulama çizer; yazıcının kendi fontu ve kod sayfası devreye girmez. Kapatırsanız fiş metin olarak
-              basılır ve Türkçe harfler yazıcının ayarına kalır.
+              Harfleri uygulama çizer; yazıcının kendi fontu ve kod sayfası devreye girmez. Kapatırsanız fiş metin olarak basılır
+              ve Türkçe harfler yazıcının ayarına kalır.
             </span>
           </span>
         </label>

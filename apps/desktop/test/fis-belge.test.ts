@@ -31,8 +31,26 @@ const detay = {
     iade_mi: false,
   },
   kalemler: [
-    { urun_adi: 'Çiğ Köfte', miktar: 2000, birim_tipi: 'ADET', birim_fiyat: 7_250, satir_toplam: 14_500, kdv_orani: 20, kdv_tutar: 2_417, iskonto: 0 },
-    { urun_adi: 'Kırmızı Mercimek', miktar: 1250, birim_tipi: 'KG', birim_fiyat: 5_120, satir_toplam: 6_400, kdv_orani: 10, kdv_tutar: 582, iskonto: 250 },
+    {
+      urun_adi: 'Çiğ Köfte',
+      miktar: 2000,
+      birim_tipi: 'ADET',
+      birim_fiyat: 7_250,
+      satir_toplam: 14_500,
+      kdv_orani: 20,
+      kdv_tutar: 2_417,
+      iskonto: 0,
+    },
+    {
+      urun_adi: 'Kırmızı Mercimek',
+      miktar: 1250,
+      birim_tipi: 'KG',
+      birim_fiyat: 5_120,
+      satir_toplam: 6_400,
+      kdv_orani: 10,
+      kdv_tutar: 582,
+      iskonto: 250,
+    },
   ],
   odemeler: [{ odeme_tipi: 'NAKIT', tutar: 51_115, alinan: 60_000, para_ustu: 8_885 }],
 } as never;
@@ -135,7 +153,6 @@ describe('premium çizici', () => {
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // Cari hesap ekstresi
 // ---------------------------------------------------------------------------
@@ -209,7 +226,6 @@ describe('cari ekstresi', () => {
     expect(b.hareketler[59]!.aciklama).toBe('Hareket 79');
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // Gün sonu raporu

@@ -29,7 +29,7 @@ describe('CSV içe aktarma', () => {
 
     // Ürünü adından bulabilmek için genel arama yap
     const kaydedilmisUrunler = ortam.uygulama.baglam.vt
-      .hazirla("SELECT id FROM urunler WHERE ad = ?")
+      .hazirla('SELECT id FROM urunler WHERE ad = ?')
       .tek<{ id: string }>('İçe Aktarılan Kola');
     const urunId = kaydedilmisUrunler?.id;
     expect(urunId).toBeTruthy();

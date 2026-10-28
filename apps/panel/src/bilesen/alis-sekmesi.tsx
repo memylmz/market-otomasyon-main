@@ -175,7 +175,11 @@ export function AlisSekmesi() {
               {bekleyen.map((t) => (
                 <li key={t.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
                   <span className="font-medium text-metin">
-                    {t.tip === 'OLUSTUR' ? (t.tedarikci_adi ?? 'Tedarikçi') : t.tip === 'IPTAL' ? 'Fatura iptali' : 'Fatura düzeltmesi'}
+                    {t.tip === 'OLUSTUR'
+                      ? (t.tedarikci_adi ?? 'Tedarikçi')
+                      : t.tip === 'IPTAL'
+                        ? 'Fatura iptali'
+                        : 'Fatura düzeltmesi'}
                   </span>
                   {t.tip === 'OLUSTUR' && (
                     <span className="text-metin-3">
@@ -195,8 +199,8 @@ export function AlisSekmesi() {
               ))}
             </ul>
             <p className="mt-2 text-xs text-metin-3">
-              Stok ve cari defterini yalnız kasa yazar. Kasa açıldığında ya da bir sonraki senkronda işlenecek; nakit
-              ödemeli faturalar açık kasa ister.
+              Stok ve cari defterini yalnız kasa yazar. Kasa açıldığında ya da bir sonraki senkronda işlenecek; nakit ödemeli
+              faturalar açık kasa ister.
             </p>
           </section>
         )}
@@ -598,7 +602,17 @@ interface SatirGirdisi {
 }
 
 function bosSatir(barkod = ''): SatirGirdisi {
-  return { barkod, ad: '', miktar: '1', alis: 0, satis: 0, kdv: String(VARSAYILAN_KDV_ORANI), skt: '', lot: '', sktZorunlu: false };
+  return {
+    barkod,
+    ad: '',
+    miktar: '1',
+    alis: 0,
+    satis: 0,
+    kdv: String(VARSAYILAN_KDV_ORANI),
+    skt: '',
+    lot: '',
+    sktZorunlu: false,
+  };
 }
 
 /**
@@ -1379,9 +1393,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                               aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
                               onChange={(e) => guncelle(i, { skt: e.target.value })}
                             />
-                            {s.sktZorunlu && !s.skt && (
-                              <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>
-                            )}
+                            {s.sktZorunlu && !s.skt && <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>}
                           </label>
                         </>
                       )}
@@ -1549,9 +1561,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                               aria-label={`${s.ad || 'Satır ' + (i + 1)} son kullanma tarihi`}
                               onChange={(e) => guncelle(i, { skt: e.target.value })}
                             />
-                            {s.sktZorunlu && !s.skt && (
-                              <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>
-                            )}
+                            {s.sktZorunlu && !s.skt && <span className="mt-0.5 block text-[11px] text-tehlike">SKT zorunlu</span>}
                           </td>
                           <td>
                             <input className="alan py-1" value={s.lot} onChange={(e) => guncelle(i, { lot: e.target.value })} />
@@ -1583,9 +1593,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
       <div className="shrink-0 space-y-2 pt-2">
         {silinen && (
           <div className="flex items-center justify-between rounded-lg border border-cizgi bg-yuzey-2 px-3 py-1.5 text-xs">
-            <span className="text-metin-3">
-              &laquo;{silinen.satir.ad || silinen.satir.barkod || 'Boş satır'}&raquo; silindi.
-            </span>
+            <span className="text-metin-3">&laquo;{silinen.satir.ad || silinen.satir.barkod || 'Boş satır'}&raquo; silindi.</span>
             <button type="button" className="font-medium text-vurgu hover:underline" onClick={silmeyiGeriAl}>
               Geri al
             </button>
@@ -1628,9 +1636,7 @@ function YeniFaturaDiyalogu({ onKapat, onGonderildi }: { onKapat: () => void; on
                   {beyanFarki.fark > 0 ? 'FAZLA' : 'EKSİK'}
                 </span>
               ))}
-            <span className="ml-auto text-xs text-metin-4">
-              Kaydedilince kasada işlenir; kasa kapalıysa açılışta.
-            </span>
+            <span className="ml-auto text-xs text-metin-4">Kaydedilince kasada işlenir; kasa kapalıysa açılışta.</span>
           </div>
         )}
 
