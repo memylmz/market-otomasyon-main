@@ -102,7 +102,12 @@ function main() {
   const nodeAbiDosyasi = join(cikti, `better_sqlite3-abi${process.versions.modules}.node`);
   if (existsSync(nodeAbiDosyasi)) copyFileSync(nodeAbiDosyasi, varsayilan);
 
-  if (hata > 0) process.exitCode = 0; // uyarı yeterli; uygulama yedek sürücüye düşebilir
+  /*
+   * Geliştirmede uyarı yeterli (uygulama yedek sürücüye düşebilir). Kurulum
+   * paketi üretilirken (`--zorunlu`, predist) ise eksik Electron ikilisi
+   * paketi sessizce bozardı: kurulum çıkar ama kasa veritabanını açamazdı.
+   */
+  if (hata > 0) process.exitCode = process.argv.includes('--zorunlu') ? 1 : 0;
 }
 
 main();

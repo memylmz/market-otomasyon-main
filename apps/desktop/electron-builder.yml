@@ -26,7 +26,13 @@ asarUnpack:
   # Terazi seri portu (yerel modül).
   - '**/node_modules/@serialport/**'
 
-npmRebuild: true
+# Yerel modüller electron-builder tarafından YENİDEN DERLENMEZ:
+#  - better-sqlite3'ün Electron ikilisi `predist` → scripts/native-hazirla.mjs
+#    ile hazır indirilir (better_sqlite3-abi<N>.node); sürücü ABI'ye göre seçer.
+#  - serialport (@serialport/bindings-cpp) N-API'dir ve win32-x64 hazır ikilisiyle
+#    gelir; Electron'da yeniden derleme gerektirmez.
+# Yeniden derleme açıkken Windows CI'da kaynaktan derleme deneniyor ve kırılıyordu.
+npmRebuild: false
 buildDependenciesFromSource: false
 
 win:

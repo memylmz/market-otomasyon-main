@@ -14,7 +14,7 @@
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "seed": "node --import tsx scripts/seed.ts",
     "native": "node scripts/native-hazirla.mjs",
-    "predist": "npm run native",
+    "predist": "node scripts/native-hazirla.mjs --zorunlu",
     "dist": "npm run build && electron-builder --win --publish never",
     "dist:linux": "npm run build && electron-builder --linux --publish never"
   },
