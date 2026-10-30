@@ -467,6 +467,64 @@ describe('LWW çakışma çözümü (§7.4)', () => {
   });
 });
 
+describe('kasada açılan kampanya (§11.8)', () => {
+  const kampanyaId = '66666666-6666-4666-8666-666666666666';
+  const kampanyaOlayi = (ad: string, updated_at: string, aktif_mi = true) => ({
+    uuid: uuid(),
+    tip: 'KAMPANYA_KAYDEDILDI' as const,
+    entity: 'kampanya',
+    entity_id: kampanyaId,
+    olusturma_zamani: simdi(),
+    veri: {
+      id: kampanyaId,
+      ad,
+      tip: 'N_AL_M_ODE',
+      kapsam: 'TUM',
+      hedef_id: null,
+      deger: 2,
+      esik_miktar: 3000,
+      baslangic: '2026-01-01T00:00:00.000Z',
+      bitis: '2026-12-31T23:59:59.000Z',
+      oncelik: 1,
+      aktif_mi,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at,
+    },
+  });
+
+  it('buluta yazılır, sürüm alır ve diğer kasalara pull ile iner', async () => {
+    const yanit = await push([kampanyaOlayi('3 al 2 öde', new Date().toISOString())]);
+    expect(yanit.statusCode).toBe(200);
+
+    const kayit = await vt.tek<{ ad: string; esik_miktar: number; aktif_mi: number; versiyon: number }>(
+      'SELECT ad, esik_miktar, aktif_mi, versiyon FROM kampanyalar WHERE isletme_id = ? AND id = ?',
+      [ISLETME_ID, kampanyaId],
+    );
+    expect(kayit).toMatchObject({ ad: '3 al 2 öde' });
+    expect(Number(kayit?.esik_miktar)).toBe(3000);
+    expect(Number(kayit?.aktif_mi)).toBe(1);
+    expect(Number(kayit?.versiyon)).toBeGreaterThan(0);
+
+    const pull = await uygulama.inject({
+      method: 'GET',
+      url: `${UCLAR.senkronPull}?since=0&limit=100`,
+      headers: { 'x-device-token': CIHAZ_TOKEN },
+    });
+    expect(JSON.stringify(pull.json())).toContain(kampanyaId);
+  });
+
+  it('pasife alınan kampanya bulutta da pasif olur; eski tarihli kasa kaydı yenisini ezmez', async () => {
+    await push([kampanyaOlayi('Yeni', new Date(Date.now() + 60_000).toISOString(), false)]);
+    await push([kampanyaOlayi('Eski', new Date(Date.now() - 60_000).toISOString(), true)]);
+    const kayit = await vt.tek<{ ad: string; aktif_mi: number }>(
+      'SELECT ad, aktif_mi FROM kampanyalar WHERE isletme_id = ? AND id = ?',
+      [ISLETME_ID, kampanyaId],
+    );
+    expect(kayit?.ad).toBe('Yeni');
+    expect(Number(kayit?.aktif_mi)).toBe(0);
+  });
+});
+
 describe('durum ve mutabakat (§18.4)', () => {
   it('sunucu kayıt sayılarını raporlar', async () => {
     await push([satisOlayi()]);

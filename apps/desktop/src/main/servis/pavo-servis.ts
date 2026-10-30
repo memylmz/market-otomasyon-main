@@ -392,6 +392,7 @@ function satisiKaydet(baglam: Baglam, aktor: Aktor, girdi: PavoSatisGirdisi, sip
       pavo_id: satis.id,
       satis_no: satis.satisNo,
       fatura_no: faturaNo,
+      belge_no: satis.belgeler[0]?.belgeNo || null,
       sorgu_linki: satis.sorguLinki || null,
       kalemler: kalemEslesmesi(sonuc, satis),
     });

@@ -3,7 +3,16 @@
  * transaction içinde kullanılır (§10.3 iş kuralı).
  */
 
-import { fisNoSadelestir, simdi, uuid, type Kurus, type Miktar, type ZamanDamgasi } from '@market/shared';
+import {
+  aramaNormalize,
+  fisNoSadelestir,
+  likeKacir,
+  simdi,
+  uuid,
+  type Kurus,
+  type Miktar,
+  type ZamanDamgasi,
+} from '@market/shared';
 import type { Vt } from '../db/surucu.js';
 import { boolToSayi, limitOfset, sayiToBool, type SayfaSecenekleri } from './ortak.js';
 
@@ -394,7 +403,8 @@ export function satislariListele(
     kosullar.push('s.kasa_oturum_id = ?');
     parametreler.push(filtre.kasaOturumId);
   }
-  if (filtre.fisNo) {
+  // Ayraçları atılınca boş kalan numara ("-", "%") her fişe uyardı.
+  if (filtre.fisNo && fisNoSadelestir(filtre.fisNo)) {
     // Ayraçları yok sayarak eşleştir: okuyucu klavye düzeni yüzünden "A-000512"
     // yerine "A*000512" gönderebilir (bkz. fisNoSadelestir). Kullanıcının elle
     // yazdığı boşluk/tire farkları da böylece sorun çıkarmaz.
@@ -420,6 +430,99 @@ export function satislariListele(
 
   const sayim = vt.hazirla(`SELECT COUNT(*) AS adet FROM satislar s ${nerede}`).tek<{ adet: number }>(...parametreler);
   return { kayitlar: satirlar.map(satisCoz), toplam: sayim?.adet ?? 0 };
+}
+
+export interface SatisAramaKriteri {
+  /** Fiş no, Pavo satış/fatura/belge no ya da müşteri adı (parçası). */
+  metin?: string;
+  baslangic?: ZamanDamgasi;
+  bitis?: ZamanDamgasi;
+  /** Fişin genel toplamı, kuruş — tam eşleşme. */
+  tutar?: Kurus;
+  /** Fişte geçen ürünün adı (parçası) ya da barkodu. */
+  urun?: string;
+  odemeTipi?: 'NAKIT' | 'KART' | 'VERESIYE';
+}
+
+export interface SatisAramaSatiri {
+  id: string;
+  fis_no: string;
+  tarih: ZamanDamgasi;
+  genel_toplam: Kurus;
+  odeme_ozeti: string | null;
+  iade_mi: boolean;
+  iptal_mi: boolean;
+  kullanici_adi: string | null;
+  musteri_adi: string | null;
+  kalem_sayisi: number;
+  pavo_belge_no: string | null;
+  pavo_fatura_no: string | null;
+}
+
+/**
+ * İade ekranının detaylı fiş araması.
+ *
+ * Pavo varken müşterinin elindeki kâğıt Pavo'nun fişidir; üzerinde kasanın fiş
+ * no'su ve barkodu yoktur. Fiş; Pavo'nun belge/fatura numarasıyla, tarih +
+ * tutarla ya da içindeki ürünle bulunur. Kriterler birlikte (VE) uygulanır.
+ */
+export function satisAra(vt: Vt, k: SatisAramaKriteri, limit = 50): SatisAramaSatiri[] {
+  const kosullar: string[] = [];
+  const p: unknown[] = [];
+  const metin = k.metin?.trim();
+  if (metin) {
+    // LIKE, ASCII harflerde büyük/küçük duyarsızdır; Pavo numaraları ASCII'dir.
+    const benzer = `%${likeKacir(metin)}%`;
+    // Ayraçları atılmış fiş no boş kalırsa ("%", "-") koşul her fişe uyardı; o dal düşer.
+    const sade = fisNoSadelestir(metin);
+    kosullar.push(`(${sade ? "REPLACE(REPLACE(REPLACE(UPPER(s.fis_no), '-', ''), '*', ''), ' ', '') LIKE ? OR" : ''}
+      ps.satis_no LIKE ? ESCAPE '\\' OR ps.fatura_no LIKE ? ESCAPE '\\' OR ps.belge_no LIKE ? ESCAPE '\\'
+      OR c.ad_unvan LIKE ? ESCAPE '\\')`);
+    if (sade) p.push(`%${sade}%`);
+    p.push(benzer, benzer, benzer, benzer);
+  }
+  if (k.baslangic) {
+    kosullar.push('s.tarih >= ?');
+    p.push(k.baslangic);
+  }
+  if (k.bitis) {
+    kosullar.push('s.tarih < ?');
+    p.push(k.bitis);
+  }
+  if (k.tutar !== undefined && k.tutar !== null) {
+    kosullar.push('ABS(s.genel_toplam) = ?');
+    p.push(Math.abs(k.tutar));
+  }
+  const urun = k.urun?.trim();
+  if (urun) {
+    // Türkçe harf duyarsız: ürünün hazır arama metni kullanılır (İ/ı/Ç… SQLite UPPER'ı bilmez).
+    kosullar.push(`EXISTS (SELECT 1 FROM satis_kalemleri sk WHERE sk.satis_id = s.id
+      AND (sk.barkod = ?
+        OR sk.urun_id IN (SELECT urun_id FROM barkodlar WHERE barkod = ?)
+        OR sk.urun_id IN (SELECT id FROM urunler WHERE arama_metni LIKE ? ESCAPE '\\')))`);
+    // Satır barkodu her zaman yazılmaz (ızgaradan eklenen ürün); ürünün barkodları da aranır.
+    p.push(urun, urun, `%${likeKacir(aramaNormalize(urun))}%`);
+  }
+  if (k.odemeTipi) {
+    kosullar.push('EXISTS (SELECT 1 FROM odemeler o WHERE o.satis_id = s.id AND o.odeme_tipi = ?)');
+    p.push(k.odemeTipi);
+  }
+  const nerede = kosullar.length ? 'WHERE ' + kosullar.join(' AND ') : '';
+  return vt
+    .hazirla(
+      `SELECT s.id, s.fis_no, s.tarih, s.genel_toplam, s.odeme_ozeti, s.iade_mi, s.iptal_mi,
+              u.ad AS kullanici_adi, c.ad_unvan AS musteri_adi,
+              (SELECT COUNT(*) FROM satis_kalemleri sk WHERE sk.satis_id = s.id) AS kalem_sayisi,
+              ps.belge_no AS pavo_belge_no, ps.fatura_no AS pavo_fatura_no
+       FROM satislar s
+       LEFT JOIN kullanicilar u ON u.id = s.kullanici_id
+       LEFT JOIN cariler c ON c.id = s.musteri_id
+       LEFT JOIN pavo_satislari ps ON ps.satis_id = s.id
+       ${nerede}
+       ORDER BY s.tarih DESC, s.rowid DESC LIMIT ?`,
+    )
+    .tumu<Omit<SatisAramaSatiri, 'iade_mi' | 'iptal_mi'> & { iade_mi: number; iptal_mi: number }>(...p, limit)
+    .map((r) => ({ ...r, iade_mi: sayiToBool(r.iade_mi), iptal_mi: sayiToBool(r.iptal_mi) }));
 }
 
 /** Bir ürünün son satış fiyatı — hızlı fiyat sorgulama ve iade için. */

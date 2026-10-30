@@ -1081,6 +1081,23 @@ export const GOCLER: readonly Goc[] = [
       DROP TABLE IF EXISTS urun_maliyet;
     `,
   },
+  {
+    surum: 20,
+    ad: 'pavo_belge_no',
+    /*
+     * Pavo'nun fişe bastığı belge numarası. Pavo varken müşterinin elindeki
+     * kâğıt Pavo'nun fişidir; üzerinde kasanın fiş no'su ve barkodu yoktur.
+     * İade ekranında o fişi bulabilmek için cihazın numarası da saklanır.
+     */
+    yukari: `
+      ALTER TABLE pavo_satislari ADD COLUMN belge_no TEXT;
+      CREATE INDEX ix_pavo_satislari_satis_no ON pavo_satislari(satis_no);
+    `,
+    asagi: `
+      DROP INDEX IF EXISTS ix_pavo_satislari_satis_no;
+      ALTER TABLE pavo_satislari DROP COLUMN belge_no;
+    `,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

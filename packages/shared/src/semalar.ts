@@ -572,6 +572,47 @@ export const zKampanya = zOrtakAlanlar.extend({
 });
 export type Kampanya = z.infer<typeof zKampanya>;
 
+/**
+ * Kasada kampanya kaydetme girdisi. Panelin formuyla aynı kurallar: tarih
+ * sırası, kapsam hedefi, tipe göre değer birimi (yüzde / kuruş / adet).
+ */
+export const zKampanyaGirdi = z
+  .object({
+    id: zUuid.optional(),
+    ad: zMetin(120).min(1, 'Kampanya adı zorunludur.'),
+    tip: z.enum(KAMPANYA_TIPI),
+    kapsam: z.enum(KAMPANYA_KAPSAMI),
+    hedef_id: zUuid.nullable().optional(),
+    /** YUZDE → yüzde (0-100) · N_AL_M_ODE → ödenen adet · diğerleri kuruş. */
+    deger: z.number().finite(),
+    /** Miktar kampanyalarının eşiği, bindebir (3 adet → 3000). */
+    esik_miktar: z.number().int().positive().nullable().optional(),
+    baslangic: zZaman,
+    bitis: zZaman,
+    oncelik: z.number().int().default(0),
+    aktif_mi: z.boolean().default(true),
+  })
+  .superRefine((k, ctx) => {
+    const sorun = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (Date.parse(k.bitis) <= Date.parse(k.baslangic)) sorun('Bitiş tarihi başlangıçtan sonra olmalıdır.');
+    if (k.kapsam !== 'TUM' && !k.hedef_id) sorun(k.kapsam === 'KATEGORI' ? 'Bir kategori seçin.' : 'Bir ürün seçin.');
+    const esikli = k.tip === 'N_AL_M_ODE' || k.tip === 'KADEMELI_FIYAT';
+    if (esikli && !k.esik_miktar) sorun(k.tip === 'N_AL_M_ODE' ? 'Alınan adet girin.' : 'Eşik miktarı girin.');
+    if (k.tip === 'YUZDE' && !(k.deger > 0 && k.deger <= 100)) sorun('İndirim yüzdesi 0 ile 100 arasında olmalıdır.');
+    if (k.tip === 'N_AL_M_ODE') {
+      const alinan = (k.esik_miktar ?? 0) / 1000;
+      if (!Number.isInteger(alinan) || alinan < 2) sorun('Alınan adet en az 2 olmalıdır.');
+      if (!Number.isInteger(k.deger) || k.deger < 1 || k.deger >= alinan) sorun('Ödenen adet, alınan adetten küçük olmalıdır.');
+    }
+    if (
+      (k.tip === 'TUTAR' || k.tip === 'SABIT_FIYAT' || k.tip === 'KADEMELI_FIYAT') &&
+      !(Number.isInteger(k.deger) && k.deger >= 0)
+    ) {
+      sorun('Geçerli bir tutar girin.');
+    }
+  });
+export type KampanyaGirdi = z.infer<typeof zKampanyaGirdi>;
+
 export const zAyar = z.object({
   anahtar: z.string().min(1).max(120),
   deger: z.string(),

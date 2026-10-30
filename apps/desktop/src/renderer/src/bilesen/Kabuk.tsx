@@ -30,6 +30,7 @@ const MENU: MenuOgesi[] = [
   // İade menüden kaldırıldı — artık Satış ekranının üst barında düğme (bkz. Satis.tsx).
   { yol: '/urunler', etiket: 'Ürünler', ikon: '📦', yetki: 'urun.goruntule' },
   { yol: '/stok', etiket: 'Stok', ikon: '🏷️', yetki: 'stok.goruntule' },
+  { yol: '/kampanyalar', etiket: 'Kampanyalar', ikon: '🎯', yetki: 'kampanya.yonet' },
   { yol: '/cari', etiket: 'Cari Hesap', ikon: '📒', yetki: 'cari.goruntule' },
   { yol: '/kasa', etiket: 'Kasa', ikon: '💰', yetki: 'kasa.ac' },
   // Gün sonu ve mali raporlar; kasayı kapatan kişi (kasiyer) de girer.
@@ -46,6 +47,23 @@ export function Kabuk({ children }: { children: ReactNode }) {
   const gezin = useNavigate();
   const [saat, setSaat] = useState(() => new Date());
   const [senkronCalisiyor, setSenkronCalisiyor] = useState(false);
+  // Sol menü daraltılabilir (yalnız simgeler): satış ekranında sepete yer açar. Tercih bu bilgisayarda hatırlanır.
+  const [menuDar, setMenuDar] = useState(() => {
+    try {
+      return localStorage.getItem('kabuk.menuDar') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const menuyuDegistir = () =>
+    setMenuDar((d) => {
+      try {
+        localStorage.setItem('kabuk.menuDar', d ? '0' : '1');
+      } catch {
+        /* tercih kaydedilemezse yalnız bu oturumda geçerli */
+      }
+      return !d;
+    });
   const konum = useLocation();
   const [pavoAcik, setPavoAcik] = useState(false);
 
@@ -124,8 +142,8 @@ export function Kabuk({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full">
-      <nav className="flex w-52 shrink-0 flex-col border-r border-cizgi bg-yuzey" aria-label="Ana menü">
-        <div className="border-b border-cizgi px-4 py-3">
+      <nav className={`flex ${menuDar ? 'w-14' : 'w-52'} shrink-0 flex-col border-r border-cizgi bg-yuzey`} aria-label="Ana menü">
+        <div className={`border-b border-cizgi px-4 py-3 ${menuDar ? 'hidden' : ''}`}>
           <p className="text-sm font-semibold text-vurgu">AKYSOFTMARKETV1</p>
           {sistem?.isletmeAdi && (
             <p className="truncate text-xs font-medium text-metin-2" title={sistem.isletmeAdi}>
@@ -148,6 +166,7 @@ export function Kabuk({ children }: { children: ReactNode }) {
             <li key={oge.yol}>
               <NavLink
                 to={oge.yol}
+                title={oge.etiket}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                     isActive
@@ -157,21 +176,30 @@ export function Kabuk({ children }: { children: ReactNode }) {
                 }
               >
                 <span aria-hidden="true">{oge.ikon}</span>
-                <span className="flex-1">{oge.etiket}</span>
+                {!menuDar && <span className="flex-1">{oge.etiket}</span>}
               </NavLink>
             </li>
           ))}
         </ul>
 
         <div className="border-t border-cizgi p-3">
-          <button type="button" className="tus-ikincil w-full text-sm" onClick={() => void cikisYapmayiDene()}>
-            Çıkış Yap
+          <button type="button" className="tus-ikincil w-full text-sm" title="Çıkış Yap" onClick={() => void cikisYapmayiDene()}>
+            {menuDar ? '⏻' : 'Çıkış Yap'}
           </button>
         </div>
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-4 border-b border-cizgi bg-yuzey px-4 py-2 text-sm">
+          <button
+            type="button"
+            onClick={menuyuDegistir}
+            className="rounded px-2 py-1 text-base hover:bg-yuzey-2"
+            title={menuDar ? 'Menüyü aç' : 'Menüyü daralt'}
+            aria-label={menuDar ? 'Menüyü aç' : 'Menüyü daralt'}
+          >
+            ☰
+          </button>
           <span className="font-medium">
             {sistem?.oturum?.ad ?? '—'}
             <span className="ml-1 text-xs text-metin-4">({sistem?.oturum?.rol ?? ''})</span>

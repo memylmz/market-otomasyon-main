@@ -8,6 +8,7 @@ import {
   miktarFormat,
   miktarParse,
   paraFormat,
+  paraParse,
   tarihSaatFormat,
   varsayilanIadeYontemi,
   type Kurus,
@@ -31,6 +32,21 @@ interface Kalem {
   birim_fiyat: Kurus;
   satir_toplam: Kurus;
   iade_edilen?: Miktar;
+}
+
+interface AramaSatiri {
+  id: string;
+  fis_no: string;
+  tarih: string;
+  genel_toplam: Kurus;
+  odeme_ozeti: string | null;
+  iade_mi: boolean;
+  iptal_mi: boolean;
+  kullanici_adi: string | null;
+  musteri_adi: string | null;
+  kalem_sayisi: number;
+  pavo_belge_no: string | null;
+  pavo_fatura_no: string | null;
 }
 
 interface SatisDetay {
@@ -68,6 +84,8 @@ export function IadeSayfasi() {
   const [hesap, setHesap] = useState<{ id: string; ad: string; bakiye: Kurus } | null>(null);
   const [musteriSecAcik, setMusteriSecAcik] = useState(false);
   const fisAlani = useRef<HTMLInputElement>(null);
+  const [detayliAcik, setDetayliAcik] = useState(false);
+  const [sonuclar, setSonuclar] = useState<AramaSatiri[] | null>(null);
 
   // Fiş barkodu okutulduğunda alan odakta olmasa da yakalanır.
   useBarkodOdakYakalayici({
@@ -76,6 +94,35 @@ export function IadeSayfasi() {
     onKarakter: (karakter) => setFisNo((mevcut) => mevcut + karakter),
   });
 
+  /** Bulunan satışı açar (fiş no araması da detaylı arama da buraya düşer). */
+  const ac = async (satisId: string) => {
+    try {
+      const d = await cagir<SatisDetay>('satis.detay', { satisId });
+      setDetay(d);
+      setSonuclar(null);
+      setSecimler({});
+      setHesap(null);
+      if (d.satis.musteri_id) void hesabiYukle(d.satis.musteri_id);
+      // Para müşteriye geldiği yoldan döner: veresiye satışın iadesi borçtan düşülür.
+      setYontem(varsayilanIadeYontemi(d.odemeler ?? []));
+      if (d.satis.iptal_mi) bildir.uyari('Bu satış iptal edilmiş, iade edilemez.');
+      if (d.satis.iade_mi) bildir.uyari('Bu bir iade fişidir, tekrar iade edilemez.');
+    } catch (hata) {
+      hatayiBildir(hata, 'Satış');
+    }
+  };
+
+  const detayliAra = async (kriter: Record<string, unknown>) => {
+    try {
+      const liste = await cagir<AramaSatiri[]>('satis.ara', kriter);
+      setDetay(null);
+      setSonuclar(liste);
+      if (liste.length === 0) bildir.uyari('Eşleşen fiş yok', 'Tarihi, tutarı ya da ürünü değiştirip yeniden deneyin.');
+    } catch (hata) {
+      hatayiBildir(hata, 'Fiş arama');
+    }
+  };
+
   const bul = async (aranan = fisNo) => {
     if (!aranan.trim()) return;
     try {
@@ -83,6 +130,23 @@ export function IadeSayfasi() {
         filtre: { fisNo: aranan.trim() },
         limit: 5,
       });
+      /*
+       * Kasanın fiş no'su tutmadıysa Pavo'nun belge/fatura numarası olabilir:
+       * Pavo varken müşterinin elindeki kâğıt Pavo'nun fişidir.
+       */
+      if (liste.kayitlar.length === 0) {
+        const pavodan = await cagir<AramaSatiri[]>('satis.ara', { metin: aranan.trim() });
+        if (pavodan.length === 1 && pavodan[0]) {
+          await ac(pavodan[0].id);
+          return;
+        }
+        if (pavodan.length > 1) {
+          setDetay(null);
+          setSonuclar(pavodan);
+          bildir.uyari('Birden fazla fiş eşleşti', 'Listeden doğru fişi seçin.');
+          return;
+        }
+      }
       /*
        * Fiş numarası tür harfi taşıdığı için (NA-/KA-/VA-…) yalnız rakamla
        * aramak birden çok fişe uyabilir; o zaman tam eşleşen seçilir, yoksa
@@ -100,19 +164,11 @@ export function IadeSayfasi() {
       }
       const ilk = tam ?? liste.kayitlar[0];
       if (!ilk) {
-        bildir.uyari('Satış bulunamadı', 'Fiş numarasını kontrol edin.');
+        bildir.uyari('Satış bulunamadı', 'Fiş numarasını kontrol edin ya da Detaylı Ara ile tarih/tutar/ürünle arayın.');
         setDetay(null);
         return;
       }
-      const d = await cagir<SatisDetay>('satis.detay', { satisId: ilk.id });
-      setDetay(d);
-      setSecimler({});
-      setHesap(null);
-      if (d.satis.musteri_id) void hesabiYukle(d.satis.musteri_id);
-      // Para müşteriye geldiği yoldan döner: veresiye satışın iadesi borçtan düşülür.
-      setYontem(varsayilanIadeYontemi(d.odemeler ?? []));
-      if (d.satis.iptal_mi) bildir.uyari('Bu satış iptal edilmiş, iade edilemez.');
-      if (d.satis.iade_mi) bildir.uyari('Bu bir iade fişidir, tekrar iade edilemez.');
+      await ac(ilk.id);
     } catch (hata) {
       hatayiBildir(hata, 'Satış arama');
     }
@@ -227,12 +283,23 @@ export function IadeSayfasi() {
         <button type="button" className="tus-birincil" onClick={() => void bul()}>
           Bul
         </button>
+        <button
+          type="button"
+          className={detayliAcik ? 'tus-birincil whitespace-nowrap' : 'tus-ikincil whitespace-nowrap'}
+          onClick={() => setDetayliAcik((a) => !a)}
+        >
+          Detaylı Ara
+        </button>
       </div>
 
-      {!detay ? (
+      {detayliAcik && <DetayliArama onAra={(k) => void detayliAra(k)} />}
+
+      {!detay && sonuclar && sonuclar.length > 0 ? (
+        <AramaSonuclari sonuclar={sonuclar} onSec={(id) => void ac(id)} />
+      ) : !detay ? (
         <BosDurum
           baslik="Satış seçilmedi"
-          aciklama="İade için önce orijinal satışı fiş numarasıyla bulun. Değişim = iade + yeni satış olarak yapılır."
+          aciklama="Fiş barkodunu okutun ya da numarasını yazın. Fiş yoksa (Pavo fişi, kaybolmuş fiş) Detaylı Ara ile tarih, tutar, ürün veya Pavo fiş numarasıyla bulun. Değişim = iade + yeni satış."
         />
       ) : (
         <div className="flex min-h-0 flex-1 gap-4">
@@ -531,6 +598,131 @@ export function IadeSayfasi() {
           if (id) void hesabiYukle(id);
         }}
       />
+    </div>
+  );
+}
+
+/** Bugünün yerel günü (YYYY-AA-GG). */
+function bugunAnahtari(): string {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Fiş elde değilken arama: tarih + tutar ya da fişteki ürün, ödeme şekli,
+ * Pavo'nun fiş/fatura numarası veya müşteri adı. Boş bırakılan alan aranmaz.
+ */
+function DetayliArama({ onAra }: { onAra: (kriter: Record<string, unknown>) => void }) {
+  const [gun, setGun] = useState(bugunAnahtari);
+  const [tumGunler, setTumGunler] = useState(false);
+  const [tutar, setTutar] = useState('');
+  const [urun, setUrun] = useState('');
+  const [odeme, setOdeme] = useState('');
+  const [metin, setMetin] = useState('');
+
+  const ara = () => {
+    const kriter: Record<string, unknown> = {};
+    if (!tumGunler && gun) {
+      // Gün yerel saatle kurulur; UTC'ye çevrilince gece yarısı kaymaz.
+      const bas = new Date(`${gun}T00:00:00`);
+      kriter.baslangic = bas.toISOString();
+      kriter.bitis = new Date(bas.getTime() + 86_400_000).toISOString();
+    }
+    if (tutar.trim()) {
+      const kurus = paraParse(tutar);
+      if (kurus === null) {
+        bildir.uyari('Tutar okunamadı', 'Örn. 145,50');
+        return;
+      }
+      kriter.tutar = kurus;
+    }
+    if (urun.trim()) kriter.urun = urun.trim();
+    if (odeme) kriter.odemeTipi = odeme;
+    if (metin.trim()) kriter.metin = metin.trim();
+    onAra(kriter);
+  };
+
+  return (
+    <form
+      className="kart mb-4 grid max-w-5xl grid-cols-6 items-end gap-3 p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        ara();
+      }}
+    >
+      {/* "Tüm günler" Alan'ın <label>'ı DIŞINDA: iç içe etikette tıklama tarih kutusuna gidiyordu. */}
+      <div>
+        <Alan etiket="Gün">
+          <input type="date" className="alan" value={gun} disabled={tumGunler} onChange={(e) => setGun(e.target.value)} />
+        </Alan>
+        <label className="mt-1 flex items-center gap-1.5 text-xs text-metin-3">
+          <input type="checkbox" checked={tumGunler} onChange={(e) => setTumGunler(e.target.checked)} />
+          Tüm günler
+        </label>
+      </div>
+      <Alan etiket="Fiş tutarı">
+        <input
+          className="alan sayi"
+          inputMode="decimal"
+          placeholder="145,50"
+          value={tutar}
+          onChange={(e) => setTutar(e.target.value)}
+        />
+      </Alan>
+      <Alan etiket="Fişteki ürün">
+        <input className="alan" placeholder="Ad ya da barkod" value={urun} onChange={(e) => setUrun(e.target.value)} />
+      </Alan>
+      <Alan etiket="Ödeme">
+        <select className="alan" value={odeme} onChange={(e) => setOdeme(e.target.value)}>
+          <option value="">Hepsi</option>
+          <option value="NAKIT">Nakit</option>
+          <option value="KART">Kart</option>
+          <option value="VERESIYE">Veresiye</option>
+        </select>
+      </Alan>
+      <Alan etiket="Pavo fiş no / müşteri">
+        <input className="alan" placeholder="Fiş, fatura no ya da ad" value={metin} onChange={(e) => setMetin(e.target.value)} />
+      </Alan>
+      <button type="submit" className="tus-birincil mb-0.5">
+        Ara
+      </button>
+    </form>
+  );
+}
+
+function AramaSonuclari({ sonuclar, onSec }: { sonuclar: AramaSatiri[]; onSec: (id: string) => void }) {
+  return (
+    <div className="kart min-h-0 flex-1 overflow-auto">
+      <table className="tablo">
+        <thead className="sticky top-0 bg-yuzey">
+          <tr>
+            <th>Saat</th>
+            <th>Fiş no</th>
+            <th>Pavo fiş / fatura</th>
+            <th className="text-right">Tutar</th>
+            <th>Ödeme</th>
+            <th>Müşteri</th>
+            <th>Kasiyer</th>
+            <th>Durum</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sonuclar.map((s) => (
+            <tr key={s.id} className="cursor-pointer" onClick={() => onSec(s.id)}>
+              <td className="whitespace-nowrap">{tarihSaatFormat(s.tarih)}</td>
+              <td className="font-mono">{s.fis_no}</td>
+              <td className="font-mono text-xs text-metin-3">
+                {[s.pavo_belge_no, s.pavo_fatura_no].filter(Boolean).join(' · ') || '—'}
+              </td>
+              <td className="sayi text-right font-medium">{paraFormat(s.genel_toplam)}</td>
+              <td>{s.odeme_ozeti ?? '—'}</td>
+              <td>{s.musteri_adi ?? '—'}</td>
+              <td className="text-metin-3">{s.kullanici_adi ?? '—'}</td>
+              <td className="text-xs">{s.iptal_mi ? 'İptal' : s.iade_mi ? 'İade fişi' : `${s.kalem_sayisi} kalem`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

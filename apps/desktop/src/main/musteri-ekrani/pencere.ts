@@ -255,7 +255,26 @@ export class MusteriEkraniYoneticisi implements MusteriEkraniDenetcisi {
     p.setMenu(null);
     p.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     p.webContents.on('will-navigate', (olay) => olay.preventDefault());
-    p.once('ready-to-show', () => (deneme ? p.show() : p.showInactive()));
+    p.once('ready-to-show', () => {
+      if (deneme) {
+        p.show();
+        return;
+      }
+      p.showInactive();
+      /*
+       * Sınırlar GÖRÜNDÜKTEN SONRA yeniden uygulanır. Gösterilmeden verilen tam
+       * ekran sınırlarında Windows görev çubuğunu pencerenin üstünde bırakıyordu;
+       * ancak Ayarlar'da Kaydet'e basılınca (aynı setBounds) çekiliyordu. Windows
+       * yerleşimi biraz sonra bir kez daha düzeltebildiği için ikinci deneme var.
+       */
+      const yerles = () => {
+        if (hedef.tur === 'EKRAN' && !p.isDestroyed() && this.pencere === p) {
+          p.setBounds(screen.getDisplayMatching(hedef.ekran.bounds).bounds);
+        }
+      };
+      yerles();
+      setTimeout(yerles, 600);
+    });
     p.on('closed', () => {
       if (this.pencere === p) {
         this.pencere = null;

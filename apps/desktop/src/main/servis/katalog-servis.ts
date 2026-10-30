@@ -18,6 +18,7 @@ import {
   UygulamaHatasi,
   uuid,
   yuzdeUygula,
+  zKampanyaGirdi,
   zUrunGirdi,
   AYAR,
   type Miktar,
@@ -44,6 +45,9 @@ import {
   type UrunFiltresi,
   type UrunGorunumu,
   etiketBekleyenEkle,
+  kampanyaBul,
+  kampanyaYaz,
+  type KampanyaYazma,
 } from '../depo/katalog.js';
 import { ayarMetin, ayarYaz } from '../depo/ayar.js';
 import { stokOlayiYaz } from './stok-servis.js';
@@ -1016,4 +1020,80 @@ export function kategoriyiSenkrondanSil(baglam: Baglam, kategoriId: string): voi
     }
   });
   void cihazId;
+}
+
+// ---------------------------------------------------------------------------
+// Kampanya (§11.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Kampanyayı kasada kaydeder ve buluta gönderir.
+ *
+ * Eskiden kampanya yalnız panelden yönetiliyordu; kasadaki eski kaydet olay
+ * üretmediği için kampanya o kasada kalıyordu. Artık KAMPANYA_KAYDEDILDI olayı
+ * buluta gider, oradan diğer kasalara iner. Silme yoktur: pasife alınır.
+ */
+export function kampanyaKaydet(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): { id: string } {
+  yetkiIste(aktor, 'kampanya.yonet');
+  const ayrisim = zKampanyaGirdi.safeParse(hamGirdi);
+  if (!ayrisim.success) {
+    throw hatalar.dogrulama(ayrisim.error.issues[0]?.message ?? 'Kampanya bilgileri geçerli değil.', {
+      sorunlar: ayrisim.error.issues.map((i) => i.message),
+    });
+  }
+  const girdi = ayrisim.data;
+  const { vt, cihazId } = baglam;
+  const zaman = simdi();
+  const id = girdi.id ?? uuid();
+  const eski = girdi.id ? kampanyaBul(vt, girdi.id) : null;
+  if (girdi.id && !eski) throw hatalar.bulunamadi('Kampanya');
+
+  const kayit: KampanyaYazma = {
+    id,
+    ad: girdi.ad,
+    tip: girdi.tip,
+    kapsam: girdi.kapsam,
+    hedef_id: girdi.kapsam === 'TUM' ? null : (girdi.hedef_id ?? null),
+    deger: girdi.deger,
+    esik_miktar: girdi.tip === 'N_AL_M_ODE' || girdi.tip === 'KADEMELI_FIYAT' ? (girdi.esik_miktar ?? null) : null,
+    baslangic: girdi.baslangic,
+    bitis: girdi.bitis,
+    oncelik: girdi.oncelik,
+    aktif_mi: girdi.aktif_mi,
+    created_at: eski?.created_at ?? zaman,
+    updated_at: zaman,
+  };
+
+  vt.islem(() => {
+    kampanyaYaz(vt, kayit, cihazId);
+    olayYaz(
+      vt,
+      {
+        id: uuid(),
+        olay_tipi: 'KAMPANYA_KAYDEDILDI',
+        entity: 'kampanya',
+        entity_id: id,
+        // aktif_mi BOOLEAN gider: bulut `veri.aktif_mi === false` ile karşılaştırır.
+        veri: { ...kayit },
+        olusturma_zamani: zaman,
+      },
+      cihazId,
+      zaman,
+    );
+    denetimYaz(
+      vt,
+      {
+        kullanici_id: aktor.kullaniciId,
+        islem: 'KAMPANYA_KAYDET',
+        entity: 'kampanya',
+        entity_id: id,
+        eski_deger: eski ?? undefined,
+        yeni_deger: kayit,
+      },
+      cihazId,
+      zaman,
+    );
+  });
+
+  return { id };
 }

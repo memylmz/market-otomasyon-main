@@ -82,6 +82,11 @@ function kategoriRengi(kategoriId: string | null): string {
   return KATEGORI_RENKLERI[toplam % KATEGORI_RENKLERI.length] as string;
 }
 
+/** Satırda 3 kutucuk (3 × 140 + aralıklar + kenar boşluğu). */
+const IZGARA_VARSAYILAN = 480;
+/** Ekran tuş takımı (16rem) bu sütuna yerleştiği için daha dara inilmez. */
+const IZGARA_EN_DAR = 280;
+
 export function HizliUrunIzgarasi({
   adetOneki,
   onCarpanTuketildi,
@@ -101,6 +106,44 @@ export function HizliUrunIzgarasi({
   const [kategoriId, setKategoriId] = useState('');
   const [yukleniyor, setYukleniyor] = useState(true);
   const [muhtelifAcik, setMuhtelifAcik] = useState(false);
+  /*
+   * Sütun genişliği kenarından sürüklenerek ayarlanır; kutucuk sayısı genişliğe
+   * göre kendiliğinden değişir. Varsayılan satırda 3 ürün sığdırır. Tercih bu
+   * bilgisayarda hatırlanır; çift tık varsayılana döndürür.
+   */
+  const [genislik, setGenislik] = useState(() => {
+    try {
+      const kayitli = Number(localStorage.getItem('izgara.genislik'));
+      return kayitli >= IZGARA_EN_DAR ? kayitli : IZGARA_VARSAYILAN;
+    } catch {
+      return IZGARA_VARSAYILAN;
+    }
+  });
+  const genislikKaydet = (deger: number) => {
+    try {
+      localStorage.setItem('izgara.genislik', String(deger));
+    } catch {
+      /* yalnız bu oturumda geçerli */
+    }
+  };
+  const surukle = (olay: React.PointerEvent<HTMLDivElement>) => {
+    olay.preventDefault();
+    const baslangicX = olay.clientX;
+    const baslangic = genislik;
+    let son = baslangic;
+    const hareket = (e: PointerEvent) => {
+      const enGenis = Math.round(window.innerWidth * 0.6);
+      son = Math.min(enGenis, Math.max(IZGARA_EN_DAR, baslangic + (baslangicX - e.clientX)));
+      setGenislik(son);
+    };
+    const birak = () => {
+      window.removeEventListener('pointermove', hareket);
+      window.removeEventListener('pointerup', birak);
+      genislikKaydet(son);
+    };
+    window.addEventListener('pointermove', hareket);
+    window.addEventListener('pointerup', birak);
+  };
 
   const yukle = useCallback(async () => {
     setYukleniyor(true);
@@ -165,10 +208,22 @@ export function HizliUrunIzgarasi({
   return (
     // Ekran tuş takımı satış ekranında buraya (ızgaranın altına) yerleşir; sepet görünür kalır.
     <aside
-      className="flex w-[38rem] shrink-0 flex-col border-l border-cizgi bg-yuzey"
+      className="relative flex shrink-0 flex-col border-l border-cizgi bg-yuzey"
+      style={{ width: genislik }}
       aria-label="Hızlı ürünler"
       data-tus-takimi-yeri
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        title="Sürükleyerek genişlet/daralt · çift tık: varsayılan"
+        className="absolute inset-y-0 -left-1.5 z-10 w-3 cursor-col-resize touch-none hover:bg-vurgu/20"
+        onPointerDown={surukle}
+        onDoubleClick={() => {
+          setGenislik(IZGARA_VARSAYILAN);
+          genislikKaydet(IZGARA_VARSAYILAN);
+        }}
+      />
       <div className="flex gap-1.5 overflow-x-auto border-b border-cizgi px-3 py-2.5">
         <button
           type="button"
@@ -210,7 +265,7 @@ export function HizliUrunIzgarasi({
         ) : urunler.length === 0 ? (
           <BosDurum baslik="Ürün yok" aciklama="Bu kategoride aktif ürün bulunmuyor." />
         ) : (
-          <div className="grid grid-cols-4 gap-2.5">
+          <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
             {urunler.map((u) => (
               <button
                 key={u.id}

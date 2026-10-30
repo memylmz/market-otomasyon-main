@@ -76,6 +76,8 @@ export interface PavoSatisKaydi {
   pavo_id: number;
   satis_no: string;
   fatura_no: string | null;
+  /** Pavo'nun fişe bastığı belge (fiş) numarası; Z ile sıfırlanır. */
+  belge_no?: string | null;
   sorgu_linki: string | null;
   kalemler: PavoKalemEslesmesi[];
   created_at: ZamanDamgasi;
@@ -83,9 +85,19 @@ export interface PavoSatisKaydi {
 
 export function pavoSatisiYaz(vt: Vt, k: Omit<PavoSatisKaydi, 'created_at'>, zaman = simdi()): void {
   vt.hazirla(
-    `INSERT INTO pavo_satislari (satis_id, siparis_no, pavo_id, satis_no, fatura_no, sorgu_linki, kalemler, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).calistir(k.satis_id, k.siparis_no, k.pavo_id, k.satis_no, k.fatura_no, k.sorgu_linki, JSON.stringify(k.kalemler), zaman);
+    `INSERT INTO pavo_satislari (satis_id, siparis_no, pavo_id, satis_no, fatura_no, belge_no, sorgu_linki, kalemler, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).calistir(
+    k.satis_id,
+    k.siparis_no,
+    k.pavo_id,
+    k.satis_no,
+    k.fatura_no,
+    k.belge_no ?? null,
+    k.sorgu_linki,
+    JSON.stringify(k.kalemler),
+    zaman,
+  );
 }
 
 export function pavoSatisiBul(vt: Vt, satisId: string): PavoSatisKaydi | null {

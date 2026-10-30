@@ -24,6 +24,7 @@ import { KurulumSayfasi } from './sayfa/Kurulum';
 import { RaporlarSayfasi } from './sayfa/Raporlar';
 import { SatisSayfasi } from './sayfa/Satis';
 import { StokSayfasi } from './sayfa/Stok';
+import { KampanyalarSayfasi } from './sayfa/Kampanyalar';
 import { UrunlerSayfasi } from './sayfa/Urunler';
 import { YazarkasaSayfasi } from './sayfa/Yazarkasa';
 
@@ -119,6 +120,7 @@ export function App() {
                       <Route path="/iade" element={<IadeSayfasi />} />
                       <Route path="/urunler" element={<UrunlerSayfasi />} />
                       <Route path="/stok" element={<StokSayfasi />} />
+                      <Route path="/kampanyalar" element={<KampanyalarSayfasi />} />
                       <Route path="/cari" element={<CariSayfasi />} />
                       <Route path="/kasa" element={<KasaSayfasi />} />
                       <Route path="/yazarkasa" element={<YazarkasaSayfasi />} />

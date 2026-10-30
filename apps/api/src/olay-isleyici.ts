@@ -759,6 +759,49 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       return;
     }
 
+    case 'KAMPANYA_KAYDEDILDI': {
+      // Kasada açılan/düzenlenen kampanya. Panelden yapılan son değişiklik daha
+      // yeniyse LWW onu korur; kampanya silinmez, pasife alınır (aktif_mi).
+      await lwwUpsert(
+        islem,
+        baglam,
+        'kampanyalar',
+        [
+          'ad',
+          'tip',
+          'kapsam',
+          'hedef_id',
+          'deger',
+          'esik_miktar',
+          'baslangic',
+          'bitis',
+          'oncelik',
+          'aktif_mi',
+          'created_at',
+          'updated_at',
+          'cihaz_id',
+        ],
+        [
+          metin(veri.ad),
+          metin(veri.tip, 'YUZDE'),
+          metin(veri.kapsam, 'TUM'),
+          veri.hedef_id ?? null,
+          sayi(veri.deger),
+          veri.esik_miktar === null || veri.esik_miktar === undefined ? null : sayi(veri.esik_miktar),
+          metin(veri.baslangic, baglam.zaman),
+          metin(veri.bitis, baglam.zaman),
+          sayi(veri.oncelik),
+          veri.aktif_mi === false ? 0 : 1,
+          metin(veri.created_at, baglam.zaman),
+          metin(veri.updated_at, baglam.zaman),
+          baglam.cihazId,
+        ],
+        metin(veri.id),
+        metin(veri.updated_at, baglam.zaman),
+      );
+      return;
+    }
+
     case 'CARI_KAYDEDILDI': {
       await lwwUpsert(
         islem,

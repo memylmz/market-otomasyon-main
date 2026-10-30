@@ -12,6 +12,8 @@ import {
   likeKacir,
   simdi,
   uuid,
+  type KampanyaKapsami,
+  type KampanyaTipi,
   type Kurus,
   type Miktar,
   type ZamanDamgasi,
@@ -588,8 +590,8 @@ export function barkodlariDoldur(vt: Vt, urunler: UrunGorunumu[]): void {
 export interface KampanyaKaydi {
   id: string;
   ad: string;
-  tip: 'YUZDE' | 'TUTAR' | 'SABIT_FIYAT';
-  kapsam: 'URUN' | 'KATEGORI' | 'TUM';
+  tip: KampanyaTipi;
+  kapsam: KampanyaKapsami;
   hedef_id: string | null;
   deger: number;
   /** Miktar kampanyalarının eşiği, bindebir cinsinden. Diğer tiplerde null. */
@@ -620,6 +622,63 @@ export function kampanyalariListele(vt: Vt): KampanyaKaydi[] {
     )
     .tumu<HamSatir<KampanyaKaydi, 'aktif_mi'>>()
     .map((s) => ({ ...s, aktif_mi: sayiToBool(s.aktif_mi) }));
+}
+
+/** Kasada yazılan kampanyanın tam kaydı (olayla buluta da aynen gider). */
+export interface KampanyaYazma {
+  id: string;
+  ad: string;
+  tip: KampanyaTipi;
+  kapsam: KampanyaKapsami;
+  hedef_id: string | null;
+  deger: number;
+  esik_miktar: number | null;
+  baslangic: ZamanDamgasi;
+  bitis: ZamanDamgasi;
+  oncelik: number;
+  aktif_mi: boolean;
+  created_at: ZamanDamgasi;
+  updated_at: ZamanDamgasi;
+}
+
+export function kampanyaBul(vt: Vt, id: string): (KampanyaKaydi & { created_at: ZamanDamgasi }) | null {
+  const satir = vt
+    .hazirla(
+      `SELECT id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi, created_at
+       FROM kampanyalar WHERE id = ?`,
+    )
+    .tek<HamSatir<KampanyaKaydi & { created_at: ZamanDamgasi }, 'aktif_mi'>>(id);
+  return satir ? { ...satir, aktif_mi: sayiToBool(satir.aktif_mi) } : null;
+}
+
+/** Kasada kampanya yazar; sunucu sürümü korunur (pull imleci bozulmasın). */
+export function kampanyaYaz(vt: Vt, k: KampanyaYazma, cihazId: string): void {
+  vt.hazirla(
+    `INSERT INTO kampanyalar (id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi,
+                              created_at, updated_at, cihaz_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       ad = excluded.ad, tip = excluded.tip, kapsam = excluded.kapsam, hedef_id = excluded.hedef_id,
+       deger = excluded.deger, esik_miktar = excluded.esik_miktar,
+       baslangic = excluded.baslangic, bitis = excluded.bitis,
+       oncelik = excluded.oncelik, aktif_mi = excluded.aktif_mi, updated_at = excluded.updated_at,
+       cihaz_id = excluded.cihaz_id`,
+  ).calistir(
+    k.id,
+    k.ad,
+    k.tip,
+    k.kapsam,
+    k.hedef_id,
+    k.deger,
+    k.esik_miktar,
+    k.baslangic,
+    k.bitis,
+    k.oncelik,
+    boolToSayi(k.aktif_mi),
+    k.created_at,
+    k.updated_at,
+    cihazId,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -679,6 +738,10 @@ export function urunSunucudanUygula(vt: Vt, veri: Record<string, unknown>, versi
 export function kampanyaSunucudanUygula(vt: Vt, veri: Record<string, unknown>, versiyon: number): void {
   const id = String(veri.id ?? '');
   if (!id) return;
+  // LWW: kasada yapılmış ama henüz gönderilmemiş daha yeni değişiklik, buluttaki
+  // eski hâliyle ezilmez (önce pull gelirse kampanya bir anlığına eskiye dönerdi).
+  const mevcut = vt.hazirla('SELECT updated_at FROM kampanyalar WHERE id = ?').tek<{ updated_at: string }>(id);
+  if (mevcut && mevcut.updated_at > String(veri.updated_at ?? '')) return;
   vt.hazirla(
     `INSERT INTO kampanyalar (id, ad, tip, kapsam, hedef_id, deger, esik_miktar, baslangic, bitis, oncelik, aktif_mi,
                               created_at, updated_at, cihaz_id, sunucu_versiyonu)

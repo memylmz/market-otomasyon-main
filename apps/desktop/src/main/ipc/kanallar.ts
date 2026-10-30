@@ -76,6 +76,7 @@ import {
   sepetleriSakla,
   sepetleriUnut,
   satisDetayi,
+  satisAra,
   satislariListele,
   alisFaturasiBul,
   alisFaturalariniListele,
@@ -107,6 +108,7 @@ import {
   urunuPasiflestir,
   muhtelifUrunu,
   kategoriSil,
+  kampanyaKaydet,
 } from '../servis/katalog-servis.js';
 import { cihaziAktiveEt, cevrimdisiAktivasyon, cihazTokeniOku, lisansDurumu } from '../servis/lisans-servis.js';
 import { cikisYap, girisYap, hizliKullanicilar, yetkiliOnayi } from '../servis/oturum-servis.js';
@@ -534,6 +536,8 @@ export function kanallariOlustur(
       satislariListele(b().vt, girdi?.filtre ?? {}, { limit: girdi?.limit, ofset: girdi?.ofset })
     ),
     'satis.detay': (girdi: { satisId: string }) => (a(), satisDetayi(b().vt, girdi.satisId)),
+    // İade ekranının detaylı araması: Pavo fiş/belge no, tarih + tutar, ürün, ödeme şekli.
+    'satis.ara': (girdi: Parameters<typeof satisAra>[1]) => (a(), satisAra(b().vt, girdi ?? {})),
     'satis.fisYazdir': (girdi: { satisId: string; kopya?: boolean }) => (
       a(),
       satisFisiYazdir(b(), girdi.satisId, { kopyaMi: girdi.kopya })
@@ -863,11 +867,10 @@ export function kanallariOlustur(
       })),
     'kampanya.listele': () => (a(), kampanyalariListele(b().vt)),
     /*
-     * Kampanya KASADA YAZILMAZ: panelden yönetilir ve pull ile iner (§11.4).
-     * Burada bir `kampanya.kaydet` kanalı vardı ama olay üretmiyordu; kasada
-     * açılan kampanya buluta ve diğer kasalara hiç gitmiyor, yalnız o kasada
-     * kalıyordu. Hiçbir ekran da onu kullanmıyordu; kaldırıldı.
+     * Kasada kampanya: KAMPANYA_KAYDEDILDI olayıyla buluta, oradan diğer
+     * kasalara gider; panelden yapılan değişiklik de pull ile iner (§11.4).
      */
+    'kampanya.kaydet': (girdi: unknown) => kampanyaKaydet(b(), a(), girdi),
 
     // ------------------------------------------------------------------ ayar
     'ayar.tumu': () => {

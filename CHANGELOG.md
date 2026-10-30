@@ -6,6 +6,18 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Eklenenler
 
+- **Kampanyalar kasadan da yönetilir.** Menüde "Kampanyalar": panelle aynı form
+  (yüzde, tutar, sabit fiyat, N al M öde, kademeli fiyat; tüm ürünler / kategori /
+  tek ürün), zararına satış uyarısı. Kaydedilen kampanya bu kasada hemen geçerli
+  olur, `KAMPANYA_KAYDEDILDI` olayıyla buluta ve oradan diğer kasalara gider.
+  Buluttan gelen eski kayıt kasadaki daha yeni değişikliği ezmez. **Bulut API'si
+  bu olayı tanıyan sürüme kasalardan ÖNCE güncellenmelidir.**
+- **Sol menü daraltılabilir.** Üst çubuktaki ☰ menüyü yalnız simgelere indirir;
+  tercih o bilgisayarda hatırlanır.
+- **Satış ekranındaki hızlı ürün ızgarası genişletilip daraltılabilir.** Sol
+  kenarından sürüklenir, kutucuk sayısı genişliğe uyar; varsayılan satırda 3 ürün,
+  çift tık varsayılana döner.
+
 - **Etiket düzeni ayarlanabilir.** Ayarlar → Donanım → Etiket Yazıcısı → "Etiket
   düzeni": ürün adı (sola / ortaya / sağa, küçük / normal / büyük, uzun adı iki
   satıra böl), fiyat (hiza, boyut), barkod (bas / basma, hiza), çerçeve ve basım
@@ -212,6 +224,9 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Düzeltilenler
 
+- **Müşteri ekranı ilk açılışta Windows görev çubuğunun altında kalıyordu**;
+  Ayarlar'da Kaydet'e basılınca düzeliyordu. Pencere artık göründükten sonra
+  monitöre yeniden yerleşir.
 - **Boşaltılan ya da SATILAN sepet, program hemen kapatılınca geri geliyordu.**
   Sepet kurtarma kaydı 1,2 sn gecikmeyle yazılıyordu; Temizle ya da satış sonrası
   program bu süre içinde kapatılırsa yeniden açılışta eski ürünler sepete
