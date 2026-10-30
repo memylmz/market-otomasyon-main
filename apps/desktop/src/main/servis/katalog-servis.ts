@@ -43,6 +43,7 @@ import {
   barkodlaBul as barkodlaBulDepo,
   type UrunFiltresi,
   type UrunGorunumu,
+  etiketBekleyenEkle,
 } from '../depo/katalog.js';
 import { ayarMetin, ayarYaz } from '../depo/ayar.js';
 import { stokOlayiYaz } from './stok-servis.js';
@@ -226,6 +227,8 @@ export function urunuKaydet(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): st
   let id = '';
   vt.islem(() => {
     id = urunKaydet(vt, { ...girdi, id: urunId }, cihazId, zaman);
+    // Yeni ürünün rafta etiketi yok. (Fiyat DEĞİŞİMİNİ veritabanı tetikleyicisi yazar.)
+    if (!oncesi && girdi.satis_fiyati > 0) etiketBekleyenEkle(vt, id, girdi.satis_fiyati, zaman);
 
     for (const barkodGirdi of girdi.barkodlar) {
       const barkod = barkodNormalize(barkodGirdi.barkod);

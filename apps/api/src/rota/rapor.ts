@@ -51,7 +51,8 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
         [isletmeId, yediGunOnce, bugunAnahtari],
       ),
       uygulama.vt.tumu<Record<string, unknown>>(
-        `SELECT o.urun_id, u.ad AS urun_adi, SUM(o.adet) adet, SUM(o.ciro) ciro, SUM(o.kar) kar
+        `SELECT o.urun_id, u.ad AS urun_adi, SUM(o.adet) adet, SUM(o.ciro) ciro, SUM(o.kar) kar,
+                CAST(ROUND(SUM(o.ciro) * 100.0 / (100 + COALESCE(u.kdv_orani, 0))) AS INTEGER) matrah
          FROM urun_satis_ozet o LEFT JOIN urunler u ON u.isletme_id = o.isletme_id AND u.id = o.urun_id
          WHERE o.isletme_id = ? AND o.donem >= ? AND o.donem <= ?
          GROUP BY o.urun_id ORDER BY ciro DESC LIMIT 5`,
@@ -187,14 +188,16 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
      */
     const [enCok, enKarli, oluStok] = await Promise.all([
       uygulama.vt.tumu<Record<string, unknown>>(
-        `SELECT o.urun_id, u.ad AS urun_adi, SUM(o.adet) adet, SUM(o.ciro) ciro, SUM(o.kar) kar
+        `SELECT o.urun_id, u.ad AS urun_adi, SUM(o.adet) adet, SUM(o.ciro) ciro, SUM(o.kar) kar,
+                CAST(ROUND(SUM(o.ciro) * 100.0 / (100 + COALESCE(u.kdv_orani, 0))) AS INTEGER) matrah
          FROM urun_satis_ozet o LEFT JOIN urunler u ON u.isletme_id = o.isletme_id AND u.id = o.urun_id
          WHERE o.isletme_id = ? AND o.donem >= ? AND o.donem <= ?
          GROUP BY o.urun_id ORDER BY ciro DESC LIMIT ?`,
         [istek.kullanici?.isletmeId, from, to, limit],
       ),
       uygulama.vt.tumu<Record<string, unknown>>(
-        `SELECT o.urun_id, u.ad AS urun_adi, SUM(o.adet) adet, SUM(o.ciro) ciro, SUM(o.kar) kar
+        `SELECT o.urun_id, u.ad AS urun_adi, SUM(o.adet) adet, SUM(o.ciro) ciro, SUM(o.kar) kar,
+                CAST(ROUND(SUM(o.ciro) * 100.0 / (100 + COALESCE(u.kdv_orani, 0))) AS INTEGER) matrah
          FROM urun_satis_ozet o LEFT JOIN urunler u ON u.isletme_id = o.isletme_id AND u.id = o.urun_id
          WHERE o.isletme_id = ? AND o.donem >= ? AND o.donem <= ?
          GROUP BY o.urun_id ORDER BY kar DESC LIMIT ?`,

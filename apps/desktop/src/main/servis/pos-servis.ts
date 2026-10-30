@@ -32,6 +32,7 @@ import {
 import { odemeleriGetir } from '../depo/satis.js';
 import { posSurucusuOlustur, type PosSurucusu } from '../donanim/pos.js';
 import { yetkiIste, type Aktor, type Baglam } from './baglam.js';
+import { pavoAcikMi, pavoIleIade, pavoIleSatis, pavoIleSatisIptal, pavoTesti } from './pavo-servis.js';
 import { tahsilatIptal, tahsilatIptalPosIhtiyaci, tahsilatYap } from './cari-servis.js';
 import {
   iadeTutariHesapla,
@@ -312,6 +313,8 @@ function kartIadeSiniri(tutar: Kurus, kalan: Kurus, ipucu: string): void {
 // ---------------------------------------------------------------------------
 
 export function posDurumu(baglam: Baglam): { aktif: boolean; tur: string; ad: string | null } {
+  // Pavo bir sürücü değil: yalnız kartı değil bütün satışı cihazdan geçirir (pavo-servis).
+  if (pavoAcikMi(baglam)) return { aktif: true, tur: 'PAVO', ad: 'Pavo N86' };
   const s = surucu(baglam);
   return { aktif: Boolean(s), tur: ayarMetin(baglam.vt, AYAR.POS_TURU, 'KAPALI'), ad: s?.ad ?? null };
 }
@@ -342,6 +345,7 @@ export async function posIadesi(
 
 export async function posTesti(baglam: Baglam, aktor: Aktor): Promise<{ basarili: boolean; mesaj: string }> {
   yetkiIste(aktor, 'ayar.yonet');
+  if (pavoAcikMi(baglam)) return pavoTesti(baglam);
   const s = surucu(baglam);
   if (!s) return { basarili: false, mesaj: 'POS türü "Kapalı" seçili.' };
   try {
@@ -373,6 +377,12 @@ export async function posIleSatis(
   aktor: Aktor,
   hamGirdi: unknown,
 ): Promise<SatisSonucu & { pos: PosIslemSonucu | null }> {
+  // Pavo açıkken HER satış (nakit ve veresiye de) cihazdan geçer: yasal fişi o keser.
+  if (pavoAcikMi(baglam)) return pavoIleSatis(baglam, aktor, hamGirdi);
+  // e-Arşiv / e-Fatura'yı cihaz keser; Pavo yokken faturalı satış sessizce fişe dönmemeli.
+  if ((hamGirdi as { fatura?: unknown } | null)?.fatura) {
+    throw hatalar.dogrulama("Faturalı satış (e-Arşiv / e-Fatura) için Ayarlar → POS & Yazarkasa'dan Pavo tanımlı olmalı.");
+  }
   const girdi = (hamGirdi ?? {}) as { odemeler?: { tip?: unknown; tutar?: unknown }[] };
   const odemeler = Array.isArray(girdi.odemeler) ? girdi.odemeler : [];
   const kartTutari = odemeler
@@ -415,6 +425,16 @@ export async function posIleIade(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
     iade_yontemi?: string;
     kalemler?: { satis_kalemi_id: string; miktar: number }[];
   };
+  if (pavoAcikMi(baglam)) {
+    // Pavo'dan geçmiş satışın iadesi cihazda kısmi iade belgesiyle yapılır.
+    const pavoIadesi = await pavoIleIade(baglam, aktor, hamGirdi);
+    if (pavoIadesi) return pavoIadesi;
+    // Pavo öncesi satış: cihazda karşılığı yok. Karta iade cihazdan yapılamaz.
+    if (girdi.iade_yontemi === 'KART') {
+      throw hatalar.dogrulama("Bu satış Pavo'dan geçmemiş; karta iadesi Pavo'dan yapılamaz. Nakit iade edin.");
+    }
+    return iadeYap(baglam, aktor, hamGirdi);
+  }
   if (girdi.iade_yontemi !== 'KART' || !girdi.kaynak_satis_id || !posDurumu(baglam).aktif) {
     return iadeYap(baglam, aktor, hamGirdi);
   }
@@ -446,6 +466,15 @@ export async function posIleSatisIptal(
   neden: string,
   paraYolu?: 'NAKIT' | 'KART',
 ): Promise<void> {
+  if (pavoAcikMi(baglam)) {
+    // Pavo ödemeleri ÖDENDİĞİ GİBİ iade eder; para yolu seçilmez.
+    if (await pavoIleSatisIptal(baglam, aktor, satisId, neden)) return;
+    if (iptalIadeTutarlari(odemeleriGetir(baglam.vt, satisId), paraYolu).kartIade > 0) {
+      throw hatalar.dogrulama("Bu satış Pavo'dan geçmemiş; karta iadesi Pavo'dan yapılamaz. Para yolu olarak nakit seçin.");
+    }
+    satisIptal(baglam, aktor, satisId, neden, paraYolu);
+    return;
+  }
   const { kartIade } = iptalIadeTutarlari(odemeleriGetir(baglam.vt, satisId), paraYolu);
   if (kartIade <= 0 || !posDurumu(baglam).aktif) {
     satisIptal(baglam, aktor, satisId, neden, paraYolu);
@@ -479,6 +508,11 @@ export async function posIleTahsilat(
   girdi: { cari_id: string; tutar: Kurus; odeme_tipi: string; [anahtar: string]: unknown },
 ): Promise<ReturnType<typeof tahsilatYap>> {
   const musteri = cariBul(baglam.vt, girdi.cari_id)?.tip === 'MUSTERI';
+  if (pavoAcikMi(baglam) && girdi.odeme_tipi === 'KART' && musteri) {
+    // Veresiye satışın belgesi satış anında (Açık Hesap) kesildi; borcun kartla
+    // tahsili Pavo'da ayrı bir "fatura tahsilatı" işlemi ister — henüz yok.
+    throw hatalar.dogrulama('Pavo açıkken kartla cari tahsilat henüz desteklenmiyor. Tahsilatı nakit alın.');
+  }
   if (girdi.odeme_tipi !== 'KART' || !musteri || !posDurumu(baglam).aktif) return tahsilatYap(baglam, aktor, girdi);
 
   kuruDene(baglam.vt, () => tahsilatYap(baglam, aktor, girdi));

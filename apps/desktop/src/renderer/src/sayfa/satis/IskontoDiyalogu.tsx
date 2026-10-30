@@ -1,7 +1,7 @@
 /** Satır iskontosu (F4) — yetki gerektirir; ana süreç de ayrıca denetler (§15.4). */
 
 import { useEffect, useState } from 'react';
-import { paraFormat, satirHesapla, type Kurus } from '@market/shared';
+import { paraFormat, satirHesapla, satirZarardaMi, type Kurus } from '@market/shared';
 import { Diyalog, ParaAlani } from '../../bilesen/temel';
 import { bildir } from '../../durum/bildirim';
 import { useYetki } from '../../durum/oturum';
@@ -109,6 +109,11 @@ export function IskontoDiyalogu({ acik, satir, onKapat }: { acik: boolean; satir
             <span className="sayi text-vurgu">{paraFormat(onizleme.satirToplam)}</span>
           </div>
         </div>
+        {satirZarardaMi(onizleme.matrah, satir.alisFiyati, satir.miktar) && (
+          <p className="rounded border border-tehlike-cizgi bg-tehlike-yumusak p-2 text-sm font-medium text-tehlike">
+            ⚠ Bu indirimle ürün alış fiyatının altına düşer — zararına satılır.
+          </p>
+        )}
       </div>
     </Diyalog>
   );

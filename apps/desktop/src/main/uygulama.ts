@@ -22,7 +22,13 @@ import { bekleyenAlisTalimatlariniIsle, bildirilmemisSonuclariGonder } from './s
 import { bekleyenCariTalimatlariniIsle } from './servis/cari-talimat-servis.js';
 import { bekleyenIadeleriIsle } from './servis/iade-talimat-servis.js';
 import { cihazTokeniOku } from './servis/lisans-servis.js';
-import { yedekAl } from './servis/yedek-servis.js';
+import {
+  otomatikYedekGerekliMi,
+  yedekAl,
+  yedekAyarlariniOku,
+  yedekleriListele,
+  type YedekBilgisi,
+} from './servis/yedek-servis.js';
 
 export interface UygulamaSecenekleri {
   /** Veri kök dizini (Electron'da `app.getPath('userData')`). */
@@ -146,6 +152,7 @@ export class Uygulama {
       [AYAR.YEDEK_SIKLIK_SAAT, '6', 'Otomatik yedek sıklığı (saat)'],
       [AYAR.TEMA, 'acik', 'Arayüz teması: acik (varsayılan) veya koyu'],
       [AYAR.YAZI_BOYUTU, 'normal', 'Arayüz yazı boyutu'],
+      [AYAR.TUS_TAKIMI, 'otomatik', 'Ekran tuş takımı: otomatik (parmakla dokununca), acik veya kapali'],
       [AYAR.KURULUM_TAMAMLANDI, '0', 'Kurulum sihirbazı tamamlandı mı'],
     ];
 
@@ -227,6 +234,34 @@ export class Uygulama {
   olayDinle(dinleyici: (olay: string, veri: unknown) => void): () => void {
     this.dinleyiciler.add(dinleyici);
     return () => this.dinleyiciler.delete(dinleyici);
+  }
+
+  /**
+   * Sıfırlama ya da geri yüklemeden sonra veritabanı KAPALIDIR; program
+   * yeniden açılana kadar hiçbir işlem yapılamaz. Eskiden yalnız "lütfen
+   * yeniden başlatın" deniyordu: ekran eski oturumla açık kalıyor, basılan
+   * her düğme kapalı veritabanına çarpıp "Beklenmeyen bir hata" veriyordu.
+   */
+  private _yenidenBaslatmaBekleniyor = false;
+  /** Electron'u yeniden başlatan kanca (index.ts verir; testlerde yoktur). */
+  yenidenBaslatici: (() => void) | null = null;
+  /**
+   * Proje klasöründen çalışan geliştirme/deneme kopyası mı? (index.ts verir.)
+   * Ekranda "DEMO" diye işaretlenir: kurulu programla aynı görünüyor, verisi
+   * ise tamamen ayrı bir klasörde — hangisinin açık olduğu karıştırılıyordu.
+   */
+  gelistirmeKopyasi = false;
+
+  get yenidenBaslatmaBekleniyor(): boolean {
+    return this._yenidenBaslatmaBekleniyor;
+  }
+
+  /** Arayüze "yeniden başlatılıyor" der ve kısa süre sonra programı yeniden açar. */
+  yenidenBaslatmayiPlanla(neden: string): void {
+    this._yenidenBaslatmaBekleniyor = true;
+    this.olayYayinla('uygulama:yenidenBaslatiliyor', { neden });
+    const baslat = this.yenidenBaslatici;
+    if (baslat) setTimeout(baslat, 1500);
   }
 
   olayYayinla(olay: string, veri: unknown): void {
@@ -355,29 +390,59 @@ export class Uygulama {
   // -------------------------------------------------------------------------
 
   private yedekZamanlayicisi: ReturnType<typeof setInterval> | null = null;
+  private yedekIlkZamanlayici: ReturnType<typeof setTimeout> | null = null;
+  private yedekSuruyor = false;
+  /** Başarısız otomatik yedekten sonra bir saat beklenir; her 10 dakikada log basılmasın. */
+  private sonYedekHatasiMs = 0;
 
+  /**
+   * Otomatik yedek. Sık sık (10 dakikada bir) "son yedek eskidi mi?" diye bakar.
+   *
+   * Eskiden ayarlar açılışta BİR KEZ okunuyor ve sayaç her açılışta sıfırdan
+   * başlıyordu: ikincil klasörü yazıp kaydetmek program yeniden açılana kadar
+   * işlemiyor, program 6 saatten kısa açık kalan kasada otomatik yedek hiç
+   * alınmıyordu. Artık sayaç son yedekten başlar, ayarlar her kontrolde okunur.
+   */
   otomatikYedeklemeyiBaslat(sifrelemeAnahtari?: Buffer | null): void {
     if (this.yedekZamanlayicisi) return;
-    const saat = Number(ayarMetin(this.baglam.vt, AYAR.YEDEK_SIKLIK_SAAT, '6')) || 6;
-    const saklanan = Number(ayarMetin(this.baglam.vt, AYAR.YEDEK_SAKLANAN_ADET, '10')) || 10;
-    const ikincil = ayarMetin(this.baglam.vt, AYAR.YEDEK_IKINCIL_KLASOR, '') || null;
-
-    this.yedekZamanlayicisi = setInterval(
-      () => {
-        void yedekAl(this.baglam, { sifrelemeAnahtari, ikincilKlasor: ikincil, saklananAdet: saklanan, etiket: 'otomatik' })
-          .then((bilgi) => this.olayYayinla('yedek:alindi', bilgi))
-          .catch((hata) =>
-            this.kayit.hata('Otomatik yedek başarısız', { mesaj: hata instanceof Error ? hata.message : String(hata) }),
-          );
-      },
-      Math.max(1, saat) * 3600_000,
-    );
+    const kontrol = () => void this.otomatikYedekKontrolu(sifrelemeAnahtari);
+    // İlk kontrol açılıştan biraz sonra: açılışı yavaşlatmasın, göçler bitsin.
+    this.yedekIlkZamanlayici = setTimeout(kontrol, 2 * 60_000);
+    this.yedekIlkZamanlayici.unref?.();
+    this.yedekZamanlayicisi = setInterval(kontrol, 10 * 60_000);
     this.yedekZamanlayicisi.unref?.();
+  }
+
+  /** Son yedek eskidiyse yedek alır ve döndürür; vakit gelmediyse `null`. */
+  async otomatikYedekKontrolu(sifrelemeAnahtari?: Buffer | null, simdiMs = Date.now()): Promise<YedekBilgisi | null> {
+    if (this.yedekSuruyor || simdiMs - this.sonYedekHatasiMs < 3_600_000) return null;
+    const ayar = yedekAyarlariniOku(this.baglam.vt);
+    const sonYedek = yedekleriListele(this.baglam)[0]?.zaman;
+    if (!otomatikYedekGerekliMi(sonYedek, ayar.siklikSaat, simdiMs)) return null;
+
+    this.yedekSuruyor = true;
+    try {
+      const bilgi = await yedekAl(this.baglam, {
+        sifrelemeAnahtari,
+        ikincilKlasor: ayar.ikincilKlasor,
+        saklananAdet: ayar.saklananAdet,
+        etiket: 'otomatik',
+      });
+      this.olayYayinla('yedek:alindi', bilgi);
+      return bilgi;
+    } catch (hata) {
+      this.sonYedekHatasiMs = simdiMs;
+      this.kayit.hata('Otomatik yedek başarısız', { mesaj: hata instanceof Error ? hata.message : String(hata) });
+      return null;
+    } finally {
+      this.yedekSuruyor = false;
+    }
   }
 
   async kapat(): Promise<void> {
     this._zamanlayici?.durdur();
     if (this.yedekZamanlayicisi) clearInterval(this.yedekZamanlayicisi);
+    if (this.yedekIlkZamanlayici) clearTimeout(this.yedekIlkZamanlayici);
     if (this.bakimZamanlayicisi) clearInterval(this.bakimZamanlayicisi);
     this.baglam.kayit.bilgi('Uygulama kapatılıyor');
     try {

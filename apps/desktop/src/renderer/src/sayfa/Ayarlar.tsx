@@ -1,18 +1,25 @@
 /** Ayarlar (§10.11): işletme, donanım, senkron/lisans, yedekleme, görünüm. */
 
 import { useCallback, useEffect, useState } from 'react';
-import { AYAR, paraFormat, tarihSaatFormat } from '@market/shared';
+import { aramaNormalize, AYAR, tarihSaatFormat } from '@market/shared';
 import { Alan, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { EtiketOnizleme, FisOnizleme, type EtiketOnizlemeVerisi, type FisOnizlemeVerisi } from '../bilesen/Onizleme';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { oturumDurumu } from '../durum/oturum';
 import { cagir } from '../kopru';
+import { MusteriEkraniSekmesi } from './ayarlar/MusteriEkraniSekmesi';
+import { FisDuzeniSekmesi } from './ayarlar/FisDuzeniSekmesi';
+import { FaturaSinirlariBolumu } from './ayarlar/FaturaSinirlariBolumu';
+import { EtiketDuzeniAyarlari } from './ayarlar/EtiketDuzeniAyarlari';
+import { PosSekmesi } from './ayarlar/PosSekmesi';
 
-type Sekme = 'isletme' | 'donanim' | 'satis' | 'senkron' | 'yedek' | 'gorunum';
+type Sekme = 'isletme' | 'donanim' | 'fis' | 'pos' | 'musteri' | 'satis' | 'senkron' | 'yedek' | 'gorunum';
 
 export function AyarlarSayfasi() {
   const [sekme, setSekme] = useState<Sekme>('isletme');
   const [ayarlar, setAyarlar] = useState<Record<string, string>>({});
+  /** Veritabanındaki hâli — POS sekmesi "kaydedilmemiş değişiklik var" demek için karşılaştırır. */
+  const [kayitli, setKayitli] = useState<Record<string, string>>({});
   const [yukleniyor, setYukleniyor] = useState(true);
   const [kaydediliyor, setKaydediliyor] = useState(false);
   const tazele = oturumDurumu((s) => s.tazele);
@@ -21,7 +28,9 @@ export function AyarlarSayfasi() {
   const yukle = useCallback(async () => {
     setYukleniyor(true);
     try {
-      setAyarlar(await cagir<Record<string, string>>('ayar.tumu'));
+      const veri = await cagir<Record<string, string>>('ayar.tumu');
+      setAyarlar(veri);
+      setKayitli(veri);
     } catch (hata) {
       hatayiBildir(hata, 'Ayarlar');
     } finally {
@@ -39,6 +48,7 @@ export function AyarlarSayfasi() {
     setKaydediliyor(true);
     try {
       await cagir('ayar.yaz', { degerler: ayarlar });
+      setKayitli(ayarlar);
       bildir.basari('Ayarlar kaydedildi');
       await tazele();
       // Yazı boyutu anında uygulanır.
@@ -55,6 +65,9 @@ export function AyarlarSayfasi() {
   const sekmeler: { anahtar: Sekme; etiket: string }[] = [
     { anahtar: 'isletme', etiket: 'İşletme' },
     { anahtar: 'donanim', etiket: 'Donanım' },
+    { anahtar: 'fis', etiket: 'Fiş Düzeni' },
+    { anahtar: 'pos', etiket: 'POS & Yazarkasa' },
+    { anahtar: 'musteri', etiket: 'Müşteri Ekranı' },
     { anahtar: 'satis', etiket: 'Satış Kuralları' },
     { anahtar: 'senkron', etiket: 'Senkron & Lisans' },
     { anahtar: 'yedek', etiket: 'Yedekleme' },
@@ -148,6 +161,9 @@ export function AyarlarSayfasi() {
         )}
 
         {sekme === 'donanim' && <DonanimSekmesi ayarlar={ayarlar} ayarla={ayarla} />}
+        {sekme === 'fis' && <FisDuzeniSekmesi ayarlar={ayarlar} ayarla={ayarla} />}
+        {sekme === 'pos' && <PosSekmesi ayarlar={ayarlar} kayitli={kayitli} ayarla={ayarla} />}
+        {sekme === 'musteri' && <MusteriEkraniSekmesi ayarlar={ayarlar} ayarla={ayarla} />}
 
         {sekme === 'satis' && (
           <div className="grid max-w-2xl gap-3">
@@ -203,6 +219,7 @@ export function AyarlarSayfasi() {
                 onChange={(e) => ayarla(AYAR.IC_BARKOD_ONEKI, e.target.value)}
               />
             </Alan>
+            <FaturaSinirlariBolumu ayarlar={ayarlar} ayarla={ayarla} />
           </div>
         )}
 
@@ -210,7 +227,7 @@ export function AyarlarSayfasi() {
           <SenkronSekmesi ayarlar={ayarlar} ayarla={ayarla} lisans={sistem?.lisans} cihazId={sistem?.cihazId ?? ''} />
         )}
 
-        {sekme === 'yedek' && <YedekSekmesi ayarlar={ayarlar} ayarla={ayarla} />}
+        {sekme === 'yedek' && <YedekSekmesi ayarlar={ayarlar} kayitli={kayitli} ayarla={ayarla} />}
 
         {sekme === 'gorunum' && (
           <div className="grid max-w-lg gap-3">
@@ -258,87 +275,44 @@ export function AyarlarSayfasi() {
                 <option value="cok-buyuk">Çok büyük</option>
               </select>
             </Alan>
+
+            <Alan
+              etiket="Ekran tuş takımı"
+              ipucu="Fiyat, miktar, tutar gibi sayı alanlarında açılan büyük rakam tuşları. Klavye her durumda çalışır. Bu ayar yalnız bu bilgisayar içindir."
+            >
+              <div className="flex gap-2">
+                {(
+                  [
+                    { deger: 'otomatik', etiket: 'Otomatik', ipucu: 'Parmakla dokununca' },
+                    { deger: 'acik', etiket: 'Her zaman', ipucu: 'Fareyle de' },
+                    { deger: 'kapali', etiket: 'Kapalı', ipucu: 'Yalnız klavye' },
+                  ] as const
+                ).map((secenek) => {
+                  const seciliMi = (ayarlar[AYAR.TUS_TAKIMI] ?? 'otomatik') === secenek.deger;
+                  return (
+                    <button
+                      key={secenek.deger}
+                      type="button"
+                      className={`${seciliMi ? 'tus-birincil' : 'tus-ikincil'} flex-1 flex-col py-3`}
+                      onClick={() => {
+                        ayarla(AYAR.TUS_TAKIMI, secenek.deger);
+                        // Anında uygula; kaydetmeden denenebilsin.
+                        document.documentElement.dataset.tusTakimi = secenek.deger;
+                      }}
+                    >
+                      <span>{secenek.etiket}</span>
+                      <span className="text-xs opacity-70">{secenek.ipucu}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Alan>
             <p className="text-xs text-metin-4">
               Cihaz kimliği: <span className="font-mono">{sistem?.cihazId}</span>
             </p>
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * POS cihazı (§ POS entegrasyonu). Kapalıyken kart çekimi cihazdan elle yapılır,
- * program yalnız kaydeder. Açıkken kart tutarı cihaza gider, onay gelmeden satış
- * kapanmaz; karta iade de cihazdan yapılır. Cihaza özel ayardır.
- */
-function PosAyarlari({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ayarla: (a: string, d: string) => void }) {
-  const [sonuc, setSonuc] = useState<{ basarili: boolean; mesaj: string } | null>(null);
-  const [deneniyor, setDeneniyor] = useState(false);
-  const tur = ayarlar[AYAR.POS_TURU] ?? 'KAPALI';
-
-  const dene = async () => {
-    setDeneniyor(true);
-    setSonuc(null);
-    try {
-      // Test kayıtlı ayarla yapılır; değiştirdiyseniz önce Kaydet'e basın.
-      setSonuc(await cagir<{ basarili: boolean; mesaj: string }>('pos.test'));
-    } catch (hata) {
-      hatayiBildir(hata, 'POS testi');
-    } finally {
-      setDeneniyor(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-3 rounded border border-cizgi p-3">
-      <p className="font-medium">POS cihazı</p>
-      <Alan
-        etiket="POS bağlantısı"
-        ipucu={
-          tur === 'KAPALI'
-            ? 'Kart çekimi POS cihazından elle yapılır; program yalnız kaydeder.'
-            : tur === 'SIMULATOR'
-              ? 'Gerçek cihaz olmadan akışı denemek için. Kuruşu 13 ile biten tutar (ör. 10,13) reddedilir, 14 ile biten yanıtsız kalır (süre aşımı denemesi).'
-              : undefined
-        }
-      >
-        <select className="alan" value={tur} onChange={(e) => ayarla(AYAR.POS_TURU, e.target.value)}>
-          <option value="KAPALI">Kapalı (elle çekim)</option>
-          <option value="SIMULATOR">Test simülatörü</option>
-        </select>
-      </Alan>
-      {tur !== 'KAPALI' && (
-        <>
-          <Alan
-            etiket="Cihaz adresi"
-            ipucu="Ağ POS'unda IP:port (ör. 192.168.1.50:5000), seri bağlantıda COM3. Simülatörde gerekmez."
-          >
-            <input
-              className="alan font-mono"
-              value={ayarlar[AYAR.POS_ADRES] ?? ''}
-              onChange={(e) => ayarla(AYAR.POS_ADRES, e.target.value)}
-              disabled={tur === 'SIMULATOR'}
-            />
-          </Alan>
-          <Alan etiket="Yanıt bekleme süresi (saniye)" ipucu="Müşterinin kartı okutması ve şifre girmesi için tanınan süre.">
-            <input
-              className="alan sayi w-32"
-              inputMode="numeric"
-              value={ayarlar[AYAR.POS_ZAMAN_ASIMI_SN] ?? '90'}
-              onChange={(e) => ayarla(AYAR.POS_ZAMAN_ASIMI_SN, e.target.value.replace(/\D/g, ''))}
-            />
-          </Alan>
-          <div className="flex items-center gap-2">
-            <button type="button" className="tus-ikincil" onClick={() => void dene()} disabled={deneniyor}>
-              {deneniyor ? 'Deneniyor…' : 'Bağlantıyı Test Et'}
-            </button>
-            {sonuc && <Rozet tur={sonuc.basarili ? 'basari' : 'tehlike'}>{sonuc.mesaj}</Rozet>}
-          </div>
-        </>
-      )}
-      <PosGunlugu />
     </div>
   );
 }
@@ -478,85 +452,6 @@ function TeraziAyarlari({ ayarlar, ayarla }: { ayarlar: Record<string, string>; 
   );
 }
 
-interface PosGunlukSatiri {
-  id: string;
-  zaman: string;
-  tur: 'SATIS' | 'IADE' | 'GERI_ALMA';
-  tutar: number;
-  sonuc: 'ONAY' | 'RED' | 'ZAMAN_ASIMI' | 'HATA';
-  onay_kodu: string | null;
-  kart: string | null;
-  hata: string | null;
-  belge_tipi: string | null;
-  kullanici_adi?: string | null;
-}
-
-const POS_TUR_ADI: Record<PosGunlukSatiri['tur'], string> = { SATIS: 'Çekim', IADE: 'Karta iade', GERI_ALMA: 'Geri alma' };
-const POS_SONUC: Record<PosGunlukSatiri['sonuc'], { ad: string; tur: 'basari' | 'uyari' | 'tehlike' }> = {
-  ONAY: { ad: 'Onay', tur: 'basari' },
-  RED: { ad: 'Red', tur: 'uyari' },
-  ZAMAN_ASIMI: { ad: 'Yanıt yok', tur: 'tehlike' },
-  HATA: { ad: 'Hata', tur: 'tehlike' },
-};
-
-/** Cihaza giden son işlemler — gün sonu slibiyle karşılaştırma ve "para çekildi mi?" sorusu için. */
-function PosGunlugu() {
-  const [satirlar, setSatirlar] = useState<PosGunlukSatiri[] | null>(null);
-  const yukle = () => {
-    cagir<PosGunlukSatiri[]>('pos.gunluk', { limit: 50 })
-      .then(setSatirlar)
-      .catch((hata: unknown) => hatayiBildir(hata, 'POS günlüğü'));
-  };
-  return (
-    <div className="grid gap-2">
-      <div className="flex items-center gap-2">
-        <button type="button" className="tus-ikincil" onClick={yukle}>
-          {satirlar ? 'Yenile' : 'Son POS İşlemlerini Göster'}
-        </button>
-        <span className="text-xs text-metin-3">Onaylanan, reddedilen ve yanıt alınamayan her işlem burada.</span>
-      </div>
-      {satirlar && (
-        <div className="max-h-72 overflow-auto rounded border border-cizgi">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-yuzey-2 text-left text-metin-3">
-              <tr>
-                <th className="px-2 py-1">Zaman</th>
-                <th className="px-2 py-1">İşlem</th>
-                <th className="px-2 py-1 text-right">Tutar</th>
-                <th className="px-2 py-1">Sonuç</th>
-                <th className="px-2 py-1">Onay / Kart</th>
-                <th className="px-2 py-1">Kullanıcı</th>
-              </tr>
-            </thead>
-            <tbody>
-              {satirlar.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-2 py-3 text-center text-metin-3">
-                    Henüz POS işlemi yok.
-                  </td>
-                </tr>
-              )}
-              {satirlar.map((s) => (
-                <tr key={s.id} className="border-t border-cizgi align-top">
-                  <td className="whitespace-nowrap px-2 py-1">{tarihSaatFormat(s.zaman)}</td>
-                  <td className="px-2 py-1">{POS_TUR_ADI[s.tur] ?? s.tur}</td>
-                  <td className="px-2 py-1 text-right font-mono">{paraFormat(s.tutar)}</td>
-                  <td className="px-2 py-1">
-                    <Rozet tur={POS_SONUC[s.sonuc]?.tur ?? 'notr'}>{POS_SONUC[s.sonuc]?.ad ?? s.sonuc}</Rozet>
-                    {s.hata && <span className="block text-metin-3">{s.hata}</span>}
-                  </td>
-                  <td className="px-2 py-1 font-mono">{[s.onay_kodu, s.kart].filter(Boolean).join(' · ') || '—'}</td>
-                  <td className="px-2 py-1">{s.kullanici_adi ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function DonanimSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ayarla: (a: string, d: string) => void }) {
   const [test, setTest] = useState<{ basarili: boolean; hata?: string; onizleme?: string } | null>(null);
   const yaziciTipi = ayarlar[AYAR.YAZICI_TIPI] ?? 'YOK';
@@ -688,8 +583,6 @@ function DonanimSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; 
         </div>
 
         <TeraziAyarlari ayarlar={ayarlar} ayarla={ayarla} />
-
-        <PosAyarlari ayarlar={ayarlar} ayarla={ayarla} />
       </div>
 
       <aside className="xl:sticky xl:top-4 xl:w-[400px] xl:shrink-0">
@@ -1027,9 +920,164 @@ function AktivasyonDiyalogu({ acik, sunucuUrl, onKapat }: { acik: boolean; sunuc
   );
 }
 
-function YedekSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ayarla: (a: string, d: string) => void }) {
+interface IkincilDurum {
+  yol: string | null;
+  erisilebilir: boolean | null;
+  hata?: string;
+  adet: number;
+  enYeni: string | null;
+}
+
+/** "market-2026-10-30T06-12-00-elle.db" → yerel tarih/saat (addaki zaman UTC'dir). */
+function yedekAdindanZaman(dosya: string): string {
+  const m = /^market-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/.exec(dosya);
+  return m ? tarihSaatFormat(`${m[1]}T${m[2]}:${m[3]}:${m[4]}Z`) : dosya;
+}
+
+/**
+ * İkincil yedek klasörü. Seçim HEMEN kaydedilir ve ilk kopya hemen alınır.
+ *
+ * Eskiden klasör seçilince yalnız kutuya yazılıyordu; ayar sayfanın Kaydet
+ * düğmesine basılmadan kaydedilmiyor, "Şimdi Yedek Al" da kayıtlı ayara
+ * baktığı için kopya hiç alınmıyordu — kutuda klasör göründüğü için de fark
+ * edilmiyordu. Kart artık klasörde gerçekten kaç yedek olduğunu gösterir.
+ */
+function IkincilKlasorKarti({
+  surum,
+  ayarla,
+  onYedekAlindi,
+}: {
+  surum: number;
+  ayarla: (a: string, d: string) => void;
+  onYedekAlindi: () => void;
+}) {
+  const [durum, setDurum] = useState<IkincilDurum | null>(null);
+  const [mesgul, setMesgul] = useState(false);
+
+  useEffect(() => {
+    cagir<IkincilDurum>('yedek.ikincilDurum')
+      .then(setDurum)
+      .catch(() => setDurum(null));
+  }, [surum]);
+
+  const sec = async () => {
+    setMesgul(true);
+    try {
+      const s = await cagir<{ yol: string | null }>('yedek.klasorSec');
+      if (!s.yol) return;
+      const yeni = await cagir<IkincilDurum>('yedek.ikincilKaydet', { yol: s.yol });
+      // Sayfadaki kopya da güncellenir; sonraki Kaydet eski (boş) değeri geri yazmasın.
+      ayarla(AYAR.YEDEK_IKINCIL_KLASOR, s.yol);
+      setDurum(yeni);
+      // İlk kopya hemen: kullanıcı klasörde dosyayı görsün, çalıştığından emin olsun.
+      const y = await cagir<{ dosya: string; ikincil?: { basarili: boolean; hata?: string } }>('yedek.al', { etiket: 'elle' });
+      if (y.ikincil?.basarili) bildir.basari('İkincil klasör kaydedildi', `İlk yedek oraya kopyalandı: ${y.dosya}`);
+      else bildir.uyari('Klasör kaydedildi ama kopya alınamadı', y.ikincil?.hata ?? '');
+      onYedekAlindi();
+    } catch (hata) {
+      hatayiBildir(hata, 'İkincil klasör');
+    } finally {
+      setMesgul(false);
+    }
+  };
+
+  const kaldir = async () => {
+    if (!window.confirm('İkincil klasör kaldırılsın mı? Yedekler yalnız bu bilgisayarda kalır. (Klasördeki dosyalar silinmez.)'))
+      return;
+    setMesgul(true);
+    try {
+      setDurum(await cagir<IkincilDurum>('yedek.ikincilKaydet', { yol: null }));
+      ayarla(AYAR.YEDEK_IKINCIL_KLASOR, '');
+    } catch (hata) {
+      hatayiBildir(hata, 'İkincil klasör');
+    } finally {
+      setMesgul(false);
+    }
+  };
+
+  const tanimli = Boolean(durum?.yol);
+  const gorunum = !tanimli
+    ? { ikon: '!', renk: 'bg-uyari-yumusak text-uyari', baslik: 'İkincil klasör seçilmedi', kutu: 'border-uyari-cizgi' }
+    : durum?.erisilebilir
+      ? { ikon: '✓', renk: 'bg-vurgu-yumusak text-vurgu', baslik: 'Yedekler buraya da kopyalanıyor', kutu: 'border-cizgi' }
+      : {
+          ikon: '✕',
+          renk: 'bg-tehlike-yumusak text-tehlike',
+          baslik: 'İkincil klasöre ulaşılamıyor',
+          kutu: 'border-tehlike-cizgi',
+        };
+
+  return (
+    <div className={`grid gap-3 rounded-lg border p-4 ${gorunum.kutu}`}>
+      <div className="flex items-start gap-3">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-bold ${gorunum.renk}`}>
+          {gorunum.ikon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">İkincil yedek klasörü — {gorunum.baslik}</p>
+          {!tanimli ? (
+            <p className="text-sm text-metin-3">
+              Yedekler şu an yalnız bu bilgisayarın diskinde; disk bozulursa onlar da gider.{' '}
+              <b>OneDrive / Google Drive klasörü</b>, USB bellek ya da başka bir disk seçin — bulut klasörü seçilirse yedek
+              kendiliğinden buluta yüklenir.
+            </p>
+          ) : (
+            <>
+              <p className="break-all font-mono text-sm">{durum?.yol}</p>
+              {durum?.erisilebilir ? (
+                <p className="text-sm text-metin-3">
+                  Klasörde {durum.adet} yedek
+                  {durum.enYeni ? ` · en yenisi ${yedekAdindanZaman(durum.enYeni)}` : ' · henüz kopya yok'}. Burada da yalnız son
+                  yedekler tutulur.
+                </p>
+              ) : (
+                <p className="text-sm text-tehlike">{durum?.hata} Klasörü yeniden seçin ya da USB&apos;yi takın.</p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={tanimli ? 'tus-ikincil' : 'tus-birincil'} disabled={mesgul} onClick={() => void sec()}>
+          {mesgul ? 'Bekleyin…' : tanimli ? 'Klasörü Değiştir' : 'Klasör Seç'}
+        </button>
+        {tanimli && (
+          <button type="button" className="tus-ikincil" disabled={mesgul} onClick={() => void kaldir()}>
+            Kaldır
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-metin-3">Seçim hemen kaydedilir ve ilk yedek hemen kopyalanır; Kaydet gerekmez.</p>
+    </div>
+  );
+}
+
+function YedekSekmesi({
+  ayarlar,
+  kayitli,
+  ayarla,
+}: {
+  ayarlar: Record<string, string>;
+  /** Veritabanında KAYITLI ayarlar — sıfırlama onayı bunlarla karşılaştırılır. */
+  kayitli: Record<string, string>;
+  ayarla: (a: string, d: string) => void;
+}) {
   const [yedekler, setYedekler] = useState<{ dosya: string; yol: string; boyut: number; zaman: string; sifreli: boolean }[]>([]);
   const [calisiyor, setCalisiyor] = useState(false);
+  const [sifirlamaOnayi, setSifirlamaOnayi] = useState('');
+  /** Yedek alınınca ikincil klasör kartı kendini tazelesin. */
+  const [ikincilSurum, setIkincilSurum] = useState(0);
+
+  /*
+   * Kurulum yarım kaldıysa işletme adı boş olur; servis o durumda sabit söz bekler.
+   *
+   * KAYITLI ad kullanılır, formdaki değil: Genel sekmesinde işletme adı
+   * değiştirilip Kaydet'e basılmadıysa ekran yeni adı istiyor, servis ise
+   * veritabanındaki eski adı bekliyordu — doğru yazılan onay reddediliyordu.
+   */
+  const sifirlamaSozu = (kayitli[AYAR.ISLETME_ADI] ?? '').trim() || 'SIFIRLA';
+  // Servisle birebir aynı karşılaştırma; Türkçe "I/ı" farkı düğmeyi kilitlemesin.
+  const onayTamam = aramaNormalize(sifirlamaOnayi) === aramaNormalize(sifirlamaSozu);
 
   const yukle = useCallback(async () => {
     try {
@@ -1045,14 +1093,16 @@ function YedekSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ay
 
   return (
     <div className="max-w-3xl space-y-4">
+      <IkincilKlasorKarti
+        surum={ikincilSurum}
+        ayarla={ayarla}
+        onYedekAlindi={() => {
+          setIkincilSurum((n) => n + 1);
+          void yukle();
+        }}
+      />
+
       <div className="grid gap-3 md:grid-cols-2">
-        <Alan etiket="İkincil yedek klasörü" ipucu="USB bellek veya ağ klasörü — ikinci kopya buraya da yazılır.">
-          <input
-            className="alan font-mono"
-            value={ayarlar[AYAR.YEDEK_IKINCIL_KLASOR] ?? ''}
-            onChange={(e) => ayarla(AYAR.YEDEK_IKINCIL_KLASOR, e.target.value)}
-          />
-        </Alan>
         <Alan etiket="Saklanacak yedek sayısı">
           <input
             className="alan sayi"
@@ -1076,8 +1126,21 @@ function YedekSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ay
         onClick={async () => {
           setCalisiyor(true);
           try {
-            const y = await cagir<{ dosya: string }>('yedek.al', { etiket: 'elle' });
-            bildir.basari('Yedek alındı', y.dosya);
+            const y = await cagir<{ dosya: string; ikincil?: { basarili: boolean; hata?: string } }>('yedek.al', {
+              etiket: 'elle',
+            });
+            if (y.ikincil && !y.ikincil.basarili) {
+              // Yedek alındı ama ikinci kopya alınamadı — "kopyam var" sanılmasın.
+              bildir.uyari('Yedek alındı ama ikincil klasöre kopyalanamadı', y.ikincil.hata ?? '');
+            } else if (!y.ikincil) {
+              bildir.uyari(
+                'Yedek alındı — ikinci kopyası yok',
+                'İkincil klasör seçilmedi; yedek yalnız bu bilgisayarın diskinde.',
+              );
+            } else {
+              bildir.basari('Yedek alındı', `${y.dosya} · ikincil klasöre de kopyalandı`);
+            }
+            setIkincilSurum((n) => n + 1);
             await yukle();
           } catch (hata) {
             hatayiBildir(hata, 'Yedekleme');
@@ -1090,7 +1153,34 @@ function YedekSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ay
       </button>
 
       <div>
-        <h3 className="mb-2 font-semibold">Mevcut Yedekler</h3>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <h3 className="mr-auto font-semibold">Mevcut Yedekler</h3>
+          <button
+            type="button"
+            className="tus-ikincil text-sm"
+            onClick={async () => {
+              try {
+                const s = await cagir<{ yol: string | null; dosya?: string; saglam?: boolean; detay?: string }>('yedek.dosyaSec');
+                if (!s.yol) return;
+                if (!s.saglam) {
+                  bildir.hata('Bu dosya geri yüklenemez', s.detay ?? 'Geçerli bir yedek değil.');
+                  return;
+                }
+                if (
+                  !window.confirm(
+                    `${s.dosya} geri yüklenecek. Şu anki veriler bu yedekteki hâliyle değişecek (şimdiki veritabanı silinmez, kenara kaldırılır). Devam edilsin mi?`,
+                  )
+                )
+                  return;
+                await cagir('yedek.geriYukle', { yol: s.yol });
+              } catch (hata) {
+                hatayiBildir(hata, 'Geri yükleme');
+              }
+            }}
+          >
+            Başka Yerden Geri Yükle (USB, OneDrive)…
+          </button>
+        </div>
         {yedekler.length === 0 ? (
           <p className="text-sm text-metin-4">Henüz yedek yok.</p>
         ) : (
@@ -1132,8 +1222,8 @@ function YedekSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ay
                         )
                           return;
                         try {
+                          // Başarılıysa program kendini yeniden başlatır (tam ekran mesaj gelir).
                           await cagir('yedek.geriYukle', { yol: y.yol });
-                          bildir.uyari('Geri yükleme tamamlandı', 'Lütfen uygulamayı yeniden başlatın.');
                         } catch (hata) {
                           hatayiBildir(hata, 'Geri yükleme');
                         }
@@ -1156,6 +1246,59 @@ function YedekSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ay
           bilgisayarda geri yükleme denemesi yapın (RTO hedefi ≤ 2 saat).
         </p>
       </div>
+
+      <div className="rounded border border-tehlike-cizgi bg-tehlike-yumusak p-3">
+        <h3 className="font-semibold text-tehlike-koyu">Tehlikeli bölge — tüm veriyi sıfırla</h3>
+        <p className="mt-1 text-sm text-tehlike-koyu">
+          İşletme bilgileri, kullanıcılar, ürünler, cariler ve tüm hareketler gider; uygulama bir sonraki açılışta kurulum
+          sihirbazıyla başlar. Yeni bir markete devretmeden önce bu adımı uygulayın.
+        </p>
+        <p className="mt-2 text-sm text-tehlike-koyu">
+          Sıfırlamadan önce otomatik yedek alınır ve mevcut veritabanı <code>.sifirlama-oncesi</code> uzantısıyla saklanır;
+          yanlışlıkla çalıştırılsa bile veri geri getirilebilir.
+        </p>
+        <p className="mt-2 text-sm text-tehlike-koyu">
+          Onaylamak için işletme adını birebir yazın: <strong>{sifirlamaSozu}</strong>
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            className="alan flex-1"
+            value={sifirlamaOnayi}
+            placeholder={sifirlamaSozu}
+            onChange={(e) => setSifirlamaOnayi(e.target.value)}
+          />
+          <button
+            type="button"
+            className="tus-tehlike"
+            disabled={calisiyor || !onayTamam}
+            onClick={async () => {
+              if (
+                !window.confirm(
+                  `"${sifirlamaSozu}" işletmesine ait TÜM veriler silinecek ve uygulama kurulum sihirbazına dönecek. Devam edilsin mi?`,
+                )
+              )
+                return;
+              setCalisiyor(true);
+              try {
+                // Başarılıysa program kendini yeniden başlatır ve kurulum ekranıyla açılır.
+                await cagir('veri.sifirla', { onay: sifirlamaOnayi });
+                setSifirlamaOnayi('');
+              } catch (hata) {
+                hatayiBildir(hata, 'Sıfırlama');
+              } finally {
+                setCalisiyor(false);
+              }
+            }}
+          >
+            Sıfırla
+          </button>
+        </div>
+        {sifirlamaOnayi.trim() && !onayTamam && (
+          <p className="mt-1 text-xs text-tehlike-koyu">
+            Yazdığınız ad eşleşmiyor. Tam olarak <strong>{sifirlamaSozu}</strong> yazın (büyük/küçük harf önemli değil).
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -1167,8 +1310,8 @@ function YedekSekmesi({ ayarlar, ayarla }: { ayarlar: Record<string, string>; ay
  * sonradan takılırsa "Listeyi yenile" ile tazelenir.
  *
  * NOT: fiş RAW ESC/POS olarak basılır, yani yazıcıya doğrudan bayt gönderilir.
- * Windows'ta bunun yolu yazıcının PAYLAŞIMA açık olmasıdır; program seçilen
- * addan `\\localhost\<ad>` yolunu kurar. Bu yüzden ekranda da söylenir.
+ * Program önce yerel paylaşım yolunu dener; yazıcı paylaşımda değilse
+ * baytları Windows yazdırma kuyruğuna RAW olarak bırakır. Paylaşım zorunlu değil.
  */
 function UsbYaziciSecici({ seciliAd, onSec }: { seciliAd: string; onSec: (ad: string) => void }) {
   const [liste, setListe] = useState<{ ad: string; aciklama: string; varsayilan: boolean }[]>([]);
@@ -1191,7 +1334,7 @@ function UsbYaziciSecici({ seciliAd, onSec }: { seciliAd: string; onSec: (ad: st
   }, [yenile]);
 
   return (
-    <Alan etiket="USB yazıcı" ipucu="Bir kez seçin, ayar kalıcıdır. Yazıcının Windows'ta paylaşıma açık olması gerekir.">
+    <Alan etiket="USB yazıcı" ipucu="Bir kez seçin, ayar kalıcıdır. Paylaşıma açmak gerekmez; açıksa fiş biraz daha hızlı çıkar.">
       <div className="flex gap-2">
         <select className="alan flex-1" value={seciliAd} onChange={(e) => onSec(e.target.value)}>
           <option value="">— seçilmedi —</option>
@@ -1212,7 +1355,7 @@ function UsbYaziciSecici({ seciliAd, onSec }: { seciliAd: string; onSec: (ad: st
       </div>
       {liste.length === 0 && !yukleniyor && (
         <span className="mt-1 block text-xs text-uyari">
-          Kurulu yazıcı bulunamadı. Yazıcıyı Windows'a kurup paylaşıma açtıktan sonra listeyi yenileyin.
+          Kurulu yazıcı bulunamadı. Yazıcıyı Windows'a kurduktan sonra (sürücü CD'si ya da üreticinin sitesi) listeyi yenileyin.
         </span>
       )}
     </Alan>
@@ -1333,6 +1476,24 @@ function EtiketYaziciBolumu({ ayarlar, ayarla }: { ayarlar: Record<string, strin
               Kg/lt ürünlerde birim fiyat yaz
             </label>
           </div>
+
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={(ayarlar[AYAR.ETIKET_GORSEL] ?? '1') === '1'}
+              onChange={(e) => ayarla(AYAR.ETIKET_GORSEL, e.target.checked ? '1' : '0')}
+            />
+            <span>
+              Etiketi görüntü olarak bas (önerilen)
+              <span className="mt-0.5 block text-xs text-metin-4">
+                Harfleri ve barkodu program çizer: Türkçe harfler (İ, ı, ğ, ş, ç) ve barkod önizlemedeki gibi çıkar. Etiket siyah
+                ya da ters çıkarsa kapatın; yazıcının kendi fontuyla basılır.
+              </span>
+            </span>
+          </label>
+
+          <EtiketDuzeniAyarlari ayarlar={ayarlar} ayarla={ayarla} />
 
           <div>
             <button

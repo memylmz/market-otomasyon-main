@@ -31,6 +31,12 @@ export interface TopluGirisSatiri {
   urun_id?: string;
   /** Yeni ürün satırında ürün kartı formundan girilen ayrıntılar. */
   kart?: YeniUrunKarti;
+  /**
+   * Mevcut ürünün bu faturadan ÖNCEKİ raf fiyatı. Verilirse ve `satis` ondan
+   * farklıysa kalem `yeni_satis_fiyati` taşır (raf fiyatı güncellenir).
+   * Verilmezse mevcut üründe `satis` yok sayılır (eski davranış).
+   */
+  mevcut_satis?: string;
 }
 
 /**
@@ -151,11 +157,20 @@ export function topluGirisKalemleri(
        * tarafında atlanır — zararsızdır.
        */
       const mevcutBarkod = satir.barkod.trim() ? barkodNormalize(satir.barkod) : '';
+      /*
+       * Raf fiyatı değiştirildiyse taşınır. Eskiden mevcut ürün satırındaki
+       * satış kutusu düzenlenebiliyor ama değer kaleme HİÇ konmuyordu: kullanıcı
+       * yeni raf fiyatını yazıp kaydediyor, ürünün fiyatı sessizce eski kalıyordu.
+       */
+      const yeniSatis = paraParse(satir.satis);
+      const eskiSatis = satir.mevcut_satis === undefined ? null : paraParse(satir.mevcut_satis);
+      const fiyatDegisti = yeniSatis !== null && yeniSatis > 0 && eskiSatis !== null && yeniSatis !== eskiSatis;
       kalemler.push({
         urun_id: satir.urun_id,
         miktar,
         birim_fiyat: alis,
         kdv_orani: kdvOrani,
+        ...(fiyatDegisti ? { yeni_satis_fiyati: yeniSatis } : {}),
         ...(mevcutBarkod ? { barkod_ekle: mevcutBarkod } : {}),
         ...sktLotAlanlari,
       });

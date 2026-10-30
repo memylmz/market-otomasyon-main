@@ -81,6 +81,8 @@ export interface CalismaAyarlari {
   /** Arayüz teması: 'acik' (varsayılan) veya 'koyu'. */
   tema: string;
   yaziBoyutu: string;
+  /** Ekran tuş takımı: 'otomatik' (varsayılan), 'acik' veya 'kapali'. */
+  tusTakimi: string;
 }
 
 export function ayarlariOku(baglam: Baglam): CalismaAyarlari {
@@ -104,5 +106,6 @@ export function ayarlariOku(baglam: Baglam): CalismaAyarlari {
     senkronAralikDk: ayarSayi(vt, AYAR.SENKRON_ARALIK_DK, 15),
     tema: ayarMetin(vt, AYAR.TEMA, 'acik'),
     yaziBoyutu: ayarMetin(vt, AYAR.YAZI_BOYUTU, 'normal'),
+    tusTakimi: ayarMetin(vt, AYAR.TUS_TAKIMI, 'otomatik'),
   };
 }

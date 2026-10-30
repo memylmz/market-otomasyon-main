@@ -20,8 +20,8 @@ describe('yazıcı seçimi', () => {
     expect(sonuc.onizleme, 'ekranda gösterilecek metin dönmeli').toBeTruthy();
   });
 
-  it('USB modunda paylaşım yazıcısı adaptörü kullanılır', () => {
-    expect(yaziciOlustur({ ...temel, tip: 'USB', usbAdi: 'EPSON TM-T20' }).tip).toBe('WINDOWS_PAYLASIM');
+  it('USB modunda USB adaptörü kullanılır (paylaşım, olmazsa Windows yazdırma kuyruğu)', () => {
+    expect(yaziciOlustur({ ...temel, tip: 'USB', usbAdi: 'EPSON TM-T20' }).tip).toBe('USB');
   });
 
   it('Ethernet modunda ağ adaptörü kullanılır', () => {

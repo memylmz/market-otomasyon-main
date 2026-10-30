@@ -18,6 +18,7 @@
 
 import { code128Cizimi } from './barkod-cizim.js';
 import type { EkstreBelgesi, FisBelgesi, GunSonuBelgesi } from './fis-belge.js';
+import type { FisSablonu } from './fis-duzeni.js';
 
 /** HTML'e gömülecek metni kaçırır — ürün adında `<` geçebilir. */
 function kacir(metin: string): string {
@@ -30,10 +31,11 @@ function kacir(metin: string): string {
  * 58 mm kağıt 384, 80 mm kağıt 576 nokta basar. Punto sabit verilseydi dar
  * kağıtta ürün adları alt satıra taşar, fiş iki katı uzardı.
  */
-function olcekler(enNokta: number) {
-  const k = enNokta / 576;
+function olcekler(enNokta: number, yaziOlcegi = 1) {
+  // Kenar boşluğu ölçeklenmez; yalnız yazılar büyür/küçülür.
+  const k = (enNokta / 576) * yaziOlcegi;
   return {
-    kenar: Math.round(20 * k),
+    kenar: Math.round(20 * (enNokta / 576)),
     marka: Math.round(40 * k),
     govde: Math.round(21 * k),
     kucuk: Math.round(18 * k),
@@ -49,7 +51,7 @@ function olcekler(enNokta: number) {
  * kalınlığı, ters bant ve gri ton aynı olmalı. Ayrı ayrı yazılsaydı biri
  * güncellenip öteki unutulur, aynı kasadan iki farklı kimlikte kağıt çıkardı.
  */
-function ortakStil(o: ReturnType<typeof olcekler>, enNokta: number): string {
+function ortakStil(o: ReturnType<typeof olcekler>, enNokta: number, sablon: FisSablonu = 'klasik'): string {
   return `*{margin:0;padding:0;box-sizing:border-box}
 html,body{background:#fff;color:#000}
 body{width:${enNokta}px;
@@ -73,11 +75,40 @@ body{width:${enNokta}px;
 .toplam{background:#000;color:#fff;display:flex;justify-content:space-between;
   gap:${o.kenar}px;padding:${Math.round(o.kenar * 0.5)}px ${Math.round(o.kenar * 0.7)}px;
   margin:${Math.round(o.kenar * 0.5)}px 0;font-size:${o.toplam}px;font-weight:800;letter-spacing:1px}
-.uyari{font-size:${o.mini}px;font-weight:700;letter-spacing:1px;margin-top:${Math.round(o.kenar * 0.5)}px}`;
+.uyari{font-size:${o.mini}px;font-weight:700;letter-spacing:1px;margin-top:${Math.round(o.kenar * 0.5)}px}
+${sablon === 'klasik' ? klasikStil(o) : ''}`;
+}
+
+/**
+ * KLASİK TASARIM — yazarkasa fişi görünümü.
+ *
+ * Modern tasarımın üstüne yazılan farklar: tek aralıklı yazı, kesikli
+ * ayırıcılar, TOPLAM siyah bant yerine çift çizgi arasında, gri ton yok.
+ * Gri ayrıntılar 1-bit kâğıtta noktalı/silik çıkabiliyordu; klasikte her
+ * şey tam siyahtır. Siyah bant hem çok mürekkep yakıyor hem fişi
+ * "ağır" gösteriyordu.
+ */
+function klasikStil(o: ReturnType<typeof olcekler>): string {
+  return `body{font-family:Consolas,"Lucida Console","Courier New",monospace;letter-spacing:0}
+.gri{opacity:1}
+.marka{letter-spacing:1px;font-weight:700}
+.kurum{font-size:${o.kucuk}px}
+.baslik{letter-spacing:2px}
+.cizgi{border-top:2px dashed #000}
+.ince{border-top:1px dashed #000}
+.nokta{border-top:1px dashed #000}
+.toplam{background:none;color:#000;border-top:3px double #000;border-bottom:3px double #000;
+  padding:${Math.round(o.kenar * 0.35)}px 0;letter-spacing:0}
+.liste .kalem + .kalem,.liste .hareket + .hareket,.grup + .grup{border-top:none;padding-top:0}
+.kalem .ad,.hareket .ad{font-weight:700}
+.kalem .detay,.hareket .detay{font-size:${o.kucuk}px}
+.uyari{letter-spacing:0}
+.aciklama{border-left:none;padding-left:0}`;
 }
 
 export function belgeHtml(belge: FisBelgesi, enNokta: number): string {
-  const o = olcekler(enNokta);
+  const o = olcekler(enNokta, belge.yaziOlcegi ?? 1);
+  const sablon = belge.sablon ?? 'klasik';
 
   const bilgi = belge.meta
     .map((s) => `<div class="cift mini"><span class="gri">${kacir(s.etiket)}</span><span>${kacir(s.deger)}</span></div>`)
@@ -86,6 +117,11 @@ export function belgeHtml(belge: FisBelgesi, enNokta: number): string {
   const kalemler = belge.kalemler
     .map((k) => {
       const detay = `${kacir(k.miktarMetni)} × ${kacir(k.birimFiyatMetni)}${k.iskontoMetni ? ` · iskonto ${kacir(k.iskontoMetni)}` : ''}`;
+      // Ayrıntı satırı kapalıysa miktar (1 adet değilse) adın yanında kalır: kaç tane alındığı fişten okunabilmeli.
+      if (belge.kalemDetayi === false) {
+        const miktar = k.miktarMetni === '1 ad' ? '' : ` <span class="gri">× ${kacir(k.miktarMetni)}</span>`;
+        return `<div class="kalem"><div class="sol"><div class="ad">${kacir(k.ad)}${miktar}</div></div><div class="tutar">${kacir(k.tutarMetni)}</div></div>`;
+      }
       return `<div class="kalem"><div class="sol"><div class="ad">${kacir(k.ad)}</div><div class="detay gri">${detay}</div></div><div class="tutar">${kacir(k.tutarMetni)}</div></div>`;
     })
     .join('');
@@ -115,7 +151,7 @@ export function belgeHtml(belge: FisBelgesi, enNokta: number): string {
     .join('');
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-${ortakStil(o, enNokta)}
+${ortakStil(o, enNokta, sablon)}
 /*
  * KALEM SATIRI: solda ad + gri ayrıntı, sağda tutar.
  *
@@ -136,10 +172,12 @@ ${ortakStil(o, enNokta)}
 .barkod{margin-top:${Math.round(o.kenar * 0.6)}px}
 .barkod .cubuklar{display:flex;justify-content:center;align-items:flex-end;height:${Math.round(o.govde * 2.2)}px}
 .barkod i{display:block;height:100%}
+${sablon === 'klasik' ? '.liste .kalem + .kalem{border-top:none;padding-top:0}' : ''}
 </style></head><body><div class="pad">
 <div class="orta">
   <div class="marka">${kacir(belge.isletmeAdi)}</div>
   ${belge.isletmeSatirlari.map((s) => `<div class="kurum gri">${kacir(s)}</div>`).join('')}
+  ${belge.ustMetin ? `<div class="kurum" style="margin-top:${Math.round(o.kenar * 0.4)}px;font-weight:600">${kacir(belge.ustMetin)}</div>` : ''}
   ${belge.baslik ? `<div class="baslik">${kacir(belge.baslik)}</div>` : ''}
   ${belge.damga ? `<div class="baslik">*** ${kacir(belge.damga)} ***</div>` : ''}
 </div>
@@ -171,7 +209,8 @@ ${barkodBlogu}
  * için parmakla takip etmek gerekiyordu.
  */
 export function ekstreHtml(belge: EkstreBelgesi, enNokta: number): string {
-  const o = olcekler(enNokta);
+  const o = olcekler(enNokta, belge.yaziOlcegi ?? 1);
+  const sablon = belge.sablon ?? 'klasik';
 
   const meta = belge.meta
     .map((s) => `<div class="cift mini"><span class="gri">${kacir(s.etiket)}</span><span>${kacir(s.deger)}</span></div>`)
@@ -190,7 +229,7 @@ export function ekstreHtml(belge: EkstreBelgesi, enNokta: number): string {
     .join('');
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-${ortakStil(o, enNokta)}
+${ortakStil(o, enNokta, sablon)}
 /* Hareketler arasına da ayırıcı — aynı gerekçe, aynı siyah noktalı desen. */
 .liste .hareket + .hareket{border-top:1px dotted #000;padding-top:${Math.round(o.kenar * 0.3)}px}
 .hareket{display:flex;justify-content:space-between;gap:${o.kenar}px;margin:${Math.round(o.kenar * 0.3)}px 0}
@@ -203,6 +242,7 @@ ${ortakStil(o, enNokta)}
   border-left:3px solid #000;padding-left:${Math.round(o.kenar * 0.5)}px}
 .sutunbasi{display:flex;justify-content:space-between;font-size:${o.mini}px;letter-spacing:2px;
   opacity:.7;padding-bottom:${Math.round(o.kenar * 0.2)}px}
+${sablon === 'klasik' ? '.liste .hareket + .hareket{border-top:none;padding-top:0}.aciklama{border-left:none;padding-left:0}.sutunbasi{opacity:1}' : ''}
 </style></head><body><div class="pad">
 <div class="orta">
   <div class="marka">${kacir(belge.isletmeAdi)}</div>
@@ -231,7 +271,8 @@ ${ozet}
  * gün sonunda baktığı tek rakam odur.
  */
 export function gunSonuHtml(belge: GunSonuBelgesi, enNokta: number): string {
-  const o = olcekler(enNokta);
+  const o = olcekler(enNokta, belge.yaziOlcegi ?? 1);
+  const sablon = belge.sablon ?? 'klasik';
 
   const meta = belge.meta
     .map((s) => `<div class="cift mini"><span class="gri">${kacir(s.etiket)}</span><span>${kacir(s.deger)}</span></div>`)
@@ -254,7 +295,7 @@ export function gunSonuHtml(belge: GunSonuBelgesi, enNokta: number): string {
     .join('');
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-${ortakStil(o, enNokta)}
+${ortakStil(o, enNokta, sablon)}
 .grup{margin-top:${Math.round(o.kenar * 0.5)}px}
 .grup + .grup{border-top:1px dotted #000;padding-top:${Math.round(o.kenar * 0.4)}px}
 .grupbasi{font-size:${o.mini}px;letter-spacing:2px;opacity:.7;margin-bottom:${Math.round(o.kenar * 0.2)}px}
@@ -263,6 +304,7 @@ ${ortakStil(o, enNokta)}
 .gruptoplam span:first-child{font-weight:700;opacity:1}
 .aciklama{font-size:${o.kucuk}px;line-height:1.45;margin-top:${Math.round(o.kenar * 0.4)}px;
   border-left:3px solid #000;padding-left:${Math.round(o.kenar * 0.5)}px}
+${sablon === 'klasik' ? '.grup + .grup{border-top:none;padding-top:0}.grupbasi{opacity:1}.aciklama{border-left:none;padding-left:0}' : ''}
 </style></head><body><div class="pad">
 <div class="orta">
   <div class="marka">${kacir(belge.isletmeAdi)}</div>

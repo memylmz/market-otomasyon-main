@@ -124,6 +124,8 @@ export interface UrunOzetSatiri {
   urun_adi: string;
   adet: Miktar;
   ciro: Kurus;
+  /** KDV hariç ciro — marjın tabanı. */
+  matrah: Kurus;
   kar: Kurus;
   birim_tipi: string;
 }
@@ -138,7 +140,9 @@ export function enCokSatanlar(
   return vt
     .hazirla(
       `SELECT o.urun_id, u.ad AS urun_adi, u.birim_tipi,
-              SUM(o.adet) AS adet, SUM(o.ciro) AS ciro, SUM(o.kar) AS kar
+              SUM(o.adet) AS adet, SUM(o.ciro) AS ciro, SUM(o.kar) AS kar,
+              -- Marj KDV hariç satışa göre hesaplanır; ciro KDV dahildir.
+              CAST(ROUND(SUM(o.ciro) * 100.0 / (100 + u.kdv_orani)) AS INTEGER) AS matrah
        FROM urun_satis_ozet o JOIN urunler u ON u.id = o.urun_id
        WHERE o.donem >= ? AND o.donem <= ?
        GROUP BY o.urun_id
@@ -164,9 +168,10 @@ export function oluStok(
   return vt
     .hazirla(
       `SELECT u.id AS urun_id, u.ad, so.miktar AS stok, u.alis_fiyati,
-              CAST(so.miktar * u.alis_fiyati / 1000.0 AS INTEGER) AS bagli_sermaye
+              CAST(so.miktar * COALESCE(m.ortalama_maliyet, u.alis_fiyati) / 1000.0 AS INTEGER) AS bagli_sermaye
        FROM urunler u
        JOIN stok_ozet so ON so.urun_id = u.id
+       LEFT JOIN urun_maliyet m ON m.urun_id = u.id
        WHERE u.aktif_mi = 1 AND so.miktar > 0
          AND NOT EXISTS (
            SELECT 1 FROM urun_satis_ozet o

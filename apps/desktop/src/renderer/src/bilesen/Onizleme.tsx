@@ -11,7 +11,7 @@
  * taşar — zaten görülmesi gereken budur.
  */
 
-import { code128Cizimi } from '@market/shared';
+import { code128Cizimi, etiketBarkodCizimi } from '@market/shared';
 
 // ---------------------------------------------------------------------------
 // Fiş önizlemesi
@@ -160,7 +160,7 @@ function BarkodCizimi({ veri, yukseklikPx, modulPx }: { veri: string; yukseklikP
 // ---------------------------------------------------------------------------
 
 export type YerlesimOgesi =
-  | { tip: 'metin'; xMm: number; yMm: number; metin: string; yukseklikMm: number; kalin: boolean }
+  | { tip: 'metin'; xMm: number; yMm: number; metin: string; yukseklikMm: number; kalin: boolean; genislikMm?: number }
   | { tip: 'barkod'; xMm: number; yMm: number; veri: string; yukseklikMm: number; modulMm: number; genislikMm: number }
   | { tip: 'cerceve'; xMm: number; yMm: number; enMm: number; boyMm: number; kalinlikMm: number };
 
@@ -233,8 +233,8 @@ function EtiketOgesi({ oge, enMm, boyMm }: { oge: YerlesimOgesi; enMm: number; b
   }
 
   if (oge.tip === 'metin') {
-    // Taşma kontrolü: gömülü fontta karakter genişliği ≈ yüksekliğin %55'i.
-    const genislikMm = oge.metin.length * oge.yukseklikMm * 0.55;
+    // Genişlik yazıcının fontuna göre hesaplanır (yerleşimden gelir); eski veride tahmin.
+    const genislikMm = oge.genislikMm ?? oge.metin.length * oge.yukseklikMm * 0.55;
     const tasiyor = oge.xMm + genislikMm > enMm || oge.yMm + oge.yukseklikMm > boyMm;
     return (
       <>
@@ -256,6 +256,8 @@ function EtiketOgesi({ oge, enMm, boyMm }: { oge: YerlesimOgesi; enMm: number; b
           fontWeight={oge.kalin ? 700 : 400}
           fontFamily="Arial, Helvetica, sans-serif"
           fill="#111"
+          // Metin, yazıcının kaplayacağı genişliğe sığdırılır: ortalanmış ad önizlemede de ortada durur.
+          {...(oge.genislikMm ? { textLength: oge.genislikMm, lengthAdjust: 'spacingAndGlyphs' as const } : {})}
         >
           {oge.metin}
         </text>
@@ -263,7 +265,8 @@ function EtiketOgesi({ oge, enMm, boyMm }: { oge: YerlesimOgesi; enMm: number; b
     );
   }
 
-  const cizim = code128Cizimi(oge.veri);
+  // Yazıcıyla aynı seçim: EAN-13 / EAN-8 ya da CODE128-B.
+  const cizim = etiketBarkodCizimi(oge.veri);
   if (!cizim) return null;
 
   const tasiyor = oge.xMm + oge.genislikMm > enMm;

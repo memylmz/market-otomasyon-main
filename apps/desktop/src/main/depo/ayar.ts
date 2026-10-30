@@ -5,7 +5,7 @@
  * Ayar değişiklikleri denetim loguna düşer (servis katmanında).
  */
 
-import { AYAR, simdi, type ZamanDamgasi } from '@market/shared';
+import { AYAR, PAVO_KORUNAN_AYARLAR, simdi, type ZamanDamgasi } from '@market/shared';
 import type { Vt } from '../db/surucu.js';
 
 export interface AyarKaydi {
@@ -88,7 +88,13 @@ export function ayarSayiYaz(vt: Vt, anahtar: string, deger: number, aciklama?: s
  * sunucu tarafından tanınmaz hale gelirdi (CIHAZ_YETKISIZ).
  */
 export function elleYazilabilirMi(anahtar: string): boolean {
-  return !anahtar.startsWith('lisans.') && anahtar !== AYAR.CIHAZ_ID && anahtar !== AYAR.CIHAZ_SERI;
+  return (
+    !anahtar.startsWith('lisans.') &&
+    anahtar !== AYAR.CIHAZ_ID &&
+    anahtar !== AYAR.CIHAZ_SERI &&
+    // Pavo sıra numarası ve kimliği: ekrandaki bayat kopya cihazın sırasını bozardı.
+    !PAVO_KORUNAN_AYARLAR.includes(anahtar)
+  );
 }
 
 /** Toplu yazma — kurulum sihirbazı ve senkron pull için. */

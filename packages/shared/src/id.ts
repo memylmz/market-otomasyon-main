@@ -165,6 +165,26 @@ export function kisaKodBul(barkodlar: readonly string[]): string | null {
   return barkodlar.find((b) => kisaKodMu(b)) ?? null;
 }
 
+/**
+ * Barkod ŞÜPHELİ mi? Engellemez, uyarır — `null` = sorun görünmüyor.
+ *
+ * Sahada görülen: fiyat yazılırken imleç barkod kutusunda kalıyor ve
+ * "10", "15" barkodun başına ekleniyor (110152388694740). Kayıt olur ama ürün
+ * kasada bir daha okutulamaz. Standart market barkodları 8 ya da 13 hanedir
+ * (12 haneli UPC sıfırla 13'e tamamlanır, 14 hane koli GTIN'idir) ve son hane
+ * kontrol hanesidir. 2-7 haneli kısa/iç kodlar serbesttir.
+ */
+export function barkodUyarisi(ham: string): string | null {
+  const barkod = barkodNormalize(ham);
+  if (!/^\d+$/.test(barkod) || barkod.length <= 7 || barkod.length === 14) return null;
+  if (barkod.length === 8 || barkod.length === 13) {
+    return eanGecerliMi(barkod)
+      ? null
+      : 'Barkodun son hanesi (kontrol hanesi) tutmuyor — yanlış okunmuş ya da yazılmış olabilir.';
+  }
+  return `Barkod ${barkod.length} haneli; market barkodları 8 ya da 13 hanedir. Fiyat ya da miktar barkod kutusuna karışmış olabilir.`;
+}
+
 export function barkodNormalize(ham: string): string {
   const temiz = ham.trim().replace(/[\s\r\n\t]/g, '');
   if (/^\d{12}$/.test(temiz)) return '0' + temiz;

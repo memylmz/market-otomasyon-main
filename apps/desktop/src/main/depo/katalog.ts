@@ -6,7 +6,16 @@
  * indeksi üzerinden tek geçişte ürünü, fiyatını ve güncel stoğunu getirir.
  */
 
-import { aramaMetniOlustur, aramaNormalize, likeKacir, simdi, uuid, type Miktar, type ZamanDamgasi } from '@market/shared';
+import {
+  aramaMetniOlustur,
+  aramaNormalize,
+  likeKacir,
+  simdi,
+  uuid,
+  type Kurus,
+  type Miktar,
+  type ZamanDamgasi,
+} from '@market/shared';
 import type { Vt } from '../db/surucu.js';
 import { boolToSayi, limitOfset, sayiToBool, yerTutucular, type HamSatir, type SayfaSecenekleri } from './ortak.js';
 
@@ -428,6 +437,59 @@ export function fiyatiDegisenler(vt: Vt, sinirZaman: ZamanDamgasi, limit = 500):
        ORDER BY fiyat_guncelleme DESC LIMIT ?`,
     )
     .tumu<UrunGorunumu>(sinirZaman, limit);
+}
+
+// ---------------------------------------------------------------------------
+// Raf etiketi basılacaklar (§13.3)
+// ---------------------------------------------------------------------------
+
+export interface EtiketBekleyen {
+  urun_id: string;
+  ad: string;
+  barkod: string | null;
+  /** `null` = yeni ürün, rafta hiç etiketi yok. */
+  eski_fiyat: Kurus | null;
+  yeni_fiyat: Kurus;
+  zaman: ZamanDamgasi;
+}
+
+/**
+ * Etiketi basılmayı bekleyen ürünler. Fiyat değişimini `urunler` üzerindeki
+ * tetikleyici yazar (göç 19); burada yalnız okunur. Pasif ürün listelenmez.
+ */
+export function etiketBekleyenler(vt: Vt, limit = 1000): EtiketBekleyen[] {
+  return vt
+    .hazirla(
+      `SELECT e.urun_id, u.ad, e.eski_fiyat, e.yeni_fiyat, e.zaman,
+              (SELECT b.barkod FROM barkodlar b WHERE b.urun_id = e.urun_id AND b.aktif_mi = 1 LIMIT 1) AS barkod
+       FROM etiket_bekleyenler e JOIN urunler u ON u.id = e.urun_id
+       WHERE u.aktif_mi = 1
+       ORDER BY e.zaman DESC LIMIT ?`,
+    )
+    .tumu<EtiketBekleyen>(limit);
+}
+
+export function etiketBekleyenSayisi(vt: Vt): number {
+  return (
+    vt
+      .hazirla(`SELECT COUNT(*) AS adet FROM etiket_bekleyenler e JOIN urunler u ON u.id = e.urun_id WHERE u.aktif_mi = 1`)
+      .tek<{ adet: number }>()?.adet ?? 0
+  );
+}
+
+/** Yeni açılan ürün: rafta etiketi yok. (Fiyat DEĞİŞİMİNİ tetikleyici yazar.) */
+export function etiketBekleyenEkle(vt: Vt, urunId: string, fiyat: Kurus, zaman = simdi()): void {
+  vt.hazirla(
+    `INSERT INTO etiket_bekleyenler (urun_id, eski_fiyat, yeni_fiyat, zaman) VALUES (?, NULL, ?, ?)
+     ON CONFLICT (urun_id) DO UPDATE SET yeni_fiyat = excluded.yeni_fiyat, zaman = excluded.zaman`,
+  ).calistir(urunId, fiyat, zaman);
+}
+
+/** Etiketi basıldı (ya da kullanıcı "listeden çıkar" dedi). */
+export function etiketBekleyenleriSil(vt: Vt, urunIdler: readonly string[]): number {
+  const tekil = [...new Set(urunIdler)];
+  if (tekil.length === 0) return 0;
+  return vt.hazirla(`DELETE FROM etiket_bekleyenler WHERE urun_id IN (${yerTutucular(tekil.length)})`).calistir(...tekil).changes;
 }
 
 /** Fiziksel silme yoktur; pasifleştirme yapılır (§8.5). */

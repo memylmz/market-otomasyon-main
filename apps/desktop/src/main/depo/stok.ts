@@ -64,7 +64,96 @@ export function hareketEkle(vt: Vt, hareket: StokHareketiYazma, cihazId: string,
     zaman,
     cihazId,
   );
+  if (maliyetiEtkilerMi(hareket)) ortalamaMaliyetiGuncelle(vt, hareket.urun_id, zaman);
   return id;
+}
+
+// ---------------------------------------------------------------------------
+// Ağırlıklı ortalama maliyet (TMS 2 ¶27)
+// ---------------------------------------------------------------------------
+
+/** Maliyetli giriş: alış, elle giriş ya da açılış — miktarı ve maliyeti pozitif. */
+function maliyetliGirisMi(h: { hareket_tipi: string; miktar: number; birim_maliyet?: number | null }): boolean {
+  return (h.hareket_tipi === 'GIRIS' || h.hareket_tipi === 'ACILIS') && h.miktar > 0 && (h.birim_maliyet ?? 0) > 0;
+}
+
+function maliyetiEtkilerMi(h: StokHareketiYazma): boolean {
+  return maliyetliGirisMi(h) || h.belge_tipi === 'ALIS_IPTAL';
+}
+
+/**
+ * Ürünün ağırlıklı ortalama maliyetini HAREKETLERDEN baştan hesaplar.
+ *
+ * Her maliyetli girişte: yeni ortalama = (eldeki × eski ort. + gelen × alış) /
+ * (eldeki + gelen). Çıkışlar (satış, fire, iade…) ortalamayı değiştirmez,
+ * yalnız eldeki miktarı azaltır. Eldeki miktar eksiye düşmüşse sıfır sayılır:
+ * kaydı olmayan malın maliyeti ortalamayı çekmemeli.
+ *
+ * İPTAL EDİLEN ALIŞ FATURASI hiç girmemiş sayılır (iptalin kendi anlamı da
+ * budur): hem giriş hem iptal satırları atlanır. "Ters hesapla geri al"
+ * yapılmaz — arada satış olduysa ters formül saçma sonuç verir (5 × 100 +
+ * 10 × 110, 4 satış, 10'un iptali → 73,33 gibi).
+ *
+ * Hareket defteri değiştirilemez olduğundan sonuç her zaman yeniden
+ * üretilebilir; `urun_maliyet` yalnız önbellektir. Maliyetli giriş yoksa
+ * `null` döner (ürün son alış fiyatıyla maliyetlenir).
+ */
+export function ortalamaMaliyetHesapla(vt: Vt, urunId: string): Kurus | null {
+  const hareketler = vt
+    .hazirla(
+      `SELECT hareket_tipi, miktar, birim_maliyet, belge_id, belge_tipi
+       FROM stok_hareketleri WHERE urun_id = ? ORDER BY created_at, rowid`,
+    )
+    .tumu<{ hareket_tipi: string; miktar: number; birim_maliyet: number; belge_id: string | null; belge_tipi: string | null }>(
+      urunId,
+    );
+  const iptalEdilenler = new Set(hareketler.filter((h) => h.belge_tipi === 'ALIS_IPTAL').map((h) => h.belge_id));
+
+  let eldeki = 0;
+  let ortalama: number | null = null;
+  for (const h of hareketler) {
+    if (h.belge_id && iptalEdilenler.has(h.belge_id) && (h.belge_tipi === 'ALIS' || h.belge_tipi === 'ALIS_IPTAL')) {
+      continue;
+    }
+    if (maliyetliGirisMi(h)) {
+      const onceki = Math.max(eldeki, 0);
+      ortalama =
+        ortalama === null || onceki === 0
+          ? h.birim_maliyet
+          : (onceki * ortalama + h.miktar * h.birim_maliyet) / (onceki + h.miktar);
+    }
+    eldeki += h.miktar;
+  }
+  return ortalama === null ? null : Math.round(ortalama);
+}
+
+/** Önbelleği tazeler. `hareketEkle` maliyeti etkileyen her harekette kendisi çağırır. */
+export function ortalamaMaliyetiGuncelle(vt: Vt, urunId: string, zaman: ZamanDamgasi = simdi()): Kurus | null {
+  const ortalama = ortalamaMaliyetHesapla(vt, urunId);
+  if (ortalama === null) {
+    vt.hazirla('DELETE FROM urun_maliyet WHERE urun_id = ?').calistir(urunId);
+  } else {
+    vt.hazirla(
+      `INSERT INTO urun_maliyet (urun_id, ortalama_maliyet, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT (urun_id) DO UPDATE SET ortalama_maliyet = excluded.ortalama_maliyet, updated_at = excluded.updated_at`,
+    ).calistir(urunId, ortalama, zaman);
+  }
+  return ortalama;
+}
+
+/** Tek ürünün maliyeti: ağırlıklı ortalama, yoksa son alış. */
+export function birimMaliyet(vt: Vt, urun: { id: string; alis_fiyati: Kurus }): Kurus {
+  return maliyetleriOku(vt, [urun.id]).get(urun.id) ?? urun.alis_fiyati;
+}
+
+/** Ortalama maliyetler; satırı olmayan ürün haritada YOKTUR (çağıran son alışa düşer). */
+export function maliyetleriOku(vt: Vt, urunIdler: readonly string[]): Map<string, Kurus> {
+  const tekil = [...new Set(urunIdler)];
+  if (tekil.length === 0) return new Map();
+  const satirlar = vt
+    .hazirla(`SELECT urun_id, ortalama_maliyet FROM urun_maliyet WHERE urun_id IN (${yerTutucular(tekil.length)})`)
+    .tumu<{ urun_id: string; ortalama_maliyet: number }>(...tekil);
+  return new Map(satirlar.map((x) => [x.urun_id, x.ortalama_maliyet]));
 }
 
 export function stokOku(vt: Vt, urunId: string): Miktar {
@@ -183,40 +272,80 @@ export interface SktSatiri {
 }
 
 /**
- * SKT takibi (§10.6). Lot bazında giriş − çıkış farkı hesaplanır; sıfır ya da
- * negatife düşen lotlar listelenmez.
+ * SKT takibi (§10.6) — FEFO: önce son kullanma tarihi en yakın olan satılır.
+ *
+ * Satış hangi partiden çıktığını yazmaz (kasiyer okuturken lot seçemez).
+ * Eskiden lotun kalanı yalnız lot satırlarının toplamıydı; satışlar hiç
+ * düşmediği için satılıp biten parti "30 adet, yarın bozuluyor" diye
+ * listede kalıyordu.
+ *
+ * Artık eldeki GERÇEK stok, tarihi EN UZAK partiden geriye doğru dağıtılır:
+ * rafta kalan, en son bozulacak olanlardır. Örnek: A partisi (yakın tarih)
+ * 10, B partisi (uzak) 10 girdi, 12 satıldı → eldeki 8'in hepsi B'den; A
+ * listeden düşer. Fire gibi partisi bilinen çıkışlar o partiden zaten
+ * düşülür; geri kalan her çıkış FEFO varsayımıyla dağıtılır.
  */
 export function sktYaklasanlar(vt: Vt, gunSayisi = 30, bugunAnahtari: GunAnahtari = bugun()): SktSatiri[] {
   const sinir = gunEkle(bugunAnahtari, gunSayisi);
-  return vt
+  // Sınıra giren partisi olan ürünlerin TÜM partileri gerekir: dağıtım uzak tarihten başlar.
+  const partiler = vt
     .hazirla(
-      `SELECT h.urun_id, u.ad, h.skt, h.lot_no, SUM(h.miktar) AS kalan_miktar
+      `SELECT h.urun_id, u.ad, h.skt, h.lot_no, SUM(h.miktar) AS net, COALESCE(so.miktar, 0) AS stok
        FROM stok_hareketleri h
        JOIN urunler u ON u.id = h.urun_id
-       WHERE h.skt IS NOT NULL AND h.skt <= ?
+       LEFT JOIN stok_ozet so ON so.urun_id = h.urun_id
+       WHERE h.skt IS NOT NULL
+         AND h.urun_id IN (SELECT urun_id FROM stok_hareketleri WHERE skt IS NOT NULL AND skt <= ?)
        GROUP BY h.urun_id, h.skt, h.lot_no
-       HAVING SUM(h.miktar) > 0
-       ORDER BY h.skt, u.ad`,
+       HAVING SUM(h.miktar) > 0`,
     )
-    .tumu<{ urun_id: string; ad: string; skt: string; lot_no: string | null; kalan_miktar: number }>(sinir)
-    .map((s) => ({
-      ...s,
-      kalan_gun: Math.round((Date.parse(s.skt + 'T00:00:00Z') - Date.parse(bugunAnahtari + 'T00:00:00Z')) / 86400000),
-    }));
+    .tumu<{ urun_id: string; ad: string; skt: string; lot_no: string | null; net: number; stok: number }>(sinir);
+
+  const urunBazinda = new Map<string, typeof partiler>();
+  for (const p of partiler) {
+    const liste = urunBazinda.get(p.urun_id) ?? [];
+    liste.push(p);
+    urunBazinda.set(p.urun_id, liste);
+  }
+
+  const sonuc: SktSatiri[] = [];
+  for (const liste of urunBazinda.values()) {
+    // Uzak tarihten yakına: kalan stok önce en geç bozulacak partiye yazılır.
+    liste.sort((x, y) => (x.skt === y.skt ? 0 : x.skt < y.skt ? 1 : -1));
+    let dagitilacak = Math.max(liste[0]?.stok ?? 0, 0);
+    for (const p of liste) {
+      const kalan = Math.min(p.net, dagitilacak);
+      dagitilacak -= kalan;
+      if (kalan <= 0 || p.skt > sinir) continue;
+      sonuc.push({
+        urun_id: p.urun_id,
+        ad: p.ad,
+        skt: p.skt,
+        lot_no: p.lot_no,
+        kalan_miktar: kalan,
+        kalan_gun: Math.round((Date.parse(p.skt + 'T00:00:00Z') - Date.parse(bugunAnahtari + 'T00:00:00Z')) / 86400000),
+      });
+    }
+  }
+  return sonuc.sort((x, y) => (x.skt === y.skt ? x.ad.localeCompare(y.ad, 'tr') : x.skt < y.skt ? -1 : 1));
 }
 
-/** Stok değeri: maliyet (alış) ve satış fiyatı üzerinden toplam envanter değeri. */
+/**
+ * Stok değeri: maliyet ve satış fiyatı üzerinden toplam envanter değeri.
+ * Maliyet ağırlıklı ortalamadır (yoksa son alış) — kâr raporuyla aynı temel.
+ */
 export function stokDegeri(vt: Vt): { maliyet: Kurus; satis: Kurus; kalem: number; toplamMiktar: Miktar } {
   const satir = vt
     .hazirla(
       // Bölme, toplamdan SONRA ve ondalıklı yapılır: SQLite'ta iki tam sayının
       // bölümü tam sayıdır; satır satır bölmek her kalemde kuruş kaybettirirdi.
       `SELECT
-         COALESCE(SUM(so.miktar * u.alis_fiyati), 0)  / 1000.0 AS maliyet,
+         COALESCE(SUM(so.miktar * COALESCE(m.ortalama_maliyet, u.alis_fiyati)), 0) / 1000.0 AS maliyet,
          COALESCE(SUM(so.miktar * u.satis_fiyati), 0) / 1000.0 AS satis,
          COUNT(*) AS kalem,
          COALESCE(SUM(so.miktar), 0) AS toplam_miktar
        FROM stok_ozet so JOIN urunler u ON u.id = so.urun_id
+       LEFT JOIN urun_maliyet m ON m.urun_id = so.urun_id
        WHERE so.miktar > 0 AND u.aktif_mi = 1`,
     )
     .tek<{ maliyet: number; satis: number; kalem: number; toplam_miktar: number }>();
@@ -337,8 +466,10 @@ export interface SayimFarkSatiri {
 export function sayimFarklari(vt: Vt, sayimId: string): SayimFarkSatiri[] {
   return vt
     .hazirla(
-      `SELECT s.urun_id, u.ad, u.birim_tipi, s.sistem_miktari, s.sayilan_miktar, s.fark, u.alis_fiyati
+      `SELECT s.urun_id, u.ad, u.birim_tipi, s.sistem_miktari, s.sayilan_miktar, s.fark,
+              COALESCE(m.ortalama_maliyet, u.alis_fiyati) AS alis_fiyati
        FROM sayim_satirlari s JOIN urunler u ON u.id = s.urun_id
+       LEFT JOIN urun_maliyet m ON m.urun_id = s.urun_id
        WHERE s.sayim_id = ? ORDER BY ABS(s.fark) DESC, u.ad`,
     )
     .tumu<SayimFarkSatiri>(sayimId);

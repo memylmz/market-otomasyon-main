@@ -1,6 +1,7 @@
 /** Kasa / vardiya ekranı (§10.8) — açılış, hareketler, gün sonu. */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, TutarSatiri, Yukleniyor } from '../bilesen/temel';
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
@@ -76,6 +77,9 @@ export function KasaSayfasi() {
   const [hareketAcik, setHareketAcik] = useState(false);
   const tazeleOturum = oturumDurumu((s) => s.tazele);
   const giderYetkisi = useYetki('kasa.gider');
+  // Üst çubuktaki "Kasa kapalı — aç" rozetinden gelindiyse açılış penceresi hemen açılır.
+  const [parametreler, setParametreler] = useSearchParams();
+  const acIstegi = parametreler.get('ac') === '1';
 
   const yukle = useCallback(async () => {
     setYukleniyor(true);
@@ -91,6 +95,12 @@ export function KasaSayfasi() {
   useEffect(() => {
     void yukle();
   }, [yukle]);
+
+  useEffect(() => {
+    if (!acIstegi || !durum) return;
+    if (!durum.oturum) setAcilisAcik(true);
+    setParametreler({}, { replace: true });
+  }, [acIstegi, durum, setParametreler]);
 
   if (yukleniyor && !durum) return <Yukleniyor />;
 

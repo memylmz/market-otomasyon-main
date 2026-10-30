@@ -82,6 +82,27 @@ describe('günlük rapor', () => {
     expect(sonrasi.ciro, 'iptal edilen tutar ciroda kalmamalı').toBe(10_000);
   });
 
+  it('kâr marjı KDV HARİÇ satışa göre — alış faturası ekranıyla aynı yüzde', () => {
+    /*
+     * Şampuan: alış 125,00 (KDV hariç), raf 200,00 (KDV %20 dahil).
+     * KDV'siz satış 166,67 → kâr 41,67 → marj %25. Eski hesap kârı KDV DAHİL
+     * 200'e bölüp %20,8 gösteriyordu; alış faturası ekranı %25 diyordu.
+     */
+    const sampuan = urunEkle(ortam, { ad: 'Şampuan', satisFiyati: 20_000, alisFiyati: 12_500, kdvOrani: 20, stok: adet(10) });
+    satisKesinlestir(ortam.uygulama.baglam, ortam.admin, {
+      kalemler: [{ urun_id: sampuan, miktar: adet(1), birim_fiyat: 20_000 }],
+      odemeler: [{ tip: 'NAKIT', tutar: 20_000, alinan: 20_000 }],
+    });
+
+    const rapor = gunlukRapor(ortam.uygulama.baglam, ortam.admin, bugun(), bugun());
+    expect(rapor.ozet.brutKar).toBe(4_167);
+    expect(rapor.ozet.kdvToplam).toBe(3_333);
+    expect(rapor.ozet.karMarji).toBe(25);
+
+    const urunler = urunRaporu(ortam.uygulama.baglam, ortam.admin, bugun(), bugun());
+    expect(urunler.enKarli[0]).toMatchObject({ ciro: 20_000, matrah: 16_667, kar: 4_167 });
+  });
+
   it('satış yokken sıfırlarla döner, çökmez', () => {
     const rapor = gunlukRapor(ortam.uygulama.baglam, ortam.admin, bugun(), bugun());
     expect(rapor.ozet.ciro).toBe(0);

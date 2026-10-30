@@ -3,9 +3,12 @@ import {
   adet,
   baskinOdemeTipi,
   beklenenNakit,
+  birimKarHesabi,
   cariBakiyeTopla,
   kampanyaFiyatiBul,
+  kampanyaliBirimFiyat,
   karHesapla,
+  karMarjiYuzde,
   kasaFarki,
   limitAsimi,
   lwwKazanan,
@@ -16,6 +19,7 @@ import {
   miktarOlustur,
   odemeDogrula,
   satirHesapla,
+  satirZarardaMi,
   sepetHesapla,
   stokTopla,
   yaslandir,
@@ -417,5 +421,50 @@ describe('miktar bazlı kampanyalar (§10.8)', () => {
   it('birim fiyat motoru miktar kampanyasını yok sayar', () => {
     const kampanya = [{ ...temel, tip: 'N_AL_M_ODE' as const, esikMiktar: 3000, deger: 2 }];
     expect(kampanyaFiyatiBul(1000, hedef, kampanya, zaman)).toEqual({ fiyat: 1000, kampanyaId: null });
+  });
+});
+
+describe('kâr ve zarar (şampuan örneği)', () => {
+  it('birim kâr: raf 200 (KDV %20 dahil), alış 125 (KDV hariç)', () => {
+    expect(birimKarHesabi(12_500, 20_000, 20)).toEqual({
+      satisKdvHaric: 16_667,
+      satisKdv: 3_333,
+      kar: 4_167,
+      marjYuzde: 25,
+      zarar: false,
+    });
+  });
+
+  it('alış KDV dahil 150 girilseydi kâr 2,5 kat düşük görünürdü', () => {
+    expect(birimKarHesabi(15_000, 20_000, 20).kar).toBe(1_667);
+  });
+
+  it("zararına fiyat: raf 140 → KDV'siz 116,67 < alış 125", () => {
+    const r = birimKarHesabi(12_500, 14_000, 20);
+    expect(r.zarar).toBe(true);
+    expect(r.kar).toBe(-833);
+  });
+
+  it('marj tabanı sıfırsa 0', () => {
+    expect(karMarjiYuzde(100, 0)).toBe(0);
+    expect(karMarjiYuzde(4_167, 16_667)).toBe(25);
+  });
+
+  it('satır zarar kontrolü maliyet bilinmiyorsa karar vermez', () => {
+    expect(satirZarardaMi(11_667, 12_500, adet(1))).toBe(true);
+    expect(satirZarardaMi(16_667, 12_500, adet(1))).toBe(false);
+    expect(satirZarardaMi(23_334, 12_500, adet(2))).toBe(true);
+    expect(satirZarardaMi(100, 0, adet(1))).toBe(false);
+    expect(satirZarardaMi(100, undefined, adet(1))).toBe(false);
+  });
+
+  it('kampanyalı birim fiyat her tip için', () => {
+    expect(kampanyaliBirimFiyat({ tip: 'YUZDE', deger: 50 }, 20_000)).toBe(10_000);
+    expect(kampanyaliBirimFiyat({ tip: 'TUTAR', deger: 5_000 }, 20_000)).toBe(15_000);
+    expect(kampanyaliBirimFiyat({ tip: 'TUTAR', deger: 50_000 }, 20_000)).toBe(0);
+    expect(kampanyaliBirimFiyat({ tip: 'SABIT_FIYAT', deger: 9_900 }, 20_000)).toBe(9_900);
+    expect(kampanyaliBirimFiyat({ tip: 'KADEMELI_FIYAT', deger: 8_000, esikMiktar: 3000 }, 10_000)).toBe(8_000);
+    // 3 al 2 öde → ortalama 2/3
+    expect(kampanyaliBirimFiyat({ tip: 'N_AL_M_ODE', deger: 2, esikMiktar: 3000 }, 15_000)).toBe(10_000);
   });
 });

@@ -981,6 +981,106 @@ export const GOCLER: readonly Goc[] = [
     yukari: `UPDATE sync_state SET last_pull_version = 0;`,
     asagi: ``,
   },
+  {
+    surum: 18,
+    ad: 'pavo',
+    /*
+     * Pavo N86 yazarkasa POS'u (bkz. servis/pavo-servis.ts).
+     *
+     * pavo_defteri — NİYET DEFTERİ. Her satış cihaza gitmeden ÖNCE buraya
+     * GONDERILIYOR olarak yazılır, satış girdisinin tamamıyla. Ödeme cihazda
+     * alınıp program kayıt yazamadan ölürse açılışta kayıt cihaza sorulur ve
+     * satış bu girdiden eksiksiz oluşturulur — parası alınmış ama kaydı
+     * olmayan satış kalmaz. Hareket tablosu değildir; aşaması güncellenir.
+     *
+     * pavo_satislari — bizim satışımızın cihazdaki karşılığı. Kısmi iade
+     * cihazın satış ve KALEM kimliklerini istiyor (RelatedSaleId /
+     * RelatedSaleItemId); satış iptali satış numarasını. İkisi de yalnız
+     * satış anında öğrenilir, sonradan bulunamaz.
+     */
+    yukari: `
+      CREATE TABLE pavo_defteri (
+        siparis_no   TEXT PRIMARY KEY,
+        tutar        INTEGER NOT NULL,
+        ozet         TEXT NOT NULL,
+        girdi        TEXT NOT NULL,
+        kullanici_id TEXT,
+        asama        TEXT NOT NULL CHECK (asama IN ('GONDERILIYOR','ONAYLANDI','BASARISIZ')),
+        satis_no     TEXT,
+        satis_id     TEXT,
+        hata         TEXT,
+        olusturma    TEXT NOT NULL,
+        cozulme      TEXT
+      );
+      CREATE INDEX ix_pavo_defteri_asama ON pavo_defteri (asama);
+
+      CREATE TABLE pavo_satislari (
+        satis_id     TEXT PRIMARY KEY,
+        siparis_no   TEXT NOT NULL,
+        pavo_id      INTEGER NOT NULL,
+        satis_no     TEXT NOT NULL,
+        fatura_no    TEXT,
+        sorgu_linki  TEXT,
+        kalemler     TEXT NOT NULL,
+        created_at   TEXT NOT NULL
+      );
+    `,
+    asagi: `DROP TABLE IF EXISTS pavo_satislari; DROP TABLE IF EXISTS pavo_defteri;`,
+  },
+  {
+    surum: 19,
+    ad: 'ortalama_maliyet_ve_etiket_bekleyenler',
+    /*
+     * urun_maliyet — AĞIRLIKLI ORTALAMA MALİYET (TMS 2 ¶27).
+     *
+     * Satışın maliyeti eskiden ürünün SON alış fiyatıydı: rafta 100'den
+     * alınmış 5 ürün dururken 110'dan 10 ürün gelince kalan 5'in maliyeti de
+     * 110 sayılıyor, kâr raporu düşük çıkıyordu. Ortalama (5×100 + 10×110) / 15
+     * = 106,67 olur. `urunler.alis_fiyati` SON alış olarak kalır (fiyat
+     * belirlemek için doğru olan odur); kâr ve stok değeri bu tablodan okunur.
+     *
+     * Yerel bir önbellektir: stok hareketlerinden her an yeniden üretilebilir
+     * (`ortalamaMaliyetiGuncelle`), buluta gitmez. Satırı olmayan ürün son
+     * alış fiyatıyla maliyetlenir — eski kurulumlarda ilk alışta kendiliğinden dolar.
+     *
+     * etiket_bekleyenler — RAF ETİKETİ BASILACAKLAR.
+     *
+     * Kasadaki fiyat değişip raftaki etiket değişmezse müşteri raftaki düşük
+     * fiyatı ister (ve haklıdır). Satış fiyatı nereden değişirse değişsin
+     * (mal kabul, toplu zam, ürün kartı, panelden inen fiyat) tetikleyici
+     * ürünü listeye yazar; etiket basılınca ya da "listeden çıkar" denince
+     * silinir. İLK fiyat korunur: 20 → 22 → 21 olursa liste "20 → 21" der;
+     * fiyat eski hâline dönerse ürün listeden kendiliğinden düşer.
+     */
+    yukari: `
+      CREATE TABLE urun_maliyet (
+        urun_id           TEXT PRIMARY KEY,
+        ortalama_maliyet  INTEGER NOT NULL,
+        updated_at        TEXT NOT NULL
+      );
+
+      CREATE TABLE etiket_bekleyenler (
+        urun_id     TEXT PRIMARY KEY,
+        eski_fiyat  INTEGER,
+        yeni_fiyat  INTEGER NOT NULL,
+        zaman       TEXT NOT NULL
+      );
+
+      CREATE TRIGGER trg_etiket_fiyat_degisti AFTER UPDATE OF satis_fiyati ON urunler
+      WHEN NEW.satis_fiyati IS NOT OLD.satis_fiyati
+      BEGIN
+        INSERT INTO etiket_bekleyenler (urun_id, eski_fiyat, yeni_fiyat, zaman)
+        VALUES (NEW.id, OLD.satis_fiyati, NEW.satis_fiyati, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        ON CONFLICT (urun_id) DO UPDATE SET yeni_fiyat = excluded.yeni_fiyat, zaman = excluded.zaman;
+        DELETE FROM etiket_bekleyenler WHERE urun_id = NEW.id AND eski_fiyat = yeni_fiyat;
+      END;
+    `,
+    asagi: `
+      DROP TRIGGER IF EXISTS trg_etiket_fiyat_degisti;
+      DROP TABLE IF EXISTS etiket_bekleyenler;
+      DROP TABLE IF EXISTS urun_maliyet;
+    `,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

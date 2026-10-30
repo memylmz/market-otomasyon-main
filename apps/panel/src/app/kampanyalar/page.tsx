@@ -6,7 +6,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { paraFormat, paraParse, tarihFormat, type Kurus } from '@market/shared';
+import { kampanyaliBirimFiyat, kdvAyir, paraFormat, paraParse, tarihFormat, type Kurus } from '@market/shared';
 import { BosDurum, HataKutusu, Kabuk, Modal, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { api, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
@@ -40,6 +40,10 @@ interface Urun {
   id: string;
   ad: string;
   satis_fiyati: Kurus;
+  /** KDV hariç. */
+  alis_fiyati: Kurus;
+  kdv_orani: number;
+  kategori_id: string | null;
 }
 
 const TIP_SECENEKLERI: { deger: KampanyaTipi; etiket: string }[] = [
@@ -302,6 +306,37 @@ function KampanyaFormu({
     setTip(yeni);
   };
 
+  /**
+   * Bu kampanyayla ZARARINA satılacak ürünler: kampanyalı birim fiyatın KDV'siz
+   * kısmı alış fiyatının altına iniyorsa. Kampanya bilerek zararına da
+   * yapılabilir (müşteri çekmek için) — engellenmez, kaydetmeden sorulur.
+   */
+  const zarardakiler = useMemo(() => {
+    const d =
+      tip === 'N_AL_M_ODE'
+        ? Number.parseInt(deger.trim(), 10)
+        : tip === 'YUZDE'
+          ? Number(deger.trim().replace(',', '.'))
+          : (paraParse(deger) ?? Number.NaN);
+    if (deger.trim() === '' || !Number.isFinite(d)) return [];
+    const esik = esikIsteyenTip(tip) ? Math.round(Number(esikAdet.replace(',', '.')) * 1000) : null;
+    if (esik !== null && !(esik > 0)) return [];
+    const kapsanan =
+      kapsam === 'TUM'
+        ? urunler
+        : kapsam === 'URUN'
+          ? urunler.filter((u) => u.id === hedefId)
+          : urunler.filter((u) => u.kategori_id === hedefId);
+    return kapsanan
+      .filter((u) => u.alis_fiyati > 0)
+      .map((u) => {
+        const birim = kampanyaliBirimFiyat({ tip, deger: d, esikMiktar: esik }, u.satis_fiyati);
+        return { urun: u, zarar: u.alis_fiyati - kdvAyir(birim, u.kdv_orani).matrah };
+      })
+      .filter((x) => x.zarar > 0)
+      .sort((a, b) => b.zarar - a.zarar);
+  }, [tip, deger, esikAdet, kapsam, hedefId, urunler]);
+
   /** Kategori kimliği ürün kimliği yerine geçemez; kapsam değişince hedef düşer. */
   const kapsamDegistir = (yeni: KampanyaKapsami) => {
     if (yeni !== kapsam) setHedefId(null);
@@ -373,6 +408,14 @@ function KampanyaFormu({
     const oncelikSayisi = Number.parseInt(oncelik, 10);
     if (!Number.isFinite(oncelikSayisi)) {
       setHata('Öncelik bir tam sayı olmalıdır.');
+      return;
+    }
+    if (
+      zarardakiler.length > 0 &&
+      !window.confirm(
+        `Bu kampanyayla ${zarardakiler.length} ürün alış fiyatının altında, ZARARINA satılacak. Yine de kaydedilsin mi?`,
+      )
+    ) {
       return;
     }
 
@@ -545,6 +588,21 @@ function KampanyaFormu({
           <input type="checkbox" checked={aktif} onChange={(e) => setAktif(e.target.checked)} />
           Kampanya aktif
         </label>
+
+        {zarardakiler.length > 0 && (
+          <div className="rounded border border-tehlike-cizgi bg-tehlike-yumusak p-3 text-sm text-tehlike">
+            <p className="font-semibold">⚠ Bu kampanyayla {zarardakiler.length} ürün zararına satılır</p>
+            <p className="mt-1 text-xs">İndirimli fiyatın KDV&apos;siz kısmı alış fiyatının altında kalıyor.</p>
+            <ul className="mt-2 space-y-0.5 text-xs">
+              {zarardakiler.slice(0, 5).map((x) => (
+                <li key={x.urun.id}>
+                  {x.urun.ad} — tanesinde {paraFormat(x.zarar)} zarar
+                </li>
+              ))}
+              {zarardakiler.length > 5 && <li>… ve {zarardakiler.length - 5} ürün daha</li>}
+            </ul>
+          </div>
+        )}
 
         {hata && (
           <p className="rounded-lg border border-tehlike-cizgi bg-tehlike-yumusak px-3 py-2 text-sm text-tehlike">{hata}</p>

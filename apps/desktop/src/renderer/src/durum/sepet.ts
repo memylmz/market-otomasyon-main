@@ -41,6 +41,11 @@ export interface SepetSatiri {
   kampanyaId: string | null;
   stok: Miktar;
   /**
+   * KDV hariç alış fiyatı — yalnız "zararına satıyorsunuz" uyarısı için.
+   * Satışta kâr ana süreçte üründen okunur; bu alan kayda gitmez.
+   */
+  alisFiyati?: Kurus;
+  /**
    * Muhtelif kalemde kasiyerin yazdığı serbest ad. Doluysa fişe ve rapora bu
    * yazılır; tüm muhtelif satırlar tek bir ürün kaydına bağlandığı için ayırt
    * edici tek bilgi budur (§10.3).
@@ -60,6 +65,8 @@ export interface EklenecekUrun {
   kdvOrani: number;
   kampanyaId: string | null;
   stok: Miktar;
+  /** KDV hariç alış — zarar uyarısı için (bkz. SepetSatiri). */
+  alisFiyati?: Kurus;
   ozelAd?: string;
 }
 
@@ -253,6 +260,7 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
         kdvOrani: urun.kdvOrani,
         kampanyaId: urun.kampanyaId,
         stok: urun.stok,
+        alisFiyati: urun.alisFiyati,
         ozelAd: urun.ozelAd,
       };
       return { satirlar: [...s.satirlar, yeni], seciliAnahtar: anahtar };

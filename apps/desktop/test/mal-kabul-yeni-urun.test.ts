@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { adet, type Yetki } from '@market/shared';
+import { adet, topluGirisKalemleri, type Yetki } from '@market/shared';
 import { cariBul } from '../src/main/depo/cari.js';
 import { barkodSahibi, urunBul } from '../src/main/depo/katalog.js';
 import { stokOku } from '../src/main/depo/stok.js';
@@ -189,6 +189,36 @@ describe('faturada yeni ürün', () => {
       .hazirla('SELECT COUNT(*) AS adet FROM kasa_hareketleri WHERE belge_id = ?')
       .tek<{ adet: number }>(sonuc.faturaId);
     expect(kasaHareketi?.adet).toBe(0);
+  });
+});
+
+/**
+ * Mal kabulde raf fiyatı güncelleme. Ekrandaki satış kutusu eskiden kaleme
+ * hiç konmuyordu; uçtan uca: ekran satırı → ortak çevrim → mal kabul → ürün.
+ */
+describe('mal kabulde raf fiyatı', () => {
+  it('ekranda değiştirilen raf fiyatı ürüne yazılır, alış da güncellenir', () => {
+    const tedarikciId = tedarikciEkle(ortam);
+    const urunId = urunEkle(ortam, { ad: 'Şampuan', satisFiyati: 20_000, alisFiyati: 12_500, kdvOrani: 20, stok: adet(0) });
+
+    const { kalemler, hatalar } = topluGirisKalemleri([
+      {
+        barkod: '',
+        ad: 'Şampuan',
+        miktar: '6',
+        alis: '150,00',
+        satis: '240,00',
+        kdv: '20',
+        urun_id: urunId,
+        mevcut_satis: '200,00',
+      },
+    ]);
+    expect(hatalar).toEqual([]);
+    malKabulOnayla(ortam.uygulama.baglam, ortam.admin, { tedarikci_id: tedarikciId, kalemler });
+
+    const urun = urunBul(ortam.uygulama.baglam.vt, urunId);
+    expect(urun?.satis_fiyati).toBe(24_000);
+    expect(urun?.alis_fiyati).toBe(15_000);
   });
 });
 

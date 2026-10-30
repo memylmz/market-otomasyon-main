@@ -17,6 +17,7 @@
 import { IADE_YONTEMI_ETIKETI, type IadeYontemi } from './iade.js';
 import { miktarFormat } from './miktar.js';
 import { paraFormat, type Kurus } from './para.js';
+import { FIS_YAZI_OLCEGI, VARSAYILAN_FIS_DUZENI, type FisDuzeni, type FisSablonu } from './fis-duzeni.js';
 import type { BirimTipi } from './sabitler.js';
 import { tarihFormat, tarihSaatFormat } from './tarih.js';
 
@@ -101,6 +102,14 @@ export interface FisBelgesi {
   yasalUyari: string;
   yasalAlt: string | null;
   barkod: string | null;
+  /** İşletme bilgisinin altındaki kısa metin (düzen ayarı). */
+  ustMetin?: string | null;
+  /** Ürün altındaki "2 ad × 72,50" satırı gösterilsin mi (düzen ayarı; varsayılan evet). */
+  kalemDetayi?: boolean;
+  /** Görsel fişte yazı ölçeği (düzen ayarı; varsayılan 1). */
+  yaziOlcegi?: number;
+  /** Görsel fiş tasarımı (düzen ayarı; verilmezse klasik). */
+  sablon?: FisSablonu;
 }
 
 const ODEME_ETIKETI: Record<string, string> = { NAKIT: 'Nakit', KART: 'Kart', VERESIYE: 'Veresiye' };
@@ -130,17 +139,20 @@ export function kdvKirilimi(kalemler: FisSatisVerisi['kalemler']): { oran: numbe
 export function satisBelgesi(
   detay: FisSatisVerisi,
   isletme: FisIsletmeBilgisi,
-  secenekler: { kopyaMi?: boolean; kasiyerAdi?: string | null; yasalUyari: string },
+  secenekler: { kopyaMi?: boolean; kasiyerAdi?: string | null; yasalUyari: string; duzen?: FisDuzeni },
 ): FisBelgesi {
   const { satis, kalemler, odemeler } = detay;
   const iadeMi = satis.iade_mi;
+  const duzen = secenekler.duzen ?? VARSAYILAN_FIS_DUZENI;
 
   const meta: FisSatiri[] = [
     { etiket: 'FİŞ NO', deger: satis.fis_no },
     { etiket: 'TARİH', deger: tarihSaatFormat(satis.tarih) },
   ];
-  if (secenekler.kasiyerAdi) meta.push({ etiket: 'KASİYER', deger: secenekler.kasiyerAdi });
-  if (satis.musteri_adi) meta.push({ etiket: 'MÜŞTERİ', deger: satis.musteri_adi });
+  if (duzen.kasiyer && secenekler.kasiyerAdi) meta.push({ etiket: 'KASİYER', deger: secenekler.kasiyerAdi });
+  // Veresiye/iade fişinde müşteri adı borcun kime yazıldığının kanıtıdır; düzen kapatsa da basılır.
+  const musteriZorunlu = Boolean(iadeMi) || odemeler.some((o) => o.odeme_tipi === 'VERESIYE');
+  if (satis.musteri_adi && (duzen.musteri || musteriZorunlu)) meta.push({ etiket: 'MÜŞTERİ', deger: satis.musteri_adi });
   // İade fişi kendi başına okunabilmeli: hangi alışverişin iadesi, neden.
   if (iadeMi && satis.kaynak_fis_no) meta.push({ etiket: 'İADE EDİLEN FİŞ', deger: satis.kaynak_fis_no });
   if (iadeMi && satis.notlar && satis.notlar !== 'Belirtilmedi') meta.push({ etiket: 'NEDEN', deger: satis.notlar });
@@ -150,7 +162,7 @@ export function satisBelgesi(
     araSatirlar.push({ etiket: 'Ara toplam', deger: tutar(satis.ara_toplam) });
     araSatirlar.push({ etiket: 'İskonto', deger: '-' + tutar(satis.iskonto_toplam) });
   }
-  for (const dilim of kdvKirilimi(kalemler)) {
+  for (const dilim of duzen.kdvDokumu ? kdvKirilimi(kalemler) : []) {
     araSatirlar.push({
       etiket: `KDV %${dilim.oran} (matrah ${paraFormat(dilim.matrah, { simge: false })})`,
       deger: tutar(dilim.kdv),
@@ -180,9 +192,9 @@ export function satisBelgesi(
   return {
     isletmeAdi: isletme.ad,
     isletmeSatirlari: [
-      isletme.adres,
-      isletme.telefon ? 'Tel ' + isletme.telefon : null,
-      isletme.vergiNo ? 'VN ' + isletme.vergiNo : null,
+      duzen.adres ? isletme.adres : null,
+      duzen.telefon && isletme.telefon ? 'Tel ' + isletme.telefon : null,
+      duzen.vergiNo && isletme.vergiNo ? 'VN ' + isletme.vergiNo : null,
     ].filter((s): s is string => Boolean(s)),
     baslik: iadeMi ? 'İADE FİŞİ' : null,
     damga: secenekler.kopyaMi ? 'KOPYA' : null,
@@ -202,7 +214,11 @@ export function satisBelgesi(
     yasalAlt: 'Yasal fiş yazarkasadan alınmalıdır',
     // Barkoda TİRE BASILMAZ: HID okuyucular tuş kodu gönderir, Türkçe Q
     // klavyede `-` yerine `*` okunur.
-    barkod: satis.fis_no.replace(/[^0-9A-Za-z]/g, ''),
+    barkod: duzen.fisBarkodu ? satis.fis_no.replace(/[^0-9A-Za-z]/g, '') : null,
+    ustMetin: duzen.ustMetin.trim() || null,
+    kalemDetayi: duzen.kalemDetayi,
+    yaziOlcegi: FIS_YAZI_OLCEGI[duzen.yaziBoyutu],
+    sablon: duzen.sablon,
   };
 }
 
@@ -230,6 +246,9 @@ export interface EkstreBelgesi {
   /** Bakiyenin NE ANLAMA GELDİĞİ — düz Türkçe cümle. */
   bakiyeAciklamasi: string;
   yasalUyari: string;
+  /** Görsel ekstrede yazı ölçeği (düzen ayarı; varsayılan 1). */
+  yaziOlcegi?: number;
+  sablon?: FisSablonu;
 }
 
 /**
@@ -245,10 +264,11 @@ export function ekstreBelgesi(
   cari: { ad_unvan: string; telefon?: string | null; bakiye: Kurus },
   hareketler: { tarih: string; aciklama: string | null; tutar: Kurus; yuruyen_bakiye: Kurus }[],
   isletme: FisIsletmeBilgisi,
-  secenekler: { yasalUyari: string; baslangic?: string | null; bitis?: string | null },
+  secenekler: { yasalUyari: string; baslangic?: string | null; bitis?: string | null; duzen?: FisDuzeni },
 ): EkstreBelgesi {
-  // Ekstre uzunsa son 60 hareket basılır; kağıt metrelerce akmasın.
-  const gosterilen = hareketler.slice(-60);
+  const duzen = secenekler.duzen ?? VARSAYILAN_FIS_DUZENI;
+  // Ekstre uzunsa yalnız son N hareket basılır (düzen ayarı); kağıt metrelerce akmasın.
+  const gosterilen = hareketler.slice(-duzen.ekstreHareketSayisi);
 
   const meta: FisSatiri[] = [{ etiket: 'CARİ', deger: cari.ad_unvan }];
   if (cari.telefon) meta.push({ etiket: 'TELEFON', deger: cari.telefon });
@@ -288,14 +308,18 @@ export function ekstreBelgesi(
       borcMu: h.tutar >= 0,
       bakiyeMetni: paraFormat(h.yuruyen_bakiye, { simge: false }),
     })),
-    ozet: [
-      { etiket: 'Dönem başı bakiye', deger: paraFormat(acilis, { simge: false }) },
-      { etiket: 'Toplam borç', deger: paraFormat(toplamBorc, { simge: false }) },
-      { etiket: 'Toplam tahsilat', deger: paraFormat(toplamAlacak, { simge: false }) },
-    ],
+    ozet: duzen.ekstreOzet
+      ? [
+          { etiket: 'Dönem başı bakiye', deger: paraFormat(acilis, { simge: false }) },
+          { etiket: 'Toplam borç', deger: paraFormat(toplamBorc, { simge: false }) },
+          { etiket: 'Toplam tahsilat', deger: paraFormat(toplamAlacak, { simge: false }) },
+        ]
+      : [],
     bakiye: { etiket: 'BAKİYE', deger: paraFormat(Math.abs(cari.bakiye), { simge: false }) },
     bakiyeAciklamasi,
     yasalUyari: secenekler.yasalUyari,
+    yaziOlcegi: FIS_YAZI_OLCEGI[duzen.yaziBoyutu],
+    sablon: duzen.sablon,
   };
 }
 
@@ -322,6 +346,9 @@ export interface GunSonuBelgesi {
   /** Farkın NE ANLAMA GELDİĞİ — düz Türkçe cümle. */
   farkAciklamasi: string;
   yasalUyari: string;
+  /** Görsel raporda yazı ölçeği ve tasarım (fiş düzeninden). */
+  yaziOlcegi?: number;
+  sablon?: FisSablonu;
 }
 
 /**

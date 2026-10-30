@@ -25,12 +25,13 @@ import {
 } from '@market/shared';
 import { cariBul, cariHareketEkle } from '../depo/cari.js';
 import { kasaHareketEkle } from '../depo/kasa.js';
-import { barkodEkle, barkodSahibi, urunBul, urunKaydet } from '../depo/katalog.js';
+import { barkodEkle, barkodSahibi, etiketBekleyenEkle, urunBul, urunKaydet } from '../depo/katalog.js';
 import { denetimYaz } from '../depo/ozet.js';
 import { alisFaturasiBul, alisFaturasiEkle, alisKalemiEkle, alisKalemleriniGetir } from '../depo/satis.js';
 import { olayYaz } from '../depo/senkron.js';
 import {
   acikSayim,
+  birimMaliyet,
   hareketEkle,
   sayimAc,
   sayimDurumuGuncelle,
@@ -110,7 +111,7 @@ export function fireCikisi(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): str
         urun_id: girdi.urun_id,
         hareket_tipi: 'FIRE',
         miktar: -girdi.miktar,
-        birim_maliyet: urun.alis_fiyati,
+        birim_maliyet: birimMaliyet(vt, urun),
         neden_kodu: girdi.neden_kodu,
         aciklama: girdi.aciklama ?? null,
         belge_tipi: 'FIRE',
@@ -160,7 +161,7 @@ export function stokDuzeltme(baglam: Baglam, aktor: Aktor, urunId: string, yeniM
         urun_id: urunId,
         hareket_tipi: 'DUZELTME',
         miktar: fark,
-        birim_maliyet: urun.alis_fiyati,
+        birim_maliyet: birimMaliyet(vt, urun),
         aciklama: neden,
         belge_tipi: 'DUZELTME',
         kullanici_id: aktor.kullaniciId,
@@ -388,6 +389,8 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
         cihazId,
         kayitZamani,
       );
+      // Rafa yeni giren ürünün etiketi yok — "etiket basılacaklar" listesine.
+      if (yeni.satis_fiyati > 0) etiketBekleyenEkle(vt, yeniUrunId, yeni.satis_fiyati, kayitZamani);
 
       for (const barkod of barkodlar) {
         const barkodId = barkodEkle(vt, yeniUrunId, barkod, null, cihazId, kayitZamani);

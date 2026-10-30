@@ -221,9 +221,10 @@ export const MERKEZI_AYARLAR = [
 /**
  * POS cihaz türleri. KAPALI: kart çekimi POS'tan elle yapılır, program yalnız
  * kayıt tutar (bugünkü davranış). SIMULATOR: gerçek cihaz olmadan akışı denemek
- * için. Gerçek cihaz sürücüleri (ör. yazarkasa POS) buraya eklenir.
+ * için. PAVO: Pavo N86 yazarkasa POS — yalnız kart değil HER satış cihazdan
+ * geçer ve yasal belgeyi cihaz keser (bkz. pavo.ts, servis/pavo-servis.ts).
  */
-export const POS_TURU = ['KAPALI', 'SIMULATOR'] as const;
+export const POS_TURU = ['KAPALI', 'SIMULATOR', 'PAVO'] as const;
 export type PosTuru = (typeof POS_TURU)[number];
 
 /** POS işleminin sonucu — her sürücü bu şekli döndürür. */
@@ -413,6 +414,10 @@ export const AYAR = {
   ISLETME_TELEFON: 'isletme.telefon',
   ISLETME_VERGI_NO: 'isletme.vergi_no',
   FIS_ALT_METIN: 'fis.alt_metin',
+  /** Fiş ve ekstre düzeni (JSON, bkz. fis-duzeni.ts) — gösterilecek alanlar, yazı boyutu. */
+  FIS_DUZENI: 'fis.duzen',
+  /** Yıllık fatura düzenleme sınırları (VUK 232), JSON `{"2026": 1200000}` — kuruş. */
+  FATURA_SINIRLARI: 'fatura.sinirlar',
   /**
    * Fişin altındaki yasal uyarı (§17.1).
    *
@@ -480,6 +485,10 @@ export const AYAR = {
   ETIKET_RAF_GOSTER: 'etiket.raf_goster',
   /** Kilo/litre ürünlerde birim fiyat satırı gösterilsin mi. */
   ETIKET_BIRIM_FIYAT_GOSTER: 'etiket.birim_fiyat_goster',
+  /** Etiket düzeni (JSON, bkz. etiket-duzeni.ts): ad/fiyat/barkod hizası ve boyutu, çerçeve, tarih. */
+  ETIKET_DUZENI: 'etiket.duzen',
+  /** Etiketi görüntü olarak bas ("1" varsayılan): Türkçe harfler ve barkod önizlemedeki gibi. */
+  ETIKET_GORSEL: 'etiket.gorsel',
   SENKRON_URL: 'senkron.url',
   SENKRON_MOD: 'senkron.mod',
   SENKRON_ARALIK_DK: 'senkron.aralik_dk',
@@ -501,6 +510,8 @@ export const AYAR = {
   URUN_MUHTELIF_ID: 'urun.muhtelif_id',
   TEMA: 'gorunum.tema',
   YAZI_BOYUTU: 'gorunum.yazi_boyutu',
+  /** Ekran tuş takımı: otomatik (parmakla dokununca) | acik | kapali. Cihaza özel. */
+  TUS_TAKIMI: 'gorunum.tus_takimi',
   OTURUM_ZAMAN_ASIMI_DK: 'guvenlik.oturum_zaman_asimi_dk',
   KREDI_LIMITI_DAVRANISI: 'cari.limit_davranisi',
   KASA_FARKI_ESIGI: 'kasa.fark_esigi',

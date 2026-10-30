@@ -1,7 +1,7 @@
 /** Ürün / stok kartları (§10.5) — liste, kart düzenleme, toplu fiyat, içe/dışa aktarma. */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { miktarFormat, miktarParse, paraFormat, type Kurus } from '@market/shared';
+import { goreliZaman, miktarFormat, miktarParse, paraFormat, type Kurus } from '@market/shared';
 import { Alan, BosDurum, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { EtiketOnizleme, type EtiketOnizlemeVerisi } from '../bilesen/Onizleme';
 import { bildir, hatayiBildir } from '../durum/bildirim';
@@ -34,6 +34,9 @@ export function UrunlerSayfasi() {
   /** Etiket kuyruğu — basılana kadar durur (§13.3). */
   const [kuyruk, setKuyruk] = useState<EtiketSatiri[]>([]);
   const [kuyrukAcik, setKuyrukAcik] = useState(false);
+  /** Raf etiketi güncel olmayan ürün sayısı (fiyatı değişen / yeni açılan). */
+  const [bekleyenSayisi, setBekleyenSayisi] = useState(0);
+  const [bekleyenlerAcik, setBekleyenlerAcik] = useState(false);
 
   const SAYFA_BOYU = 50;
 
@@ -94,6 +97,16 @@ export function UrunlerSayfasi() {
   useEffect(() => {
     void kategorileriYukle();
   }, [kategorileriYukle]);
+
+  // Etiket basılınca ya da liste düzenlenince sayı tazelenir (kuyruk kapanınca).
+  const bekleyenleriSay = useCallback(() => {
+    cagir<number>('etiket.bekleyenSayisi')
+      .then(setBekleyenSayisi)
+      .catch(() => setBekleyenSayisi(0));
+  }, []);
+  useEffect(() => {
+    if (!kuyrukAcik && !bekleyenlerAcik) bekleyenleriSay();
+  }, [kuyrukAcik, bekleyenlerAcik, bekleyenleriSay, kayitlar]);
 
   const disaAktar = async () => {
     try {
@@ -175,6 +188,21 @@ export function UrunlerSayfasi() {
           <option value="guncelleme">Sıralama: Son güncellenen</option>
         </select>
       </div>
+
+      {bekleyenSayisi > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-uyari-cizgi bg-uyari-yumusak px-3 py-2 text-sm">
+          <span aria-hidden="true" className="text-lg">
+            🏷
+          </span>
+          <span className="mr-auto">
+            <b>{bekleyenSayisi} ürünün raf etiketi güncel değil</b> — fiyatı değişti ya da yeni açıldı. Kasadaki fiyat raftakinden
+            farklıysa müşteri raftaki fiyatı ister.
+          </span>
+          <button type="button" className="tus-birincil px-3 py-1 text-sm" onClick={() => setBekleyenlerAcik(true)}>
+            Etiketi Basılacakları Gör
+          </button>
+        </div>
+      )}
 
       {/* Seçim çubuğu yalnız seçim varken görünür — boşken yer kaplamasın. */}
       {secililer.size > 0 && topluYetki && (
@@ -393,6 +421,16 @@ export function UrunlerSayfasi() {
       />
 
       <EtiketKuyruguDiyalogu acik={kuyrukAcik} kuyruk={kuyruk} onDegisim={setKuyruk} onKapat={() => setKuyrukAcik(false)} />
+
+      <EtiketBekleyenlerDiyalogu
+        acik={bekleyenlerAcik}
+        onKapat={() => setBekleyenlerAcik(false)}
+        onKuyrugaEkle={(satirlar) => {
+          setKuyruk((o) => kuyrugaEkle(o, satirlar));
+          setBekleyenlerAcik(false);
+          setKuyrukAcik(true);
+        }}
+      />
 
       <IceAktarDiyalogu
         acik={iceAktarAcik}
@@ -1031,6 +1069,162 @@ function StokDuzeltDiyalogu({
 // Etiket kuyruğu (§13.3)
 // ---------------------------------------------------------------------------
 
+interface EtiketBekleyen {
+  urun_id: string;
+  ad: string;
+  barkod: string | null;
+  eski_fiyat: Kurus | null;
+  yeni_fiyat: Kurus;
+  zaman: string;
+}
+
+/**
+ * RAF ETİKETİ BASILACAKLAR.
+ *
+ * Fiyat nereden değişirse değişsin (mal kabul, toplu zam, ürün kartı, panel)
+ * ürün buraya düşer ve etiketi basılana kadar kalır. Eskiden etiket teklifi
+ * yalnız toplu zamdan sonra geliyordu; mal kabulde raf fiyatı değişen ürünün
+ * etiketi unutuluyordu.
+ */
+function EtiketBekleyenlerDiyalogu({
+  acik,
+  onKapat,
+  onKuyrugaEkle,
+}: {
+  acik: boolean;
+  onKapat: () => void;
+  onKuyrugaEkle: (satirlar: EtiketSatiri[]) => void;
+}) {
+  const [liste, setListe] = useState<EtiketBekleyen[]>([]);
+  const [secili, setSecili] = useState<Set<string>>(new Set());
+  const [yukleniyor, setYukleniyor] = useState(false);
+
+  const yukle = useCallback(async () => {
+    setYukleniyor(true);
+    try {
+      const v = await cagir<{ kayitlar: EtiketBekleyen[] }>('etiket.bekleyenler');
+      setListe(v.kayitlar);
+      // Varsayılan: hepsi seçili — çoğu zaman hepsi basılır.
+      setSecili(new Set(v.kayitlar.map((k) => k.urun_id)));
+    } catch (hata) {
+      hatayiBildir(hata, 'Etiket listesi');
+    } finally {
+      setYukleniyor(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (acik) void yukle();
+  }, [acik, yukle]);
+
+  const secilenler = liste.filter((k) => secili.has(k.urun_id));
+
+  const cikar = async () => {
+    if (secilenler.length === 0) return;
+    if (!window.confirm(`${secilenler.length} ürün etiketi BASILMADAN listeden çıkarılsın mı? (Etiketi elle yazdıysanız.)`))
+      return;
+    try {
+      await cagir('etiket.bekleyenCikar', { urunIdler: secilenler.map((k) => k.urun_id) });
+      bildir.basari(`${secilenler.length} ürün listeden çıkarıldı`);
+      await yukle();
+    } catch (hata) {
+      hatayiBildir(hata, 'Etiket listesi');
+    }
+  };
+
+  return (
+    <Diyalog
+      acik={acik}
+      baslik="Etiketi Basılacak Ürünler"
+      aciklama={liste.length > 0 ? `${liste.length} ürün · etiketi basılınca listeden kendiliğinden düşer` : undefined}
+      genislik="genis"
+      onKapat={onKapat}
+      altBilgi={
+        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+          <button type="button" className="tus-ikincil" disabled={secilenler.length === 0} onClick={() => void cikar()}>
+            Seçilenleri Listeden Çıkar
+          </button>
+          <div className="flex gap-2">
+            <button type="button" className="tus-ikincil" onClick={onKapat}>
+              Kapat
+            </button>
+            <button
+              type="button"
+              className="tus-birincil"
+              disabled={secilenler.length === 0}
+              onClick={() =>
+                onKuyrugaEkle(secilenler.map((k) => ({ urunId: k.urun_id, ad: k.ad, adet: 1, barkodsuz: !k.barkod })))
+              }
+            >
+              Seçilen {secilenler.length} Ürünün Etiketini Bas →
+            </button>
+          </div>
+        </div>
+      }
+    >
+      {yukleniyor && liste.length === 0 ? (
+        <Yukleniyor />
+      ) : liste.length === 0 ? (
+        <BosDurum baslik="Basılacak etiket yok" aciklama="Raftaki bütün etiketler kasadaki fiyatla aynı." />
+      ) : (
+        <table className="tablo">
+          <thead>
+            <tr>
+              <th className="w-10 text-center">
+                <input
+                  type="checkbox"
+                  aria-label="Tümünü seç"
+                  checked={secili.size === liste.length}
+                  onChange={(e) => setSecili(e.target.checked ? new Set(liste.map((k) => k.urun_id)) : new Set())}
+                />
+              </th>
+              <th>Ürün</th>
+              <th className="text-right">Raftaki (eski)</th>
+              <th className="text-right">Kasadaki (yeni)</th>
+              <th className="text-right">Ne zaman</th>
+            </tr>
+          </thead>
+          <tbody>
+            {liste.map((k) => (
+              <tr
+                key={k.urun_id}
+                className="cursor-pointer hover:bg-yuzey-2"
+                onClick={() =>
+                  setSecili((m) => {
+                    const yeni = new Set(m);
+                    if (yeni.has(k.urun_id)) yeni.delete(k.urun_id);
+                    else yeni.add(k.urun_id);
+                    return yeni;
+                  })
+                }
+              >
+                <td className="text-center">
+                  <input type="checkbox" readOnly checked={secili.has(k.urun_id)} aria-label={`${k.ad} seç`} />
+                </td>
+                <td>
+                  <span className="font-medium">{k.ad}</span>
+                  {k.barkod && <span className="ml-2 font-mono text-[11px] text-metin-4">{k.barkod}</span>}
+                </td>
+                <td className="text-right font-mono text-sm">
+                  {k.eski_fiyat === null ? <Rozet tur="bilgi">Yeni ürün</Rozet> : paraFormat(k.eski_fiyat)}
+                </td>
+                <td
+                  className={`text-right font-mono text-sm font-semibold ${
+                    k.eski_fiyat !== null && k.yeni_fiyat > k.eski_fiyat ? 'text-uyari' : 'text-vurgu'
+                  }`}
+                >
+                  {paraFormat(k.yeni_fiyat)}
+                </td>
+                <td className="text-right text-xs text-metin-3">{goreliZaman(k.zaman)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Diyalog>
+  );
+}
+
 export interface EtiketSatiri {
   urunId: string;
   ad: string;
@@ -1144,7 +1338,15 @@ function EtiketKuyruguDiyalogu({
           <button type="button" className="tus-ikincil" onClick={() => onDegisim([])} disabled={kuyruk.length === 0}>
             Kuyruğu Boşalt
           </button>
-          <button type="button" className="tus-birincil" onClick={() => void bas()} disabled={kuyruk.length === 0 || basiliyor}>
+          <button type="button" className="tus-ikincil" onClick={onKapat}>
+            Kapat
+          </button>
+          <button
+            type="button"
+            className="tus-birincil"
+            onClick={() => void bas()}
+            disabled={kuyruk.length === 0 || basiliyor || yaziciVar === false}
+          >
             {basiliyor ? 'Gönderiliyor…' : `Hepsini Bas (${toplam})`}
           </button>
         </>

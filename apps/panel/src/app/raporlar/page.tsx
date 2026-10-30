@@ -8,7 +8,7 @@
 'use client';
 
 import { useState } from 'react';
-import { bugun, gunEkle, miktarFormat, paraDuz, paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
+import { bugun, gunEkle, karMarjiYuzde, miktarFormat, paraDuz, paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Kabuk, Kutu, ParaKutusu, Rozet, Yukleniyor } from '@/bilesen/kabuk';
 import { CiroOzetiSekmesi, DenetimSekmesi, KasaSekmesi } from '@/bilesen/rapor-sekmeleri';
 import { kullaniciyiOku, uclar } from '@/lib/api';
@@ -29,6 +29,8 @@ interface EnCokSatan {
   urun_adi: string | null;
   adet: number;
   ciro: Kurus;
+  /** KDV hariç ciro — marjın tabanı. */
+  matrah: Kurus;
   kar: Kurus;
 }
 
@@ -422,7 +424,7 @@ function UrunGorunumu({ veri }: { veri: UrunRaporu }) {
                       <td>{u.urun_adi ?? <span className="text-metin-4">Silinmiş ürün</span>}</td>
                       <td className="sayi">{miktarFormat(u.adet)}</td>
                       <td className="sayi text-vurgu">{paraFormat(u.kar, { simge: false })}</td>
-                      <td className="sayi text-metin-3">{u.ciro > 0 ? `%${Math.round((u.kar / u.ciro) * 1000) / 10}` : '—'}</td>
+                      <td className="sayi text-metin-3">{u.matrah > 0 ? `%${karMarjiYuzde(u.kar, u.matrah)}` : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

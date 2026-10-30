@@ -6,6 +6,7 @@
  * yalnız bu beyaz listedeki kanallar çağrılabilir.
  */
 
+import { basename } from 'node:path';
 import {
   AYAR,
   bugun,
@@ -13,20 +14,52 @@ import {
   gunEkle,
   gunSonu as gunSonuDamgasi,
   hatalar,
+  medyaAdiGecerliMi,
   merkeziAyarMi,
+  MUSTERI_EKRANI_AYAR,
+  musteriEkraniAyariMi,
+  musteriSepetiSemasi,
   simdi,
+  slaytlariCoz,
+  slaytlariDogrula,
+  slaytMedyalari,
   uuid,
   type GunAnahtari,
   type Kurus,
   type Miktar,
   type Yetki,
   URUN_SURUMU,
+  faturaSinirlariCoz,
+  faturaSiniriIcin,
 } from '@market/shared';
-import { ayarMetin, ayarYaz, elleYazilabilirMi, tumAyarlar } from '../depo/ayar.js';
+import { ayarMetin, ayarOku, ayarYaz, elleYazilabilirMi, tumAyarlar } from '../depo/ayar.js';
+import { KAPALI_DURUM, type MusteriEkraniDenetcisi } from '../musteri-ekrani/denetci.js';
+import { medyaKaydet, yetimMedyalariTemizle, type MedyaTuru } from '../musteri-ekrani/medya.js';
+import { musteriEkraniYapilandirmasi } from '../musteri-ekrani/yapilandirma.js';
+import {
+  pavoAskidakiler,
+  pavoAskidakiniSil,
+  pavoBankaGunSonu,
+  pavoDefteriniCoz,
+  pavoDonemRaporu,
+  pavoDurumu,
+  pavoMukellefSorgula,
+  pavoEsles,
+  pavoGecmisGunSonu,
+  pavoGunSonu,
+  pavoOdemedenVazgec,
+  pavoRaporArsivi,
+  pavoRaporNushasi,
+  pavoRaporOzeti,
+  pavoXRaporu,
+} from '../servis/pavo-servis.js';
 import { bankaDefteri } from '../depo/banka.js';
 import { bankaHareketiEkle } from '../servis/banka-servis.js';
 import { carileriListele, cariBul, ekstre } from '../depo/cari.js';
 import {
+  etiketBekleyenler,
+  etiketBekleyenleriSil,
+  etiketBekleyenSayisi,
   etkinKampanyalar,
   fiyatiDegisenler,
   kampanyalariListele,
@@ -50,13 +83,13 @@ import {
   musteriAlisverisleri,
 } from '../depo/satis.js';
 import { cakismalariListele, kaliciHataliOlaylar, olayYaz } from '../depo/senkron.js';
-import { acikSayim, hareketleriListele, sayimFarklari } from '../depo/stok.js';
+import { acikSayim, hareketleriListele, maliyetleriOku, sayimFarklari } from '../depo/stok.js';
 import { pinGucunuDenetle, sifreGucunuDenetle } from '../guvenlik/parola.js';
 import { mutabakatYap, senkronCalistir, senkronDurumu } from '../senkron/motor.js';
 import { bekleyenAlisTalimatlariniIsle } from '../servis/alis-talimat-servis.js';
 import { bekleyenCariTalimatlariniIsle } from '../servis/cari-talimat-servis.js';
 import { bekleyenIadeleriIsle } from '../servis/iade-talimat-servis.js';
-import { ayarlariOku, yetkiIste } from '../servis/baglam.js';
+import { ayarlariOku, SISTEM_AKTORU, yetkiIste } from '../servis/baglam.js';
 import { acilisBakiyesi, bakiyeDuzelt, cariKaydet, kvkkAnonimlestir, kvkkDisaAktar } from '../servis/cari-servis.js';
 import { gunSonu, kasaAc, kasaDurumu, kasaHareketi, vardiyaRaporu } from '../servis/kasa-servis.js';
 import {
@@ -115,8 +148,10 @@ import {
   tedarikciIade,
 } from '../servis/stok-servis.js';
 import {
+  belgeOnizlemesi,
   cariEkstresiYazdir,
   cekmeceyiAc,
+  fissizSatistaCekmeceyiAc,
   etiketKalibrasyonu,
   etiketOnizlemesi,
   fisOnizlemesi,
@@ -131,7 +166,16 @@ import {
   yazdirilamayanFisler,
   yaziciTesti,
 } from '../servis/yazdirma-servis.js';
-import { yedekAl, yedegiDogrula, yedekleriListele, yedektenGeriYukle } from '../servis/yedek-servis.js';
+import {
+  ikincilKlasorDurumu,
+  ikincilKlasoruKaydet,
+  veriyiSifirla,
+  yedegiDogrula,
+  yedekAl,
+  yedekAyarlariniOku,
+  yedekleriListele,
+  yedektenGeriYukle,
+} from '../servis/yedek-servis.js';
 import type { Uygulama } from '../uygulama.js';
 
 export type KanalIsleyici = (girdi: never) => unknown | Promise<unknown>;
@@ -144,7 +188,11 @@ function araligiCoz(girdi: { from?: GunAnahtari; to?: GunAnahtari } | undefined)
   return { from, to };
 }
 
-export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import('electron').BrowserWindow | null) {
+export function kanallariOlustur(
+  uygulama: Uygulama,
+  pencereGetir?: () => import('electron').BrowserWindow | null,
+  musteriEkrani?: MusteriEkraniDenetcisi,
+) {
   const b = () => uygulama.baglam;
   const a = () => uygulama.aktoruIste();
   // Arka planda olan POS olayları (geç gelen onay vb.) kasiyere bildirilir.
@@ -163,7 +211,11 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     // böyle çalışır). F4 true, F5 false gönderir: kasiyer tek tuşla fişli ya da
     // fişsiz satış yapabilsin diye (§10.3).
     const yazdirilsin = zorla ?? ayarlariOku(b()).otomatikFis;
-    if (!yazdirilsin) return;
+    if (!yazdirilsin) {
+      // Fiş yok ama nakit alındıysa para üstü için çekmece yine açılır.
+      void fissizSatistaCekmeceyiAc(b(), satisId).catch(() => undefined);
+      return;
+    }
 
     void satisFisiYazdir(b(), satisId)
       .then((sonuc) => {
@@ -194,6 +246,12 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       return {
         cihazId: uygulama.cihazId,
         surum: URUN_SURUMU,
+        // Kenar çubuğunda "hangi marketin verisindeyim?" sorusunun cevabı.
+        isletmeAdi: uygulama.kurulumGerekliMi() ? '' : ayarMetin(b().vt, AYAR.ISLETME_ADI, ''),
+        gelistirme: uygulama.gelistirmeKopyasi,
+        otomatikFis: ayarlar.otomatikFis,
+        // Ödeme ekranı bu tutarı geçen satışta fatura ister (VUK 232).
+        faturaSiniri: faturaSiniriIcin(faturaSinirlariCoz(ayarMetin(b().vt, AYAR.FATURA_SINIRLARI, ''))),
         kurulumGerekli: uygulama.kurulumGerekliMi(),
         oturum: uygulama.aktor
           ? {
@@ -240,6 +298,26 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       return { kullaniciId };
     },
 
+    /*
+     * Kurulum ekranından YEDEKTEN GERİ YÜKLEME.
+     *
+     * Bilgisayar değişince ya da veri sıfırlanınca program kurulum sihirbazıyla
+     * açılır. Eskiden sihirbazda geri yükleme yoktu: önce sahte bir işletme ve
+     * yönetici açmak, sonra Ayarlar'dan geri yüklemek gerekiyordu. Bu iki kanal
+     * yalnız KURULUM GEREKLİYKEN (hiç yönetici yokken) çalışır; kurulmuş bir
+     * kasada oturum açmadan kimse veritabanını değiştiremez.
+     */
+    'kurulum.yedekler': () => {
+      if (!uygulama.kurulumGerekliMi()) throw hatalar.dogrulama('Kurulum zaten tamamlanmış.');
+      return yedekleriListele(b());
+    },
+    'kurulum.geriYukle': async (girdi: { yol: string }) => {
+      if (!uygulama.kurulumGerekliMi()) throw hatalar.dogrulama('Kurulum zaten tamamlanmış.');
+      const sonuc = await yedektenGeriYukle(b(), SISTEM_AKTORU, girdi.yol);
+      uygulama.yenidenBaslatmayiPlanla('geri-yukleme');
+      return sonuc;
+    },
+
     // ---------------------------------------------------------------- oturum
     'oturum.giris': (girdi: { kullaniciAdi: string; parola: string; yontem?: 'SIFRE' | 'PIN' }) => {
       const sonuc = girisYap(b(), girdi.kullaniciAdi, girdi.parola, girdi.yontem ?? 'SIFRE');
@@ -281,6 +359,11 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       urunListesi(b(), girdi?.filtre ?? {}, { limit: girdi?.limit, ofset: girdi?.ofset })
     ),
     'urun.detay': (girdi: { urunId: string }) => (a(), urunDetayi(b(), girdi.urunId)),
+    /** Ağırlıklı ortalama maliyet (`null` = hesaplanmadı; son alış geçerli). */
+    'urun.maliyet': (girdi: { urunId: string }) => (
+      a(),
+      { ortalama: maliyetleriOku(b().vt, [girdi.urunId]).get(girdi.urunId) ?? null }
+    ),
     // Muhtelif kalem satış yetkisiyle kullanılır; katalog düzenleme yetkisi istemez.
     'urun.muhtelif': () => (a(), muhtelifUrunu(b())),
     'urun.kaydet': (girdi: Record<string, unknown>) => ({ id: urunuKaydet(b(), a(), girdi) }),
@@ -324,6 +407,11 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       a(),
       kalibrasyonOnizlemesi(b(), girdi?.ayarlar)
     ),
+    /** Fiş Düzeni sekmesi: satış fişi ya da ekstre, kaydedilmemiş ayarlarla ve basılacağı biçimde. */
+    'ayar.belgeOnizleme': (girdi: { tur: 'satis' | 'ekstre'; ayarlar?: Record<string, string> }) => (
+      a(),
+      belgeOnizlemesi(b(), { tur: girdi?.tur === 'ekstre' ? 'ekstre' : 'satis', ayarlar: girdi?.ayarlar })
+    ),
     /** Fiş önizlemesi — gerçek fiş baytları üretilip geri çözülür. */
     'ayar.fisOnizleme': (girdi?: { satisId?: string; ayarlar?: Record<string, string> }) => (
       a(),
@@ -336,6 +424,17 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     'etiket.fiyatiDegisenler': (girdi?: { gun?: number }) => (
       a(),
       fiyatiDegisenler(b().vt, gunBasi(gunEkle(bugun(), -(girdi?.gun ?? 7))))
+    ),
+    /**
+     * RAF ETİKETİ BASILACAKLAR — fiyatı değişen ya da yeni açılan, etiketi
+     * henüz basılmamış ürünler. Basılınca kendiliğinden düşer.
+     */
+    'etiket.bekleyenler': () => (a(), { kayitlar: etiketBekleyenler(b().vt), toplam: etiketBekleyenSayisi(b().vt) }),
+    'etiket.bekleyenSayisi': () => (a(), etiketBekleyenSayisi(b().vt)),
+    /** Etiketi elle yazıldı / gerek yok: basmadan listeden çıkar. */
+    'etiket.bekleyenCikar': (girdi: { urunIdler: string[] }) => (
+      a(),
+      { cikarilan: etiketBekleyenleriSil(b().vt, girdi?.urunIdler ?? []) }
     ),
     /** Alış faturasındaki ürünler ve miktarları — kuyruğa hazır. */
     'etiket.faturadanDoldur': (girdi: { faturaId: string }) =>
@@ -406,7 +505,13 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       // `fis_yazdir` satışın bir alanı değildir; yalnız yazdırma kararını ezer.
       const { fis_yazdir: fisYazdir, ...satisGirdisi } = girdi as { fis_yazdir?: boolean };
       const sonuc = await posIleSatis(b(), a(), satisGirdisi);
-      uygulama.olayYayinla('satis:kesinlesti', { satisId: sonuc.satisId, fisNo: sonuc.fisNo });
+      // Tutarlar müşteri ekranının teşekkür görünümü içindir (ödenen ve para üstü).
+      uygulama.olayYayinla('satis:kesinlesti', {
+        satisId: sonuc.satisId,
+        fisNo: sonuc.fisNo,
+        genelToplam: sonuc.genelToplam,
+        paraUstu: sonuc.paraUstu,
+      });
       // Yazdırma BEKLENMEZ — sonucu olayla gelir (§20: kasa yazıcıya bağımlı değildir).
       fisiArkaPlandaYazdir(sonuc.satisId, sonuc.fisNo, fisYazdir);
       return { ...sonuc, yazdirmaBaslatildi: fisYazdir ?? ayarlariOku(b()).otomatikFis };
@@ -671,6 +776,29 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       a();
       return posDurumu(b());
     },
+    /*
+     * Pavo N86 yazarkasa POS'u (POS türü PAVO). Satış/iade/iptal mevcut
+     * kanallardan geçer (pos-servis yönlendirir); bunlar kurulum ve bakım içindir.
+     */
+    'pavo.durum': () => (a(), pavoDurumu(b())),
+    /** Faturalı satış: vergi no / TC kimlik no ile GİB'den alıcı bilgisi. */
+    'pavo.mukellefSorgula': (girdi: { kimlikNo: string }) => pavoMukellefSorgula(b(), a(), girdi?.kimlikNo),
+    'pavo.esles': () => pavoEsles(b(), a()),
+    // Kart beklenirken "Ödemeden vazgeç" — süren satış çağrısından AYRI gelir.
+    'pavo.vazgec': () => (a(), pavoOdemedenVazgec(b())),
+    'pavo.kurtar': () => pavoDefteriniCoz(b(), a()),
+    'pavo.askidakiler': () => pavoAskidakiler(b(), a()),
+    'pavo.askidakiniSil': (girdi: { satisNo: string }) => pavoAskidakiniSil(b(), a(), girdi.satisNo),
+    'pavo.bankaGunSonu': () => pavoBankaGunSonu(b(), a()),
+    // Mali raporlar. Yalnız gunSonu günü kapatır (geri alınamaz); diğerleri okur/basar.
+    'pavo.gunSonu': (girdi: { bankaGunSonu?: boolean }) => pavoGunSonu(b(), a(), girdi),
+    'pavo.xRaporu': (girdi: { fark?: boolean }) => pavoXRaporu(b(), a(), girdi),
+    'pavo.donemRaporu': (girdi: { baslangic: string; bitis: string; bastir?: boolean }) => pavoDonemRaporu(b(), a(), girdi),
+    'pavo.gecmisGunSonu': (girdi: { tarih: string; bastir?: boolean }) => pavoGecmisGunSonu(b(), a(), girdi),
+    'pavo.raporArsivi': (girdi: { baslangic: string; bitis: string }) => pavoRaporArsivi(b(), a(), girdi),
+    'pavo.raporOzeti': (girdi: { raporId: number }) => pavoRaporOzeti(b(), a(), girdi?.raporId),
+    'pavo.raporNushasi': (girdi: { raporId: number }) => pavoRaporNushasi(b(), a(), girdi?.raporId),
+
     'pos.test': () => posTesti(b(), a()),
     // ---------------------------------------------------------------- terazi
     'terazi.durum': () => {
@@ -752,6 +880,18 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
       const { vt } = b();
       const cihazId = uygulama.cihazId;
       const zaman = simdi();
+
+      // Müşteri ekranı yayın listesi ve logo yazılmadan ÖNCE denetlenir: bozuk
+      // liste kaydedilirse ekran sessizce varsayılana düşer ve kullanıcı
+      // yaptığı değişikliğin neden görünmediğini anlayamaz.
+      const slaytJson = girdi.degerler[MUSTERI_EKRANI_AYAR.SLAYTLAR];
+      if (slaytJson !== undefined && slaytJson.trim() !== '') {
+        const dogrulama = slaytlariDogrula(slaytJson);
+        if (!dogrulama.gecerli) throw hatalar.dogrulama(dogrulama.mesaj);
+      }
+      const logo = girdi.degerler[MUSTERI_EKRANI_AYAR.LOGO];
+      if (logo && !medyaAdiGecerliMi(logo)) throw hatalar.dogrulama('Müşteri ekranı logosu geçersiz.');
+
       vt.islem(() => {
         for (const [anahtar, deger] of Object.entries(girdi.degerler)) {
           // Cihaz kimliği, fiş serisi ve lisans bilgileri buradan değiştirilemez —
@@ -783,8 +923,62 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
           }
         }
       });
+
+      const anahtarlar = Object.keys(girdi.degerler);
+      if (anahtarlar.some(musteriEkraniAyariMi)) {
+        // Yüklenip kullanılmayan (ya da listeden çıkarılan) reklam dosyaları silinir.
+        const kullanilan = slaytMedyalari(slaytlariCoz(ayarOku(vt, MUSTERI_EKRANI_AYAR.SLAYTLAR)));
+        const kayitliLogo = ayarOku(vt, MUSTERI_EKRANI_AYAR.LOGO);
+        if (kayitliLogo) kullanilan.push(kayitliLogo);
+        yetimMedyalariTemizle(b().yollar, kullanilan);
+      }
+      // Müşteri ekranı (pencere/yayın listesi) ayar değişince kendini yeniler.
+      uygulama.olayYayinla('ayar:degisti', { anahtarlar });
       return { basarili: true };
     },
+
+    /*
+     * Müşteri ekranı (§ çift ekranlı POS).
+     *
+     * `sepet` oturum İSTEMEZ: yalnız kasanın zaten ekranda olan sepetini
+     * müşteri penceresine aynalar; çıkışta boşalan sepet de buradan geçer.
+     */
+    'musteri_ekrani.sepet': (girdi: unknown) => {
+      musteriEkrani?.sepetGuncelle(musteriSepetiSemasi.parse(girdi));
+      return null;
+    },
+    'musteri_ekrani.durum': () => (a(), musteriEkrani?.durum() ?? KAPALI_DURUM),
+    /*
+     * Müşteri ekranını HEMEN açar/kapatır ya da ekranını değiştirir (Kaydet
+     * beklemeden). Eskiden tek yol Ayarlar'daki küçük bir kutuyu işaretleyip
+     * Kaydet'e basmaktı; kutu gözden kaçıyor, ekran neden açılmadı anlaşılmıyordu.
+     * Pencere yöneticisi `ayar:degisti` olayında yeniden değerlendirir.
+     */
+    'musteri_ekrani.ayarla': (girdi: { acik: boolean; ekran?: string }) => {
+      if (!a().yetkiler.has('ayar.yonet')) throw hatalar.yetki();
+      const { vt } = b();
+      const anahtarlar: string[] = [MUSTERI_EKRANI_AYAR.ACIK];
+      vt.islem(() => {
+        ayarYaz(vt, MUSTERI_EKRANI_AYAR.ACIK, girdi.acik ? '1' : '0');
+        if (girdi.ekran) {
+          ayarYaz(vt, MUSTERI_EKRANI_AYAR.EKRAN, girdi.ekran);
+          anahtarlar.push(MUSTERI_EKRANI_AYAR.EKRAN);
+        }
+      });
+      uygulama.olayYayinla('ayar:degisti', { anahtarlar });
+      return musteriEkrani?.durum() ?? KAPALI_DURUM;
+    },
+    'musteri_ekrani.medyaYukle': (girdi: { veri: Uint8Array; tur?: MedyaTuru }) => {
+      if (!a().yetkiler.has('ayar.yonet')) throw hatalar.yetki();
+      if (!(girdi?.veri instanceof Uint8Array)) throw hatalar.dogrulama('Dosya okunamadı.');
+      return medyaKaydet(b().yollar, girdi.veri, girdi.tur);
+    },
+    /** Ayarlar ekranındaki önizleme: kaydedilmemiş ayarlarla üretilmiş yayın listesi. */
+    'musteri_ekrani.onizle': (girdi: { ayarlar?: Record<string, string> }) => (
+      a(),
+      musteriEkraniYapilandirmasi(b(), { ayarlar: girdi?.ayarlar })
+    ),
+
     /*
      * İşletim sistemine kurulu yazıcıları listeler (§13.2).
      *
@@ -857,12 +1051,32 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     'yedek.al': async (girdi?: { etiket?: string }) => {
       const aktor = a();
       if (!aktor.yetkiler.has('yedek.al')) throw hatalar.yetki();
+      const ayar = yedekAyarlariniOku(b().vt);
       return yedekAl(b(), {
         etiket: girdi?.etiket ?? 'elle',
-        ikincilKlasor: ayarMetin(b().vt, 'yedek.ikincil_klasor', '') || null,
-        saklananAdet: Number(ayarMetin(b().vt, 'yedek.saklanan_adet', '10')) || 10,
+        ikincilKlasor: ayar.ikincilKlasor,
+        saklananAdet: ayar.saklananAdet,
       });
     },
+    /*
+     * İkincil yedek klasörünü Windows'un klasör seçme penceresiyle seçtirir.
+     * Yol elle yazılıyordu; OneDrive yolu (C:\Users\…\OneDrive\…) ezberden
+     * yazılacak şey değil. Electron yalnız burada yüklenir (testler Electron'suz koşar).
+     */
+    'yedek.klasorSec': async () => {
+      a();
+      const { dialog } = await import('electron');
+      const pencere = pencereGetir?.();
+      const secenek = {
+        title: 'İkincil yedek klasörünü seçin',
+        buttonLabel: 'Bu klasörü kullan',
+        properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[],
+      };
+      const sonuc = pencere ? await dialog.showOpenDialog(pencere, secenek) : await dialog.showOpenDialog(secenek);
+      return { yol: sonuc.canceled ? null : (sonuc.filePaths[0] ?? null) };
+    },
+    'yedek.ikincilDurum': () => (a(), ikincilKlasorDurumu(b().vt)),
+    'yedek.ikincilKaydet': (girdi: { yol: string | null }) => ikincilKlasoruKaydet(b(), a(), girdi.yol),
     'yedek.listele': () => {
       a();
       return yedekleriListele(b());
@@ -871,6 +1085,38 @@ export function kanallariOlustur(uygulama: Uygulama, pencereGetir?: () => import
     'yedek.geriYukle': async (girdi: { yol: string }) => {
       const sonuc = await yedektenGeriYukle(b(), a(), girdi.yol);
       uygulama.olayYayinla('yedek:geriYuklendi', sonuc);
+      uygulama.yenidenBaslatmayiPlanla('geri-yukleme');
+      return sonuc;
+    },
+    /**
+     * Yedek DOSYASI seçtirir (USB, OneDrive, İndirilenler…). Geri Yükle eskiden
+     * yalnız programın kendi yedek klasörünü listeliyordu; yeni bilgisayarda
+     * yedek oraya elle kopyalanmadan geri yüklenemiyordu. Oturum açıkken ya da
+     * kurulum ekranında (henüz kullanıcı yokken) kullanılabilir.
+     */
+    'yedek.dosyaSec': async () => {
+      if (!uygulama.kurulumGerekliMi()) a();
+      const { dialog } = await import('electron');
+      const pencere = pencereGetir?.();
+      const secenek = {
+        title: 'Geri yüklenecek yedeği seçin',
+        buttonLabel: 'Bu yedeği seç',
+        properties: ['openFile'] as 'openFile'[],
+        filters: [
+          { name: 'AKYSOFTMARKETV1 yedeği', extensions: ['db', 'enc'] },
+          { name: 'Tüm dosyalar', extensions: ['*'] },
+        ],
+      };
+      const sonuc = pencere ? await dialog.showOpenDialog(pencere, secenek) : await dialog.showOpenDialog(secenek);
+      const yol = sonuc.canceled ? null : (sonuc.filePaths[0] ?? null);
+      if (!yol) return { yol: null };
+      const dogrulama = await yedegiDogrula(yol);
+      return { yol, dosya: basename(yol), saglam: dogrulama.saglam, detay: dogrulama.detay };
+    },
+    'veri.sifirla': async (girdi: { onay: string }) => {
+      const sonuc = await veriyiSifirla(b(), a(), girdi.onay);
+      uygulama.olayYayinla('veri:sifirlandi', sonuc);
+      uygulama.yenidenBaslatmayiPlanla('sifirlama');
       return sonuc;
     },
   };

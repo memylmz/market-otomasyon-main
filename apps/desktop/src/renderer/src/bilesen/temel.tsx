@@ -53,7 +53,10 @@ export function Diyalog({
     if (!acik) return;
     // Açılışta ilk odaklanabilir öğeye odaklan (klavye akışı kesilmesin).
     const zamanlayici = setTimeout(() => {
-      const hedef = kutu.current?.querySelector<HTMLElement>('[data-odak], input, select, textarea, button');
+      // Başlıktaki ✕ atlanır: ilk odak onda kalırsa tutar alanına yazılan rakam alanı seçmeden eski değerin önüne eklenir.
+      const hedef = kutu.current?.querySelector<HTMLElement>(
+        '[data-odak], input, select, textarea, button:not([data-diyalog-kapat])',
+      );
       hedef?.focus();
     }, 10);
     return () => clearTimeout(zamanlayici);
@@ -93,9 +96,27 @@ export function Diyalog({
         aria-label={baslik}
         className={`kart flex w-full flex-col ${genislikSinifi} ${genislik === 'tam' ? 'h-[94vh] max-h-[94vh]' : 'max-h-[90vh]'} overflow-hidden shadow-2xl`}
       >
-        <header className="shrink-0 border-b border-cizgi px-5 py-4">
-          <h2 className="text-lg font-semibold">{baslik}</h2>
-          {aciklama && <p className="mt-1 text-sm text-metin-3">{aciklama}</p>}
+        {/*
+          Her diyaloğun sağ üstünde ✕ var. Eskiden kapatmak yalnız alttaki
+          düğmelerle ya da ESC ile oluyordu; alt düğmesinde "Kapat" olmayan bir
+          pencerede (etiket kuyruğu) dokunmatik kasada çıkış yolu kalmıyordu.
+        */}
+        <header className="flex shrink-0 items-start gap-3 border-b border-cizgi px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold">{baslik}</h2>
+            {aciklama && <p className="mt-1 text-sm text-metin-3">{aciklama}</p>}
+          </div>
+          <button
+            type="button"
+            className="-mr-2 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xl text-metin-3 hover:bg-yuzey-2 hover:text-metin"
+            onClick={onKapat}
+            aria-label="Kapat"
+            title="Kapat (Esc)"
+            tabIndex={-1}
+            data-diyalog-kapat
+          >
+            ✕
+          </button>
         </header>
         <div
           className={`min-h-0 flex-1 px-5 py-4 ${kaydirma ? 'overflow-y-auto' : 'flex flex-col overflow-hidden'} ${

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './global.css';
 
 export const metadata: Metadata = {
-  title: 'Market Otomasyon — Yönetim Paneli',
+  title: 'AKYSOFTMARKETV1 — Yönetim Paneli',
   description: 'Ciro, stok, cari ve raporları her yerden izleyin.',
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, title: 'Market Paneli', statusBarStyle: 'default' },

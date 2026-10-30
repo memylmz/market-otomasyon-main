@@ -8,6 +8,8 @@
  * fonksiyona çıkarıldı ve testle kilitlendi; `.tsx` yalnız çizim yapar.
  */
 
+import { kdvAyir, kdvEkle } from './para.js';
+import type { Kurus } from './para.js';
 import type { YeniUrunKarti } from './toplu-urun.js';
 
 /** Faturaya giren bir satır. Tutarlar kuruş, miktar kullanıcı metni olarak durur. */
@@ -28,6 +30,43 @@ export interface AlisSatiri {
   sktZorunlu: boolean;
   /** Yeni ürün satırında ürün kartı formundan girilen ayrıntılar. */
   kart?: YeniUrunKarti;
+  /**
+   * Mevcut üründe bu faturadan ÖNCEKİ alış (KDV hariç) ve raf fiyatı (KDV
+   * dahil). Ekran "alış değişti" der ve raf fiyatı değiştirildiyse kaleme
+   * `yeni_satis_fiyati` olarak taşınır.
+   */
+  mevcutAlis?: number;
+  mevcutSatis?: number;
+}
+
+/**
+ * Faturaya yazılan birim fiyatın KDV HARİÇ karşılığı.
+ *
+ * Toptancı faturalarının bir kısmı birim fiyatı KDV hariç, bir kısmı KDV dahil
+ * yazar. Kullanıcıya fatura başına BİR KEZ sorulur; sonra faturada ne
+ * yazıyorsa o girilir, çeviriyi program yapar. Kayıt her zaman KDV hariçtir.
+ */
+export function alisMatrahi(girilen: Kurus, kdvOrani: number, kdvDahil: boolean): Kurus {
+  return kdvDahil ? kdvAyir(girilen, kdvOrani).matrah : girilen;
+}
+
+/** `alisMatrahi`nın tersi: KDV hariç alışı faturadaki yazılışa çevirir (ön doldurma için). */
+export function alisGosterimi(matrah: Kurus, kdvOrani: number, kdvDahil: boolean): Kurus {
+  return kdvDahil ? kdvEkle(matrah, kdvOrani).brut : matrah;
+}
+
+/**
+ * Alış fiyatı değişince ÖNERİLEN raf fiyatı: ürünün şimdiki kâr oranı korunur.
+ *
+ * Örnek: alış 125 → raf 200 (KDV %20). Alış 150'ye çıkarsa raf 240 önerilir —
+ * KDV'siz satış / alış oranı (166,67 / 125) aynı kalır. Eski alış ya da raf
+ * fiyatı yoksa öneri yoktur (null).
+ */
+export function ayniKarOraniylaRafFiyati(eskiAlis: Kurus, eskiRaf: Kurus, yeniAlis: Kurus, kdvOrani: number): Kurus | null {
+  if (eskiAlis <= 0 || eskiRaf <= 0 || yeniAlis <= 0) return null;
+  const eskiMatrah = kdvAyir(eskiRaf, kdvOrani).matrah;
+  const yeniMatrah = Math.round((yeniAlis * eskiMatrah) / eskiAlis);
+  return kdvEkle(yeniMatrah, kdvOrani).brut;
 }
 
 /**

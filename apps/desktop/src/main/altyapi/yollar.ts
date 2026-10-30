@@ -17,6 +17,8 @@ export interface Yollar {
   logKlasoru: string;
   disaAktarimKlasoru: string;
   geciciKlasor: string;
+  /** Müşteri ekranının logo, görsel ve video dosyaları (cihaza özel, buluta gitmez). */
+  medyaKlasoru: string;
 }
 
 export function yollariOlustur(kok: string): Yollar {
@@ -27,6 +29,7 @@ export function yollariOlustur(kok: string): Yollar {
     logKlasoru: join(kok, 'loglar'),
     disaAktarimKlasoru: join(kok, 'disa-aktarim'),
     geciciKlasor: join(kok, 'gecici'),
+    medyaKlasoru: join(kok, 'musteri-ekrani'),
   };
 }
 
@@ -38,6 +41,7 @@ export function klasorleriHazirla(yollar: Yollar): void {
     yollar.logKlasoru,
     yollar.disaAktarimKlasoru,
     yollar.geciciKlasor,
+    yollar.medyaKlasoru,
   ]) {
     mkdirSync(klasor, { recursive: true });
   }

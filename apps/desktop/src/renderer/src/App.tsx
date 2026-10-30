@@ -8,10 +8,12 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { BildirimKatmani, Yukleniyor } from './bilesen/temel';
+import { EkranTusTakimi } from './bilesen/EkranTusTakimi';
 import { HataSiniri } from './bilesen/HataSiniri';
 import { Kabuk } from './bilesen/Kabuk';
 import { bildir } from './durum/bildirim';
 import { oturumDurumu } from './durum/oturum';
+import { useMusteriEkraniYayini } from './kanca/useMusteriEkraniYayini';
 import { olayDinle } from './kopru';
 import { AyarlarSayfasi } from './sayfa/Ayarlar';
 import { CariSayfasi } from './sayfa/Cari';
@@ -23,12 +25,17 @@ import { RaporlarSayfasi } from './sayfa/Raporlar';
 import { SatisSayfasi } from './sayfa/Satis';
 import { StokSayfasi } from './sayfa/Stok';
 import { UrunlerSayfasi } from './sayfa/Urunler';
+import { YazarkasaSayfasi } from './sayfa/Yazarkasa';
 
 export function App() {
   const yukleniyor = oturumDurumu((s) => s.yukleniyor);
   const sistem = oturumDurumu((s) => s.sistem);
   const tazele = oturumDurumu((s) => s.tazele);
   const [baslatmaHatasi, setBaslatmaHatasi] = useState<string | null>(null);
+  /** Sıfırlama / geri yükleme sonrası: veritabanı kapalı, program kendini yeniden açıyor. */
+  const [yenidenBasliyor, setYenidenBasliyor] = useState<string | null>(null);
+  // Müşteri ekranı sepeti her sayfada görür (bkz. kanca).
+  useMusteriEkraniYayini();
 
   useEffect(() => {
     tazele().catch((hata) => setBaslatmaHatasi(hata instanceof Error ? hata.message : String(hata)));
@@ -63,9 +70,13 @@ export function App() {
         void tazele();
       } else if (olay === 'kasa:acildi' || olay === 'kasa:kapandi') {
         void tazele();
+      } else if (olay === 'uygulama:yenidenBaslatiliyor') {
+        setYenidenBasliyor((veri as { neden?: string } | undefined)?.neden ?? 'yeniden-baslatma');
       }
     });
   }, [tazele]);
+
+  if (yenidenBasliyor) return <YenidenBaslatiliyor neden={yenidenBasliyor} />;
 
   if (baslatmaHatasi) {
     return (
@@ -110,6 +121,7 @@ export function App() {
                       <Route path="/stok" element={<StokSayfasi />} />
                       <Route path="/cari" element={<CariSayfasi />} />
                       <Route path="/kasa" element={<KasaSayfasi />} />
+                      <Route path="/yazarkasa" element={<YazarkasaSayfasi />} />
                       <Route path="/raporlar" element={<RaporlarSayfasi />} />
                       <Route path="/ayarlar" element={<AyarlarSayfasi />} />
                       <Route path="*" element={<Navigate to="/satis" replace />} />
@@ -122,6 +134,7 @@ export function App() {
         )}
       </Routes>
       <BildirimKatmani />
+      <EkranTusTakimi />
     </>
   );
 }
@@ -172,4 +185,32 @@ function OturumKapisi({ children }: { children: React.ReactNode }) {
   }, [zamanAsimiDk, cikisYap, gezin, konum.pathname]);
 
   return <>{children}</>;
+}
+
+/**
+ * Sıfırlama ya da geri yüklemeden sonra tam ekran bekleme. Arkada eski oturum
+ * görünmesin: veritabanı kapalıdır, basılan her düğme hata verirdi.
+ */
+function YenidenBaslatiliyor({ neden }: { neden: string }) {
+  const [gecikti, setGecikti] = useState(false);
+  useEffect(() => {
+    const z = setTimeout(() => setGecikti(true), 12_000);
+    return () => clearTimeout(z);
+  }, []);
+  const baslik =
+    neden === 'geri-yukleme' ? 'Yedek geri yüklendi' : neden === 'sifirlama' ? 'Tüm veri sıfırlandı' : 'Program yeniden başlıyor';
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="kart max-w-md p-8 text-center">
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-yuzey-3 border-t-vurgu" aria-hidden />
+        <h1 className="text-xl font-semibold">{baslik}</h1>
+        <p className="mt-2 text-sm text-metin-3">Program kendini yeniden başlatıyor, birkaç saniye sürer.</p>
+        {gecikti && (
+          <p className="mt-4 rounded-lg bg-uyari-yumusak px-3 py-2 text-sm text-uyari">
+            Program kendiliğinden açılmadıysa kapatıp yeniden açın. Veriniz kaydedildi.
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }

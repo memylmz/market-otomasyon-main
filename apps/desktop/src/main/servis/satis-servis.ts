@@ -63,7 +63,7 @@ import {
   type SatisDetayi,
 } from '../depo/satis.js';
 import { olayYaz } from '../depo/senkron.js';
-import { hareketEkle, stoklariOku } from '../depo/stok.js';
+import { hareketEkle, maliyetleriOku, stoklariOku } from '../depo/stok.js';
 import { ayarlariOku, kasaOturumuIste, yetkiIste, yetkisiVarMi, type Aktor, type Baglam } from './baglam.js';
 
 export interface SatisSonucu {
@@ -83,6 +83,11 @@ interface CozulmusKalem {
   ad: string;
   miktar: Miktar;
   birimFiyat: Kurus;
+  /**
+   * Kalemin maliyet anlık görüntüsü: AĞIRLIKLI ORTALAMA maliyet (yoksa son
+   * alış). Raftaki eski ucuz mal yeni zamlı fiyattan maliyetlenmesin diye.
+   */
+  birimMaliyet: Kurus;
   barkod: string | null;
   kampanyaId: string | null;
   iskontoYuzde?: number;
@@ -92,6 +97,7 @@ interface CozulmusKalem {
 function urunleriCoz(baglam: Baglam, aktor: Aktor, girdi: SatisGirdi, zaman: string): CozulmusKalem[] {
   const urunIdler = girdi.kalemler.map((k) => k.urun_id);
   const urunler = urunleriBul(baglam.vt, urunIdler);
+  const maliyetler = maliyetleriOku(baglam.vt, urunIdler);
   // Muhtelif kaydının liste fiyatı yoktur (0): tutar her satışta girilir.
   const muhtelifId = ayarMetin(baglam.vt, AYAR.URUN_MUHTELIF_ID, '');
   const kampanyalar = etkinKampanyalar(baglam.vt, zaman).map((k) => ({
@@ -170,6 +176,7 @@ function urunleriCoz(baglam: Baglam, aktor: Aktor, girdi: SatisGirdi, zaman: str
       ad: kalem.urun_adi?.trim() || urun.ad,
       miktar: kalem.miktar,
       birimFiyat,
+      birimMaliyet: maliyetler.get(urun.id) ?? urun.alis_fiyati,
       barkod: kalem.barkod ?? null,
       kampanyaId: miktarKampanyasi.kampanyaId ?? kampanyaId ?? kalem.kampanya_id ?? null,
       iskontoYuzde: kalem.iskonto_yuzde,
@@ -328,7 +335,7 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
           miktar: kalem.miktar,
           birim_tipi: kalem.urun.birim_tipi,
           birim_fiyat: kalem.birimFiyat,
-          birim_maliyet: kalem.urun.alis_fiyati,
+          birim_maliyet: kalem.birimMaliyet,
           iskonto: satir.iskonto,
           kdv_orani: satir.kdvOrani,
           kdv_tutar: satir.kdvTutar,
@@ -347,7 +354,7 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
           urun_id: kalem.urun.id,
           hareket_tipi: 'SATIS',
           miktar: -kalem.miktar,
-          birim_maliyet: kalem.urun.alis_fiyati,
+          birim_maliyet: kalem.birimMaliyet,
           belge_id: satisId,
           belge_tipi: 'SATIS',
           kullanici_id: aktor.kullaniciId,
@@ -356,7 +363,7 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
         zaman,
       );
 
-      const maliyet = Math.round((kalem.miktar * kalem.urun.alis_fiyati) / 1000);
+      const maliyet = Math.round((kalem.miktar * kalem.birimMaliyet) / 1000);
       const satirKar = satir.matrah - maliyet;
       brutKar += satirKar;
       urunOzetEkle(vt, kalem.urun.id, gun, cihazId, { adet: kalem.miktar, ciro: satir.satirToplam, kar: satirKar }, zaman);
@@ -477,7 +484,7 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
             barkod: kalemler[i]?.barkod ?? null,
             miktar: kalemler[i]?.miktar,
             birim_fiyat: kalemler[i]?.birimFiyat,
-            birim_maliyet: kalemler[i]?.urun.alis_fiyati,
+            birim_maliyet: kalemler[i]?.birimMaliyet,
             iskonto: satir.iskonto,
             kdv_orani: satir.kdvOrani,
             kdv_tutar: satir.kdvTutar,

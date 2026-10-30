@@ -50,6 +50,7 @@ export const YETKILER = [
   'senkron.tetikle',
   'yedek.al',
   'yedek.geri_yukle',
+  'veri.sifirla',
   'denetim.goruntule',
 ] as const;
 
@@ -91,6 +92,7 @@ export const YETKI_ETIKETLERI: Record<Yetki, string> = {
   'senkron.tetikle': 'Senkronu elle başlatma',
   'yedek.al': 'Yedek alma',
   'yedek.geri_yukle': 'Yedekten geri yükleme',
+  'veri.sifirla': 'Tüm veriyi sıfırlama',
   'denetim.goruntule': 'Denetim loglarını görüntüleme',
 };
 
@@ -151,6 +153,7 @@ export const PIN_ONAYI_GEREKENLER: readonly Yetki[] = [
   'cari.limit_asimi_onay',
   'kasa.giris_cikis',
   'yedek.geri_yukle',
+  'veri.sifirla',
 ];
 
 export interface YetkiSahibi {

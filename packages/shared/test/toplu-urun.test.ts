@@ -175,3 +175,25 @@ describe('yeni ürün kartı ayrıntıları', () => {
     expect(kalemler[0]?.yeni_urun).toEqual({ ad: 'Kalem', satis_fiyati: 1000, birim_tipi: 'ADET', kategori_id: null });
   });
 });
+
+describe('mevcut üründe raf fiyatı güncellemesi', () => {
+  const satir = {
+    barkod: '',
+    ad: 'Süt',
+    miktar: '2',
+    alis: '18,50',
+    satis: '26,90',
+    kdv: '1',
+    urun_id: '11111111-1111-4111-8111-111111111111',
+  };
+
+  it('raf fiyatı değiştiyse kalem yeni_satis_fiyati taşır', () => {
+    const { kalemler } = topluGirisKalemleri([{ ...satir, mevcut_satis: '24,90' }]);
+    expect(kalemler[0]).toMatchObject({ yeni_satis_fiyati: 2_690 });
+  });
+
+  it('raf fiyatı aynıysa ya da önceki fiyat bilinmiyorsa taşımaz', () => {
+    expect(topluGirisKalemleri([{ ...satir, mevcut_satis: '26,90' }]).kalemler[0]).not.toHaveProperty('yeni_satis_fiyati');
+    expect(topluGirisKalemleri([satir]).kalemler[0]).not.toHaveProperty('yeni_satis_fiyati');
+  });
+});

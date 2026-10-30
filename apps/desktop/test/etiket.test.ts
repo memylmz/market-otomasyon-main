@@ -8,8 +8,15 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { etiketBaytlari, etiketYerlesimi, kalibrasyonEtiketi, type EtiketOlcusu } from '../src/main/donanim/etiket.js';
-import { code128Cizimi } from '@market/shared';
+import {
+  etiketBaytlari,
+  etiketGorselKomutu,
+  etiketSvgSayfasi,
+  etiketYerlesimi,
+  kalibrasyonEtiketi,
+  type EtiketOlcusu,
+} from '../src/main/donanim/etiket.js';
+import { code128Cizimi, VARSAYILAN_ETIKET_DUZENI } from '@market/shared';
 
 const olcu: EtiketOlcusu = { enMm: 40, boyMm: 30, boslukMm: 2, dpi: 203, sutun: 1, isi: 8, hiz: 4 };
 const secenek = { rafGoster: true, birimFiyatGoster: true };
@@ -191,5 +198,150 @@ describe('yerleşim — önizleme ile baskı aynı kaynaktan', () => {
 
   it('yeterli etikette uyarı üretilmez', () => {
     expect(etiketYerlesimi(urun, { ...olcu, enMm: 60, boyMm: 40 }, secenek).uyarilar).toEqual([]);
+  });
+});
+
+describe('etiket düzeni (ayarlanabilir)', () => {
+  const olcu40: EtiketOlcusu = { enMm: 40, boyMm: 30, boslukMm: 2, dpi: 203, sutun: 1, isi: 8, hiz: 4 };
+  const icerik = { ad: 'Süt', fiyat: 3250, barkod: '8690000000017', birimTipi: 'ADET', adet: 1, tarih: '30.10.2026' };
+  const metinler = (y: ReturnType<typeof etiketYerlesimi>) =>
+    y.ogeler.filter((o): o is Extract<typeof o, { tip: 'metin' }> => o.tip === 'metin');
+
+  it('düzen verilmezse eski görünüm: her şey sola yaslı', () => {
+    const y = etiketYerlesimi(icerik, olcu40, { rafGoster: false, birimFiyatGoster: true, turkce: true });
+    expect(metinler(y).every((m) => m.xMm === 2)).toBe(true);
+    expect(y.ogeler.find((o) => o.tip === 'barkod')?.xMm).toBe(2);
+  });
+
+  it('ortalanan ad ve fiyat etiketin ortasında durur (yazıcı fontunun genişliğiyle)', () => {
+    const y = etiketYerlesimi(icerik, olcu40, {
+      rafGoster: false,
+      birimFiyatGoster: true,
+      turkce: true,
+      duzen: { ...VARSAYILAN_ETIKET_DUZENI, adHiza: 'orta', fiyatHiza: 'orta', barkodHiza: 'orta' },
+    });
+    for (const m of metinler(y)) {
+      expect(m.genislikMm).toBeGreaterThan(0);
+      expect(m.xMm + m.genislikMm! / 2).toBeCloseTo(20, 5);
+    }
+    const barkod = y.ogeler.find((o) => o.tip === 'barkod')!;
+    expect(barkod.xMm + (barkod as { genislikMm: number }).genislikMm / 2).toBeCloseTo(20, 5);
+  });
+
+  it('sağa yaslama kenar boşluğunda biter', () => {
+    const y = etiketYerlesimi(icerik, olcu40, {
+      rafGoster: false,
+      birimFiyatGoster: true,
+      turkce: true,
+      duzen: { ...VARSAYILAN_ETIKET_DUZENI, fiyatHiza: 'sag' },
+    });
+    const fiyat = metinler(y)[1]!;
+    expect(fiyat.xMm + fiyat.genislikMm!).toBeCloseTo(38, 5);
+  });
+
+  it('uzun ad iki satıra bölünür; barkod kapatılabilir; çerçeve ve tarih eklenir', () => {
+    const y = etiketYerlesimi({ ...icerik, ad: 'Tam Yağlı Uzun Ömürlü Süt 1 Litre Kutu' }, olcu40, {
+      rafGoster: false,
+      birimFiyatGoster: true,
+      turkce: true,
+      duzen: { ...VARSAYILAN_ETIKET_DUZENI, adIkiSatir: true, barkodGoster: false, cerceve: true, tarihGoster: true },
+    });
+    const m = metinler(y);
+    expect(m[0]!.metin.startsWith('Tam Yağlı')).toBe(true);
+    expect(m[1]!.yMm).toBeGreaterThan(m[0]!.yMm);
+    expect(y.ogeler.some((o) => o.tip === 'barkod')).toBe(false);
+    expect(y.ogeler.some((o) => o.tip === 'cerceve')).toBe(true);
+    expect(m.some((x) => x.metin === '30.10.2026')).toBe(true);
+  });
+
+  it('büyük fiyat TSPL çıktısına büyük fontla gider', () => {
+    const kucuk = etiketBaytlari('TSPL', icerik, olcu40, { rafGoster: false, birimFiyatGoster: true, turkce: true }).toString(
+      'latin1',
+    );
+    const buyuk = etiketBaytlari('TSPL', icerik, olcu40, {
+      rafGoster: false,
+      birimFiyatGoster: true,
+      turkce: true,
+      duzen: { ...VARSAYILAN_ETIKET_DUZENI, fiyatBoyut: 'buyuk', fiyatHiza: 'orta' },
+    }).toString('latin1');
+    expect(buyuk).not.toEqual(kucuk);
+    expect(buyuk).toMatch(/TEXT \d+,\d+,"\d",0,\d,\d,"32,50/);
+  });
+});
+
+describe('sığmayan yazı', () => {
+  it('büyük fiyat dar etikette küçültülür ve uyarılır; kenardan taşmaz', () => {
+    const y = etiketYerlesimi(
+      { ad: 'Süt', fiyat: 4550, barkod: '', birimTipi: 'ADET', adet: 1 },
+      { enMm: 40, boyMm: 30, boslukMm: 2, dpi: 203, sutun: 1, isi: 8, hiz: 4 },
+      { rafGoster: false, birimFiyatGoster: true, turkce: true, duzen: { ...VARSAYILAN_ETIKET_DUZENI, fiyatBoyut: 'buyuk' } },
+    );
+    const fiyat = y.ogeler.filter((o) => o.tip === 'metin')[1] as { xMm: number; genislikMm: number; yukseklikMm: number };
+    expect(fiyat.yukseklikMm).toBeLessThan(8);
+    expect(fiyat.xMm + fiyat.genislikMm).toBeLessThanOrEqual(38 + 1e-9);
+    expect(y.uyarilar.some((u) => u.startsWith('Fiyat seçilen boyutta'))).toBe(true);
+  });
+});
+
+describe('barkod türü ve görüntü baskısı', () => {
+  const olcu40: EtiketOlcusu = { enMm: 40, boyMm: 30, boslukMm: 2, dpi: 203, sutun: 1, isi: 8, hiz: 4 };
+  const sec = { rafGoster: false, birimFiyatGoster: true, turkce: true };
+
+  it('geçerli EAN-13 yazıcıya EAN13 olarak gider (12 hane; kontrolü yazıcı ekler)', () => {
+    const c = etiketBaytlari(
+      'TSPL',
+      { ad: 'X', fiyat: 100, barkod: '8691234567906', birimTipi: 'ADET', adet: 1 },
+      olcu40,
+      sec,
+    ).toString('latin1');
+    expect(c).toMatch(/BARCODE \d+,\d+,"EAN13",\d+,1,0,\d,\d,"869123456790"/);
+    const z = etiketBaytlari(
+      'ZPL',
+      { ad: 'X', fiyat: 100, barkod: '8691234567906', birimTipi: 'ADET', adet: 1 },
+      olcu40,
+      sec,
+    ).toString('latin1');
+    expect(z).toContain('^BEN,');
+  });
+
+  it('EAN olmayan kod CODE128-B zorlanarak gider (önizlemeyle aynı genişlik)', () => {
+    const c = etiketBaytlari('TSPL', { ad: 'X', fiyat: 100, barkod: '12345', birimTipi: 'ADET', adet: 1 }, olcu40, sec).toString(
+      'latin1',
+    );
+    expect(c).toContain('"128M"');
+    expect(c).toContain('"!10412345"');
+  });
+
+  it('EAN-13 barkod etiketin genişliğini kullanır (modül en az 2 nokta)', () => {
+    const y = etiketYerlesimi({ ad: 'X', fiyat: 100, barkod: '8691234567906', birimTipi: 'ADET', adet: 1 }, olcu40, sec);
+    const b = y.ogeler.find((o) => o.tip === 'barkod') as { modulMm: number; genislikMm: number };
+    expect(b.modulMm).toBeCloseTo((2 * 25.4) / 203, 5);
+    expect(b.genislikMm).toBeGreaterThan(20);
+    expect(y.uyarilar.some((u) => u.includes('çok dar'))).toBe(false);
+  });
+
+  it('SVG sayfası Türkçe metni ve barkod çubuklarını taşır, nokta ölçüsündedir', () => {
+    const y = etiketYerlesimi(
+      { ad: 'ÇİĞ ŞIRA <ı>', fiyat: 100, barkod: '8691234567906', birimTipi: 'ADET', adet: 1 },
+      olcu40,
+      sec,
+    );
+    const { html, enNokta, boyNokta } = etiketSvgSayfasi(y, 203);
+    expect(enNokta).toBe(320);
+    expect(boyNokta).toBe(240);
+    expect(html).toContain('ÇİĞ ŞIRA &lt;ı&gt;');
+    expect((html.match(/<rect /g) ?? []).length).toBeGreaterThan(25);
+  });
+
+  it('TSPL BITMAP: siyah nokta 0 bitiyle gider; ZPL ^GFA olduğu gibi', () => {
+    const bitler = new Uint8Array([0xff, 0x00]); // 2 satır × 8 nokta: üst siyah, alt beyaz
+    const t = etiketGorselKomutu('TSPL', bitler, 8, 2, olcu40, 3);
+    const metin = t.toString('latin1');
+    expect(metin).toContain('BITMAP 0,0,1,2,0,');
+    const i = t.indexOf(Buffer.from('BITMAP 0,0,1,2,0,')) + 'BITMAP 0,0,1,2,0,'.length;
+    expect([t[i], t[i + 1]]).toEqual([0x00, 0xff]);
+    expect(metin).toContain('PRINT 3,1');
+    const z = etiketGorselKomutu('ZPL', bitler, 8, 2, olcu40, 1).toString('latin1');
+    expect(z).toContain('^GFA,2,2,1,FF00');
   });
 });

@@ -6,12 +6,14 @@ appId: com.marketotomasyon.kasa
 # kurulum paketi hiç üretilmiyordu. Electron yükseltilince burası da güncellenir
 # (test/electron-surumu.test.ts farkı yakalar).
 electronVersion: 33.4.11
-productName: Market Otomasyon
-copyright: © 2026 Market Otomasyon
+productName: AKYSOFTMARKETV1
+copyright: © 2026 AKYSOFT
 
 directories:
   output: release
-  buildResources: build
+  # Simge (icon.ico / icon.png) buradadır. `build/` .gitignore'da olduğu için
+  # oraya konan simge depoya girmiyordu.
+  buildResources: kaynaklar
 
 files:
   - out/**/*
@@ -41,7 +43,7 @@ win:
       arch: [x64]
   # Kod imzalama (§22.2): sertifika CI ortam değişkenlerinden gelir.
   # CSC_LINK ve CSC_KEY_PASSWORD tanımlıysa electron-builder otomatik imzalar.
-  artifactName: MarketOtomasyon-Kurulum-${version}.${ext}
+  artifactName: AKYSOFTMARKETV1-Kurulum-${version}.${ext}
 
 nsis:
   oneClick: false
@@ -49,7 +51,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Market Otomasyon
+  shortcutName: AKYSOFTMARKETV1
   language: '1055' # Türkçe
   # Kaldırma sırasında kullanıcı verisi (veritabanı, yedekler) SİLİNMEZ.
   deleteAppDataOnUninstall: false
@@ -59,7 +61,7 @@ linux:
     - AppImage
     - deb
   category: Office
-  artifactName: MarketOtomasyon-${version}.${ext}
+  artifactName: AKYSOFTMARKETV1-${version}.${ext}
 
 # Otomatik güncelleme (§22.5). Yayın kanalı sürüm etiketinden belirlenir;
 # kademeli yayın için `stagingPercentage` kullanılabilir.

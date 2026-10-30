@@ -17,8 +17,10 @@ import {
   miktarFormat,
   miktarOlustur,
   paraFormat,
+  satirZarardaMi,
   type BirimTipi,
   type KampanyaTanimi,
+  type FaturaAlicisi,
   type Kurus,
   type Miktar,
 } from '@market/shared';
@@ -28,8 +30,9 @@ import { bildir, hatayiBildir } from '../durum/bildirim';
 import { oturumDurumu, useYetki } from '../durum/oturum';
 import { satisGirdisiOlustur, sepetDurumu, type EklenecekUrun, type SepetAnlik } from '../durum/sepet';
 import { useBarkodOdakYakalayici, useBarkodTekrarKorumasi, useKisayol } from '../kanca/useKisayol';
-import { cagir } from '../kopru';
+import { cagir, cagirGuvenli } from '../kopru';
 import { OdemeDiyalogu } from './satis/OdemeDiyalogu';
+import { FaturaBilgisiDiyalogu } from './satis/FaturaBilgisiDiyalogu';
 import { BorcluSecTahsilat } from './satis/BorcluSecTahsilat';
 import { UrunAramaDiyalogu } from './satis/UrunAramaDiyalogu';
 import { MusteriSecDiyalogu } from './satis/MusteriSecDiyalogu';
@@ -46,6 +49,7 @@ interface BarkodSonucu {
     kategori_id?: string | null;
     birim_tipi: BirimTipi;
     satis_fiyati: Kurus;
+    alis_fiyati: Kurus;
     kdv_orani: number;
     stok: Miktar;
     aktif_mi: boolean;
@@ -63,6 +67,7 @@ interface OneriUrun {
   marka: string | null;
   birim_tipi: BirimTipi;
   satis_fiyati: Kurus;
+  alis_fiyati: Kurus;
   kdv_orani: number;
   stok: Miktar;
   aktif_mi: boolean;
@@ -92,6 +97,40 @@ export function SatisSayfasi() {
   const [barkodMetni, setBarkodMetni] = useState('');
   const [adetOneki, setAdetOneki] = useState<number | null>(null);
   const [islemde, setIslemde] = useState(false);
+  /** Pavo açıkken satış cihazda sürerken gösterilen katman (kart varsa "vazgeç" de). */
+  const [pavoIslemi, setPavoIslemi] = useState<{ kart: boolean } | null>(null);
+
+  /*
+   * Pavo: yarım kalan satışları satış ekranı açılırken çöz. Program kart
+   * beklerken kapandıysa (elektrik, çökme) parası alınmış satış burada kayda
+   * geçer; yarım kalan satış cihazdan silinir. Aynı iş her Pavo satışından
+   * önce de yapılır — bu yalnız kasiyerin sonucu hemen görmesi için.
+   */
+  useEffect(() => {
+    let iptal = false;
+    void (async () => {
+      const pos = await cagirGuvenli<{ tur: string }>('pos.durum');
+      if (iptal || pos.veri?.tur !== 'PAVO') return;
+      const sonuc = await cagirGuvenli<{ olusturulan: string[]; silinen: string[]; kalan: unknown[] }>('pavo.kurtar');
+      if (iptal || !sonuc.veri) return;
+      const { olusturulan, silinen, kalan } = sonuc.veri;
+      if (olusturulan.length > 0) {
+        bildir.uyari(
+          'Yarım kalan Pavo satışı kayda geçirildi',
+          `Program kapanmadan önce ödemesi alınmış: ${olusturulan.join(', ')}`,
+        );
+      }
+      if (silinen.length > 0) {
+        bildir.uyari('Yarım kalan Pavo satışı silindi', 'Ödemesi tamamlanmamıştı. Alınmış nakit varsa müşteriye iade edin.');
+      }
+      if (kalan.length > 0) {
+        bildir.uyari('Pavo satışının durumu öğrenilemedi', 'Pavo açık ve bağlı mı? Bağlanınca kendiliğinden çözülecek.');
+      }
+    })();
+    return () => {
+      iptal = true;
+    };
+  }, []);
 
   const [odemeAcik, setOdemeAcik] = useState(false);
   /*
@@ -101,13 +140,32 @@ export function SatisSayfasi() {
    */
   const odemeBaslangicTipi = sepet.musteriId ? ('VERESIYE' as const) : ('NAKIT' as const);
   /** F5/F4 nakit yolunda açılan tek alanlı "Alınan" kutusu. null → kapalı. */
-  /** F4 ile açıldıysa satış sonunda fiş basılır; F5 ile açıldıysa basılmaz. */
+  /**
+   * Bu satışın fişi basılacak mı? Ödeme penceresindeki "Fiş" düğmesiyle
+   * değiştirilir. Açılışta: F4 → evet, F5 → hayır, ÖDEME düğmesi → ayar
+   * ("Satış sonrası fişi otomatik yazdır").
+   *
+   * Eskiden ÖDEME düğmesi bu değeri hiç ayarlamıyordu; başlangıç değeri
+   * `false` kaldığı için dokunmatik kasada ayar açık olsa da fiş çıkmıyordu.
+   */
   const [fisYazdirilacak, setFisYazdirilacak] = useState(false);
+  const otomatikFis = oturumDurumu((s) => s.sistem?.otomatikFis ?? true);
+  const faturaSiniri = oturumDurumu((s) => s.sistem?.faturaSiniri ?? null);
   const [aramaAcik, setAramaAcik] = useState(false);
   const [tahsilatAcik, setTahsilatAcik] = useState(false);
   /** Barkod kutusuna isim yazılıp bulunamadığında arama diyaloğuna aktarılan terim. */
   const [aramaTerimi, setAramaTerimi] = useState('');
   const [musteriAcik, setMusteriAcik] = useState(false);
+  /** Faturalı satış alıcısı (e-Arşiv / e-Fatura); satış bitince sıfırlanır. */
+  const [fatura, setFatura] = useState<FaturaAlicisi | null>(null);
+  const [faturaAcik, setFaturaAcik] = useState(false);
+  /** Faturayı cihaz keser: yalnız Pavo tanımlıyken sunulur. */
+  const [pavoVar, setPavoVar] = useState(false);
+  useEffect(() => {
+    cagir<{ tur: string }>('pos.durum')
+      .then((d) => setPavoVar(d.tur === 'PAVO'))
+      .catch(() => setPavoVar(false));
+  }, []);
 
   /*
    * Etkin kampanyalar bir kez çekilir (§10.8).
@@ -154,20 +212,53 @@ export function SatisSayfasi() {
 
   useEffect(() => {
     let zamanlayici: ReturnType<typeof setTimeout> | null = null;
+    const diskeYaz = () => {
+      zamanlayici = null;
+      const d = sepetDurumu.getState();
+      const bosMu = d.satirlar.length === 0 && d.bekleyenler.length === 0;
+      void cagir(bosMu ? 'satis.sepetleriUnut' : 'satis.sepetleriKaydet', bosMu ? {} : { veri: d.anlikGoruntu() }).catch(
+        () => {},
+      );
+    };
+    /*
+     * Sepetten bir şey EKSİLDİYSE (satış bitti, Temizle, satır silindi,
+     * miktar azaldı) kayıt beklemeden yazılır. Gecikme yalnız eklemelerde:
+     * çökmede son okutulan ürünün kaybolması sorun değil, ama silinen ya da
+     * SATILMIŞ ürünün yeniden açılışta sepete geri gelmesi çift satış demek.
+     * Program 1,2 sn içinde kapatılınca eskiden tam olarak bu oluyordu.
+     */
+    const iz = () => {
+      const d = sepetDurumu.getState();
+      const satirlar = [...d.satirlar, ...d.bekleyenler.flatMap((b) => b.satirlar)];
+      return { satir: satirlar.length, miktar: satirlar.reduce((t, s) => t + s.miktar, 0) };
+    };
+    let onceki = iz();
     const yaz = () => {
+      const simdiki = iz();
+      const eksildi = simdiki.satir < onceki.satir || simdiki.miktar < onceki.miktar;
+      onceki = simdiki;
       if (zamanlayici) clearTimeout(zamanlayici);
-      zamanlayici = setTimeout(() => {
-        const d = sepetDurumu.getState();
-        const bosMu = d.satirlar.length === 0 && d.bekleyenler.length === 0;
-        void cagir(bosMu ? 'satis.sepetleriUnut' : 'satis.sepetleriKaydet', bosMu ? {} : { veri: d.anlikGoruntu() }).catch(
-          () => {},
-        );
-      }, 1200);
+      if (eksildi) diskeYaz();
+      else zamanlayici = setTimeout(diskeYaz, 1200);
     };
     const birak = sepetDurumu.subscribe(yaz);
+    // Program kapatılırken bekleyen kayıt da hemen gönderilir.
+    const kapanirken = () => {
+      if (zamanlayici) {
+        clearTimeout(zamanlayici);
+        diskeYaz();
+      }
+    };
+    window.addEventListener('pagehide', kapanirken);
     return () => {
-      if (zamanlayici) clearTimeout(zamanlayici);
       birak();
+      window.removeEventListener('pagehide', kapanirken);
+      // Bekleyen yazım ATILMAZ, hemen yapılır: ekrandan çıkılınca son hâl
+      // (ör. az önce boşaltılan sepet) diske ulaşmadan kayboluyordu.
+      if (zamanlayici) {
+        clearTimeout(zamanlayici);
+        diskeYaz();
+      }
     };
   }, []);
   const [iskontoAcik, setIskontoAcik] = useState(false);
@@ -180,7 +271,7 @@ export function SatisSayfasi() {
   const [oneriIndeks, setOneriIndeks] = useState(0);
 
   const tekrarKorumasi = useBarkodTekrarKorumasi(120);
-  const diyalogAcik = odemeAcik || aramaAcik || musteriAcik || iskontoAcik || tartilan !== null || tahsilatAcik;
+  const diyalogAcik = odemeAcik || aramaAcik || musteriAcik || iskontoAcik || tartilan !== null || tahsilatAcik || faturaAcik;
   const oneriAcik = oneriler.length > 0 && !diyalogAcik;
 
   const odaklan = useCallback(() => {
@@ -271,6 +362,7 @@ export function SatisSayfasi() {
           kdvOrani: urun.kdv_orani,
           kampanyaId: null,
           stok: urun.stok,
+          alisFiyati: urun.alis_fiyati,
         },
         miktar,
       );
@@ -342,6 +434,7 @@ export function SatisSayfasi() {
             kdvOrani: urun.kdv_orani,
             kampanyaId: sonuc.kampanyaId ?? null,
             stok: urun.stok,
+            alisFiyati: urun.alis_fiyati,
           },
           miktar,
         );
@@ -398,6 +491,8 @@ export function SatisSayfasi() {
       onaylar: { limitAsimiOnaylandi?: boolean; negatifStokOnaylandi?: boolean },
       /** true → fiş bas, false → basma, undefined → ayar karar versin. */
       fisYazdir?: boolean,
+      /** Faturalı satış alıcısı; yoksa nihai tüketici fişi. */
+      faturaAlicisi?: FaturaAlicisi | null,
     ) => {
       setIslemde(true);
       /*
@@ -406,26 +501,33 @@ export function SatisSayfasi() {
        * Burada yalnız kasiyere "kart bekleniyor" bilgisi verilir.
        */
       const kartTutari = odemeler.filter((o) => o.tip === 'KART').reduce((t, o) => t + o.tutar, 0);
-      if (kartTutari > 0) {
-        try {
-          const pos = await cagir<{ aktif: boolean }>('pos.durum');
-          if (pos.aktif) bildir.bilgi('POS cihazında kart bekleniyor', `${paraFormat(kartTutari)} — müşteri kartını okutsun.`);
-        } catch {
-          /* bilgi mesajı; satış akışını durdurmaz */
+      try {
+        const pos = await cagir<{ aktif: boolean; tur: string }>('pos.durum');
+        // Pavo: nakit ve veresiye dahil HER satış cihazdan geçer (yasal fişi o keser).
+        if (pos.tur === 'PAVO') setPavoIslemi({ kart: kartTutari > 0 });
+        else if (pos.aktif && kartTutari > 0) {
+          bildir.bilgi('POS cihazında kart bekleniyor', `${paraFormat(kartTutari)} — müşteri kartını okutsun.`);
         }
+      } catch {
+        /* bilgi; satış akışını durdurmaz */
       }
       try {
         // Stok aşımı satışı ENGELLEMEZ (§20): stok kaydı sayım hatası veya geç
         // girilen mal kabul yüzünden gerçeğin gerisinde olabilir; müşteri bunun
         // için bekletilmez. Kasiyer uyarıyı ödeme ekranında görmüş olur, kayıt
         // `uyarilar` ile döner ve eksiye düşen ürün stok raporunda listelenir.
-        const girdi = { ...satisGirdisiOlustur(odemeler, { ...onaylar, negatifStokOnaylandi: true }), fis_yazdir: fisYazdir };
+        const girdi = {
+          ...satisGirdisiOlustur(odemeler, { ...onaylar, negatifStokOnaylandi: true }),
+          fis_yazdir: fisYazdir,
+          ...(faturaAlicisi ? { fatura: faturaAlicisi } : {}),
+        };
         const sonuc = await cagir<{
           satisId: string;
           fisNo: string;
           genelToplam: Kurus;
           paraUstu: Kurus;
           uyarilar: string[];
+          eBelge?: { no: string; sorguLinki: string | null } | null;
         }>('satis.kesinlestir', girdi);
 
         // Ödenen sepet kapanır; bekleyen sepet varsa otomatik ona geçilir.
@@ -435,6 +537,13 @@ export function SatisSayfasi() {
         const paraUstuMetni = sonuc.paraUstu > 0 ? ` · Para üstü: ${paraFormat(sonuc.paraUstu)}` : '';
         bildir.basari(`Satış tamamlandı — ${sonuc.fisNo}`, `${paraFormat(sonuc.genelToplam)}${paraUstuMetni}`);
 
+        if (sonuc.eBelge) {
+          setFatura(null);
+          bildir.basari(
+            'Fatura kesildi',
+            sonuc.eBelge.no ? `Belge no ${sonuc.eBelge.no}` : 'Belge numarası birkaç saniye içinde oluşacak (Pavo).',
+          );
+        }
         for (const uyari of sonuc.uyarilar) bildir.uyari(uyari);
         // Yazdırma arka planda sürüyor; sonucu 'fis:yazdirma' olayıyla gelir (App.tsx).
         void tazele();
@@ -442,6 +551,7 @@ export function SatisSayfasi() {
         hatayiBildir(hata, 'Satış');
       } finally {
         setIslemde(false);
+        setPavoIslemi(null);
         odaklan();
       }
     },
@@ -464,7 +574,8 @@ export function SatisSayfasi() {
    * pencereyi açıp orada hata almasın; hatayı bir adım önce görmek daha iyidir.
    */
   const odemeyiAc = useCallback(
-    (fisYazdir: boolean) => {
+    /** `null` → fiş kararını ayar verir (ÖDEME düğmesi). */
+    (fisYazdir: boolean | null) => {
       if (sepet.satirlar.length === 0) {
         bildir.uyari('Sepet boş');
         return;
@@ -477,10 +588,10 @@ export function SatisSayfasi() {
         bildir.uyari('Tutar sıfır');
         return;
       }
-      setFisYazdirilacak(fisYazdir);
+      setFisYazdirilacak(fisYazdir ?? otomatikFis);
       setOdemeAcik(true);
     },
-    [sepet.satirlar.length, kasaAcik, hesap.genelToplam],
+    [sepet.satirlar.length, kasaAcik, hesap.genelToplam, otomatikFis],
   );
 
   /**
@@ -714,6 +825,7 @@ export function SatisSayfasi() {
               <input
                 ref={barkodAlani}
                 type="text"
+                data-tus-takimi="barkod"
                 className="alan py-3 text-lg"
                 placeholder={fiyatSorguModu ? 'FİYAT SORGULAMA — barkod okutun' : 'Barkod okutun ya da ürün adı yazın…'}
                 value={barkodMetni}
@@ -888,6 +1000,12 @@ export function SatisSayfasi() {
                             {satir.miktar > satir.stok && (
                               <span className="ml-2 text-uyari">stok {miktarFormat(satir.stok, satir.birimTipi)}</span>
                             )}
+                            {/* Fiyat, indirim ya da kampanya KDV'siz alışın altına indiyse. */}
+                            {satirHesap && satirZarardaMi(satirHesap.matrah, satir.alisFiyati, satir.miktar) && (
+                              <span className="ml-2 font-semibold text-tehlike" title="Bu fiyatla bu üründen zarar ediliyor">
+                                ⚠ zararına
+                              </span>
+                            )}
                           </div>
                         </td>
                         {/* Miktar: dokunmatik ve fare için görünür +/- düğmeleri.
@@ -1052,7 +1170,7 @@ export function SatisSayfasi() {
                 type="button"
                 className="tus-birincil shrink-0 px-8 py-3 text-lg"
                 disabled={sepet.satirlar.length === 0 || islemde || !kasaAcik}
-                onClick={() => setOdemeAcik(true)}
+                onClick={() => odemeyiAc(null)}
               >
                 ÖDEME
               </button>
@@ -1065,7 +1183,12 @@ export function SatisSayfasi() {
             hamlesi neredeyse her zaman yeni bir ürün okutmaktır. Miktara
             odaklanmak, ardından gelen barkodun miktar alanına yazılmasına
             yol açıyordu (§10.3). */}
-        <HizliUrunIzgarasi adetOneki={adetOneki} onCarpanTuketildi={() => setAdetOneki(null)} onSepeteEklendi={odaklan} />
+        <HizliUrunIzgarasi
+          adetOneki={adetOneki}
+          onCarpanTuketildi={() => setAdetOneki(null)}
+          onSepeteEklendi={odaklan}
+          onTartimIste={setTartilan}
+        />
       </div>
 
       {/*
@@ -1118,6 +1241,8 @@ export function SatisSayfasi() {
         </span>
       </footer>
 
+      {pavoIslemi && <PavoIslemKatmani kart={pavoIslemi.kart} />}
+
       <OdemeDiyalogu
         acik={odemeAcik}
         genelToplam={hesap.genelToplam}
@@ -1139,7 +1264,24 @@ export function SatisSayfasi() {
         // seçim bitince kasiyer kaldığı yerden devam eder.
         baslangicTipi={odemeBaslangicTipi}
         onMusteriSec={() => setMusteriAcik(true)}
-        onTamamla={(odemeler, onaylar) => satisiTamamla(odemeler, onaylar, fisYazdirilacak)}
+        fisYazdir={fisYazdirilacak}
+        onFisDegis={setFisYazdirilacak}
+        fatura={fatura}
+        faturaKullanilabilir={pavoVar}
+        faturaSiniri={faturaSiniri}
+        onFaturaSec={() => setFaturaAcik(true)}
+        onFaturaKaldir={() => setFatura(null)}
+        onTamamla={(odemeler, onaylar) => satisiTamamla(odemeler, onaylar, fisYazdirilacak, fatura)}
+      />
+
+      <FaturaBilgisiDiyalogu
+        acik={faturaAcik}
+        baslangic={fatura}
+        onKapat={() => setFaturaAcik(false)}
+        onKaydet={(alici) => {
+          setFatura(alici);
+          setFaturaAcik(false);
+        }}
       />
 
       <BorcluSecTahsilat
@@ -1201,6 +1343,41 @@ export function SatisSayfasi() {
           odaklan();
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * Pavo'da satış sürerken ekranın önündeki katman.
+ *
+ * Kartta "Ödemeden vazgeç" ana sürece AYRI bir çağrıyla gider ve sırayı atlar:
+ * cihazdaki kart okuma ekranı kapanır, satış Pavo'dan silinir. Müşteri tam o
+ * anda ödediyse satış silinmez, kaydedilir (pavo-servis).
+ */
+function PavoIslemKatmani({ kart }: { kart: boolean }) {
+  const [vazgeciliyor, setVazgeciliyor] = useState(false);
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ortu/50">
+      <div className="kart w-[26rem] max-w-[90vw] p-6 text-center shadow-2xl">
+        <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-vurgu border-t-transparent" />
+        <h2 className="text-lg font-semibold">Pavo'da işlem sürüyor</h2>
+        <p className="mt-1 text-sm text-metin-2">
+          {kart ? 'Müşteri kartını Pavo cihazına okutsun.' : 'Fiş yazarkasadan kesiliyor…'}
+        </p>
+        {kart && (
+          <button
+            type="button"
+            className="tus-tehlike mt-4"
+            disabled={vazgeciliyor}
+            onClick={() => {
+              setVazgeciliyor(true);
+              cagir('pavo.vazgec').catch((hata) => hatayiBildir(hata, 'Vazgeç'));
+            }}
+          >
+            {vazgeciliyor ? 'Vazgeçiliyor…' : 'Ödemeden vazgeç'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

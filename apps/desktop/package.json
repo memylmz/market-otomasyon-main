@@ -4,7 +4,7 @@
   "private": true,
   "description": "Market otomasyonu — offline-first kasa/ofis masaüstü uygulaması (Electron)",
   "main": "./out/main/index.js",
-  "author": "Market Otomasyon",
+  "author": "AKYSOFT",
   "scripts": {
     "predev": "npm run build -w @market/shared && npm run native",
     "dev": "electron-vite dev",

@@ -9,12 +9,18 @@ import { join } from 'node:path';
 import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
 import { hataNormalize } from '@market/shared';
 import { ipcKaydet, olaylariBagla } from './ipc/index.js';
+import { medyaSemasiniKaydet, MusteriEkraniYoneticisi } from './musteri-ekrani/pencere.js';
 import { Uygulama } from './uygulama.js';
 
 // Uygulama adı `app.getPath('userData')` yolunu belirler. Ayarlanmazsa paket adı
 // (`@market/desktop`) kullanılır ve veri `AppData/Roaming/@market/desktop` gibi
 // iç içe, kapsam ekli bir klasöre düşer. Adı burada sabitliyoruz ki geliştirme ve
 // paketlenmiş sürüm aynı, temiz klasörü kullansın.
+//
+// ÜRÜN ADI AKYSOFTMARKETV1 OLDU AMA BU AD DEĞİŞMEZ: bu ad VERİ KLASÖRÜNÜN
+// adıdır (%APPDATA%\Market Otomasyon). Değiştirilirse kurulu kasalar
+// güncellemeden sonra boş bir veritabanıyla açılır — satışlar, cariler, yedekler
+// eski klasörde kalır ve program onları "bulamaz".
 app.setName('Market Otomasyon');
 
 /**
@@ -29,8 +35,12 @@ if (!tekOrnekKilidi) {
   app.exit(0);
 }
 
+// Müşteri ekranının medya şeması `whenReady`'den önce kaydedilmek zorunda.
+medyaSemasiniKaydet();
+
 let uygulama: Uygulama | null = null;
 let anaPencere: BrowserWindow | null = null;
+let musteriEkrani: MusteriEkraniYoneticisi | null = null;
 let ipcTemizle: (() => void) | null = null;
 let olayTemizle: (() => void) | null = null;
 
@@ -45,7 +55,9 @@ function pencereOlustur(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0f172a',
-    title: 'Market Otomasyon',
+    title: 'AKYSOFTMARKETV1',
+    // Paketlenmiş sürümde simge exe'nin kendisinden gelir; geliştirmede pencereye verilir.
+    ...(GELISTIRME ? { icon: join(__dirname, '../../kaynaklar/icon.png') } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Güvenlik: renderer'da Node yok, bağlam yalıtımı açık (§15.4).
@@ -84,6 +96,10 @@ function pencereOlustur(): BrowserWindow {
 
   pencere.on('closed', () => {
     anaPencere = null;
+    // Müşteri penceresi açık kalırsa "tüm pencereler kapandı" hiç tetiklenmez
+    // ve uygulama arka planda çalışmaya devam ederdi. Durdurulur (yalnız
+    // kapatılmaz): yoksa bir monitör olayı pencereyi yeniden açabilirdi.
+    musteriEkrani?.durdur();
   });
 
   return pencere;
@@ -106,8 +122,17 @@ async function baslat(): Promise<void> {
     return;
   }
 
-  ipcTemizle = ipcKaydet(uygulama, () => anaPencere);
+  musteriEkrani = new MusteriEkraniYoneticisi(uygulama, () => anaPencere, GELISTIRME);
+  ipcTemizle = ipcKaydet(uygulama, () => anaPencere, musteriEkrani);
   olayTemizle = olaylariBagla(uygulama, () => anaPencere);
+  // Sıfırlama / geri yükleme sonrası: tek örnek kilidi bırakılır, yoksa yeni
+  // açılan örnek kilidi alamayıp hemen kapanırdı.
+  uygulama.gelistirmeKopyasi = GELISTIRME;
+  uygulama.yenidenBaslatici = () => {
+    app.releaseSingleInstanceLock();
+    app.relaunch();
+    app.quit();
+  };
   uygulama.otomatikYedeklemeyiBaslat();
   uygulama.bakimiBaslat();
   /*
@@ -128,6 +153,8 @@ async function baslat(): Promise<void> {
   if (!GELISTIRME) Menu.setApplicationMenu(null);
 
   anaPencere = pencereOlustur();
+  // Kasa penceresinden SONRA: otomatik seçim "kasanın olmadığı ekran"dır.
+  musteriEkrani.baslat();
 }
 
 if (tekOrnekKilidi) {
@@ -163,6 +190,7 @@ app.on('before-quit', (olay) => {
   kapaniyor = true;
   ipcTemizle?.();
   olayTemizle?.();
+  musteriEkrani?.durdur();
   uygulama
     .kapat()
     .catch(() => undefined)

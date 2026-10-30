@@ -9,6 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { carpanCoz, satiriKat, sktSutunuGerekli, type AlisSatiri } from '../src/alis-satir.js';
+import { alisGosterimi, alisMatrahi, ayniKarOraniylaRafFiyati } from '../src/alis-satir.js';
+import { barkodUyarisi } from '../src/id.js';
 
 const satir = (ek: Partial<AlisSatiri> = {}): AlisSatiri => ({
   barkod: '8690000000012',
@@ -109,5 +111,38 @@ describe('SKT sütunu', () => {
 
   it('hiçbiri yoksa gizlenir — ürün adına ve fiyatlara yer açar', () => {
     expect(sktSutunuGerekli([satir(), satir()])).toBe(false);
+  });
+});
+
+describe('KDV dahil fatura ve raf fiyatı önerisi', () => {
+  it('KDV dahil yazılan alış KDV hariçe çevrilir; hariç yazılan olduğu gibi kalır', () => {
+    expect(alisMatrahi(15_000, 20, true)).toBe(12_500);
+    expect(alisMatrahi(12_500, 20, false)).toBe(12_500);
+    expect(alisGosterimi(12_500, 20, true)).toBe(15_000);
+    expect(alisGosterimi(12_500, 20, false)).toBe(12_500);
+  });
+
+  it('alış değişince aynı kâr oranıyla raf fiyatı önerilir', () => {
+    // 125 → 200 (KDV %20); alış 150 olunca 240.
+    expect(ayniKarOraniylaRafFiyati(12_500, 20_000, 15_000, 20)).toBe(24_000);
+    expect(ayniKarOraniylaRafFiyati(0, 20_000, 15_000, 20)).toBeNull();
+    expect(ayniKarOraniylaRafFiyati(12_500, 0, 15_000, 20)).toBeNull();
+  });
+});
+
+describe('barkodUyarisi', () => {
+  it('doğru EAN-13/EAN-8, 12 haneli UPC, 14 haneli GTIN ve kısa kodlar uyarı vermez', () => {
+    expect(barkodUyarisi('8691234567906')).toBeNull();
+    expect(barkodUyarisi('96385074')).toBeNull();
+    expect(barkodUyarisi('123456')).toBeNull();
+    expect(barkodUyarisi('24')).toBeNull();
+    expect(barkodUyarisi('18691234567903')).toBeNull();
+    expect(barkodUyarisi('ABC-12')).toBeNull();
+  });
+
+  it('kontrol hanesi tutmayan ya da fiyat karışmış barkodu yakalar', () => {
+    expect(barkodUyarisi('8691234567905')).toMatch(/kontrol hanesi/);
+    expect(barkodUyarisi('110152388694740')).toMatch(/15 haneli/);
+    expect(barkodUyarisi('123456789')).toMatch(/9 haneli/);
   });
 });

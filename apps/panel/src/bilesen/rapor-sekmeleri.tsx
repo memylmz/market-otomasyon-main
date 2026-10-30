@@ -13,7 +13,7 @@
 'use client';
 
 import { useState } from 'react';
-import { bugun, gunEkle, paraFormat, tarihFormat, tarihSaatFormat, type Kurus } from '@market/shared';
+import { bugun, gunEkle, karMarjiYuzde, paraFormat, tarihFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { AralikSecici, BosDurum, HataKutusu, Kutu, Modal, ParaKutusu, Rozet, Yukleniyor } from './kabuk';
 import { CiroTrendi } from './grafik';
 import { FisIcerigi, fisBasligi, useFis } from './fis';
@@ -451,7 +451,7 @@ export function CiroOzetiSekmesi() {
             <ParaKutusu
               etiket="Brüt kâr"
               tutar={veri.toplam.kar}
-              alt={netCiro > 0 ? `Marj %${Math.round((veri.toplam.kar / netCiro) * 1000) / 10}` : 'KDV hariç'}
+              alt={netCiro > 0 ? `Marj %${karMarjiYuzde(veri.toplam.kar, netCiro - veri.toplam.kdv)}` : 'KDV hariç'}
             />
             <ParaKutusu etiket="Veresiye" tutar={veri.toplam.veresiye} alt="Dönem içinde" />
           </section>

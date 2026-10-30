@@ -60,7 +60,7 @@ export function GirisSayfasi() {
     <div className="flex h-full items-center justify-center bg-gradient-to-br from-zemin to-zemin p-6">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-vurgu">Market Otomasyon</h1>
+          <h1 className="text-2xl font-bold text-vurgu">AKYSOFTMARKETV1</h1>
           <p className="mt-1 text-sm text-metin-3">Devam etmek için giriş yapın</p>
         </div>
 

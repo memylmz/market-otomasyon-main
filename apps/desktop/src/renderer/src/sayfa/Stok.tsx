@@ -126,7 +126,7 @@ export function StokSayfasi() {
       <div className="kart min-h-0 flex-1 overflow-auto">
         {sekme === 'ozet' && rapor && (
           <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Kutu baslik="Stok maliyeti" deger={paraFormat(rapor.deger.maliyet)} aciklama="Alış fiyatlarıyla" />
+            <Kutu baslik="Stok maliyeti" deger={paraFormat(rapor.deger.maliyet)} aciklama="Ortalama alış maliyetiyle" />
             <Kutu baslik="Stok satış değeri" deger={paraFormat(rapor.deger.satis)} aciklama="Raf fiyatlarıyla" />
             <Kutu baslik="Stoklu ürün" deger={String(rapor.deger.kalem)} aciklama="Aktif ürün kalemi" />
             <Kutu
@@ -201,7 +201,9 @@ export function StokSayfasi() {
                 <th>Ürün</th>
                 <th>Lot</th>
                 <th>SKT</th>
-                <th className="text-right">Kalan miktar</th>
+                <th className="text-right" title="Satışlar önce tarihi en yakın partiden düşülür (FEFO)">
+                  Kalan (tahmini)
+                </th>
                 <th>Durum</th>
               </tr>
             </thead>
@@ -225,6 +227,14 @@ export function StokSayfasi() {
                 <tr>
                   <td colSpan={5}>
                     <BosDurum baslik="Yaklaşan SKT yok" aciklama="Mal kabulde SKT girilen lotlar burada izlenir." />
+                  </td>
+                </tr>
+              )}
+              {(rapor?.sktYaklasanlar.length ?? 0) > 0 && (
+                <tr>
+                  <td colSpan={5} className="text-xs text-metin-3">
+                    Kalan miktar tahminidir: kasada okutulan ürün hangi partiden olduğunu bilmez, satışlar önce son kullanma
+                    tarihi en yakın partiden düşülür. Rafı da öyle dizin — yakın tarihli ürün öne.
                   </td>
                 </tr>
               )}

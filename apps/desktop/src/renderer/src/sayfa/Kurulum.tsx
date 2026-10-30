@@ -1,7 +1,7 @@
 /** İlk kurulum sihirbazı (§12.1). */
 
-import { useState } from 'react';
-import { KDV_ORANLARI } from '@market/shared';
+import { useEffect, useState } from 'react';
+import { KDV_ORANLARI, tarihSaatFormat } from '@market/shared';
 import { Alan, Kisayol } from '../bilesen/temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { oturumDurumu } from '../durum/oturum';
@@ -10,6 +10,18 @@ import { cagir } from '../kopru';
 type Adim = 'isletme' | 'yonetici' | 'ozet';
 
 export function KurulumSayfasi() {
+  /**
+   * İlk ekran: yeni kurulum mu, yedekten geri yükleme mi? Bilgisayar değişince
+   * ya da veri sıfırlanınca program bu ekranla açılır; eskiden geri yüklemek
+   * için önce sahte bir işletme açmak gerekiyordu.
+   */
+  const [mod, setMod] = useState<'secim' | 'yeni' | 'geri'>('secim');
+  if (mod === 'secim') return <BaslangicSecimi onSec={setMod} />;
+  if (mod === 'geri') return <KurulumdanGeriYukle onGeri={() => setMod('secim')} />;
+  return <YeniKurulum onGeri={() => setMod('secim')} />;
+}
+
+function YeniKurulum({ onGeri }: { onGeri: () => void }) {
   const tazele = oturumDurumu((s) => s.tazele);
   const [adim, setAdim] = useState<Adim>('isletme');
   const [gonderiliyor, setGonderiliyor] = useState(false);
@@ -56,6 +68,9 @@ export function KurulumSayfasi() {
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-bold text-vurgu">Kuruluma Hoş Geldiniz</h1>
           <p className="mt-1 text-sm text-metin-3">Birkaç adımda sisteminizi hazırlayalım.</p>
+          <button type="button" className="mt-2 text-sm text-metin-3 underline hover:text-metin" onClick={onGeri}>
+            ← Başa dön
+          </button>
         </div>
 
         <ol className="mb-4 flex justify-center gap-2 text-xs">
@@ -231,6 +246,158 @@ export function KurulumSayfasi() {
               </div>
             </>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BaslangicSecimi({ onSec }: { onSec: (m: 'yeni' | 'geri') => void }) {
+  const secenekler = [
+    {
+      mod: 'yeni' as const,
+      ikon: '🏪',
+      baslik: 'Yeni market kur',
+      aciklama: 'İlk kez kuruyorsanız. İşletme bilgilerini ve yönetici hesabını oluşturursunuz.',
+    },
+    {
+      mod: 'geri' as const,
+      ikon: '♻️',
+      baslik: 'Yedekten geri yükle',
+      aciklama:
+        'Bilgisayar değiştiyse ya da veriler sıfırlandıysa. Satışlar, stok, veresiye, kullanıcılar olduğu gibi geri gelir.',
+    },
+  ];
+  return (
+    <div className="flex h-full items-center justify-center overflow-y-auto p-6">
+      <div className="w-full max-w-2xl">
+        <div className="mb-6 text-center">
+          <h1 className="text-2xl font-bold text-vurgu">AKYSOFTMARKETV1'e Hoş Geldiniz</h1>
+          <p className="mt-1 text-sm text-metin-3">Nasıl başlamak istersiniz?</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {secenekler.map((s) => (
+            <button
+              key={s.mod}
+              type="button"
+              onClick={() => onSec(s.mod)}
+              className="kart flex flex-col gap-2 p-6 text-left transition-colors hover:border-vurgu hover:bg-vurgu-yumusak"
+            >
+              <span className="text-4xl" aria-hidden>
+                {s.ikon}
+              </span>
+              <span className="text-lg font-semibold">{s.baslik}</span>
+              <span className="text-sm text-metin-3">{s.aciklama}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface YedekSatiri {
+  dosya: string;
+  yol: string;
+  boyut: number;
+  zaman: string;
+  sifreli: boolean;
+}
+
+/** Kurulum ekranından geri yükleme: bu bilgisayardaki yedekler ya da başka yerden (USB, OneDrive) bir dosya. */
+function KurulumdanGeriYukle({ onGeri }: { onGeri: () => void }) {
+  const [yedekler, setYedekler] = useState<YedekSatiri[] | null>(null);
+  const [secili, setSecili] = useState<{ yol: string; dosya: string } | null>(null);
+  const [calisiyor, setCalisiyor] = useState(false);
+
+  useEffect(() => {
+    cagir<YedekSatiri[]>('kurulum.yedekler')
+      .then(setYedekler)
+      .catch((hata: unknown) => {
+        setYedekler([]);
+        hatayiBildir(hata, 'Yedek listesi');
+      });
+  }, []);
+
+  const dosyaSec = async () => {
+    try {
+      const s = await cagir<{ yol: string | null; dosya?: string; saglam?: boolean; detay?: string }>('yedek.dosyaSec');
+      if (!s.yol) return;
+      if (!s.saglam) {
+        bildir.hata('Bu dosya geri yüklenemez', s.detay ?? 'Geçerli bir yedek değil.');
+        return;
+      }
+      setSecili({ yol: s.yol, dosya: s.dosya ?? s.yol });
+    } catch (hata) {
+      hatayiBildir(hata, 'Dosya seçimi');
+    }
+  };
+
+  const geriYukle = async () => {
+    if (!secili) return;
+    setCalisiyor(true);
+    try {
+      // Başarılıysa program kendini yeniden başlatır (tam ekran mesaj gelir).
+      await cagir('kurulum.geriYukle', { yol: secili.yol });
+    } catch (hata) {
+      hatayiBildir(hata, 'Geri yükleme');
+      setCalisiyor(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full items-center justify-center overflow-y-auto p-6">
+      <div className="w-full max-w-2xl">
+        <div className="mb-6 text-center">
+          <h1 className="text-2xl font-bold text-vurgu">Yedekten Geri Yükle</h1>
+          <p className="mt-1 text-sm text-metin-3">Geri yüklenecek yedeği seçin. En üstteki en yenisidir.</p>
+          <button type="button" className="mt-2 text-sm text-metin-3 underline hover:text-metin" onClick={onGeri}>
+            ← Başa dön
+          </button>
+        </div>
+
+        <div className="kart grid gap-4 p-6">
+          <div>
+            <h2 className="mb-2 font-semibold">Bu bilgisayardaki yedekler</h2>
+            {yedekler === null ? (
+              <p className="text-sm text-metin-3">Yükleniyor…</p>
+            ) : yedekler.length === 0 ? (
+              <p className="text-sm text-metin-3">
+                Bu bilgisayarda yedek yok. Yedeğiniz USB'de ya da OneDrive'daysa aşağıdan seçin.
+              </p>
+            ) : (
+              <ul className="max-h-72 divide-y divide-cizgi overflow-auto rounded-lg border border-cizgi">
+                {yedekler.map((y) => (
+                  <li key={y.yol}>
+                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-yuzey-2">
+                      <input type="radio" name="yedek" checked={secili?.yol === y.yol} onChange={() => setSecili(y)} />
+                      <span className="flex-1">
+                        <span className="block text-sm font-medium">{tarihSaatFormat(y.zaman)}</span>
+                        <span className="block font-mono text-xs text-metin-3">{y.dosya}</span>
+                      </span>
+                      <span className="text-xs text-metin-3">{(y.boyut / 1024 / 1024).toFixed(2)} MB</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 border-t border-cizgi pt-4">
+            <button type="button" className="tus-ikincil" onClick={() => void dosyaSec()}>
+              Başka Yerden Seç (USB, OneDrive)…
+            </button>
+            {secili && !yedekler?.some((y) => y.yol === secili.yol) && (
+              <span className="font-mono text-xs text-metin-2">{secili.dosya}</span>
+            )}
+          </div>
+
+          <button type="button" className="tus-birincil py-3" disabled={!secili || calisiyor} onClick={() => void geriYukle()}>
+            {calisiyor ? 'Geri yükleniyor…' : secili ? 'Seçili Yedeği Geri Yükle' : 'Önce bir yedek seçin'}
+          </button>
+          <p className="text-xs text-metin-3">
+            Geri yüklemeden sonra program kendini yeniden başlatır ve yedekteki kullanıcı adı ve şifreyle giriş yaparsınız.
+          </p>
         </div>
       </div>
     </div>

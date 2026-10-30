@@ -24,7 +24,7 @@ export interface PosSurucusu {
   satis(tutar: Kurus, referans: string): Promise<PosIslemSonucu>;
   /** Karta iade. `orijinalReferans` iade edilen çekimin cihaz referansıdır (varsa). */
   iade(tutar: Kurus, orijinalReferans: string | null): Promise<PosIslemSonucu>;
-  /** Bağlantı testi — Ayarlar → Donanım → POS → "Bağlantıyı Test Et". */
+  /** Bağlantı testi — Ayarlar → POS & Yazarkasa (durum kartı). */
   test(): Promise<{ basarili: boolean; mesaj: string }>;
   /**
    * İsteğe bağlı: az önce onaylanan çekimi GERİ ALIR (void / aynı gün iptal).

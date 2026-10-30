@@ -10,6 +10,7 @@
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { hataSerilestir, izlemeId, type HataGovdesi } from '@market/shared';
 import { kanallariOlustur, type KanalAdi } from './kanallar.js';
+import type { MusteriEkraniDenetcisi } from '../musteri-ekrani/denetci.js';
 import type { Uygulama } from '../uygulama.js';
 
 export const CAGRI_KANALI = 'market:cagir';
@@ -37,16 +38,41 @@ const OZEL_ESIK_MS: Record<string, number> = {
   'kurulum.tamamla': 3000,
   'yedek.al': 30_000,
   'yedek.geriYukle': 60_000,
+  'kurulum.geriYukle': 60_000,
+  // Dosya / klasör seçme penceresi kullanıcıyı bekler.
+  'yedek.klasorSec': 600_000,
+  'yedek.dosyaSec': 600_000,
+  'veri.sifirla': 60_000,
   'yedek.dogrula': 10_000,
   'senkron.simdi': 60_000,
   'senkron.mutabakat': 30_000,
   'senkron.aktivasyon': 30_000,
   'urun.iceAktar': 30_000,
   'ayar.yaziciTest': 10_000,
+  // Video IPC'den tek parça geçer (en fazla 60 MB) ve diske yazılır.
+  'musteri_ekrani.medyaYukle': 10_000,
+  // Pavo: satış kart okumayı, eşleştirme cihaz ekranındaki onayı bekler.
+  'satis.kesinlestir': 180_000,
+  'satis.iade': 180_000,
+  'satis.iptal': 180_000,
+  'pavo.esles': 150_000,
+  'pavo.kurtar': 60_000,
+  'pavo.bankaGunSonu': 120_000,
+  // Gün sonu = banka gün sonu + Z, ikisi de iki dakikaya kadar sürebilir.
+  'pavo.gunSonu': 250_000,
+  'pavo.xRaporu': 120_000,
+  'pavo.donemRaporu': 120_000,
+  'pavo.gecmisGunSonu': 120_000,
+  'pavo.raporNushasi': 120_000,
+  'pos.test': 30_000,
 };
 
-export function ipcKaydet(uygulama: Uygulama, pencereGetir?: () => BrowserWindow | null): () => void {
-  const kanallar = kanallariOlustur(uygulama, pencereGetir);
+export function ipcKaydet(
+  uygulama: Uygulama,
+  pencereGetir?: () => BrowserWindow | null,
+  musteriEkrani?: MusteriEkraniDenetcisi,
+): () => void {
+  const kanallar = kanallariOlustur(uygulama, pencereGetir, musteriEkrani);
   const kanalAdlari = new Set(Object.keys(kanallar));
 
   const isleyici = async (_olay: IpcMainInvokeEvent, kanal: string, girdi: unknown): Promise<CagriSonucu> => {
@@ -54,6 +80,14 @@ export function ipcKaydet(uygulama: Uygulama, pencereGetir?: () => BrowserWindow
     if (!kanalAdlari.has(kanal)) {
       uygulama.kayit.uyari('Bilinmeyen IPC kanalı', { kanal, izleme_id: iz });
       return { basarili: false, hata: { kod: 'BULUNAMADI', mesaj: 'Bilinmeyen işlem.', izleme_id: iz } };
+    }
+
+    // Sıfırlama / geri yükleme sonrası veritabanı kapalı: anlaşılır mesaj ver.
+    if (uygulama.yenidenBaslatmaBekleniyor) {
+      return {
+        basarili: false,
+        hata: { kod: 'DOGRULAMA_HATASI', mesaj: 'Program yeniden başlatılıyor, lütfen bekleyin.', izleme_id: iz },
+      };
     }
 
     const baslangic = Date.now();

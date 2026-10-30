@@ -14,6 +14,7 @@ interface UrunSatiri {
   birim_tipi: BirimTipi;
   kategori_id?: string | null;
   satis_fiyati: Kurus;
+  alis_fiyati: Kurus;
   kdv_orani: number;
   stok: Miktar;
   aktif_mi: boolean;
@@ -104,6 +105,7 @@ export function UrunAramaDiyalogu({
         kdvOrani: seciliUrun.kdv_orani,
         kampanyaId: kampanyaliFiyat(seciliUrun).kampanyaId,
         stok: seciliUrun.stok,
+        alisFiyati: seciliUrun.alis_fiyati,
       },
       seciliUrun.birim_tipi !== 'ADET' && miktarDokunulmadi ? undefined : miktar > 0 ? miktar : adet(1),
     );

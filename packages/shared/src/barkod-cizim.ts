@@ -163,3 +163,81 @@ export function code128Cizimi(veri: string): BarkodCizimi | null {
 
   return { desenler, toplamModul: desenler.reduce((t, d) => t + d, 0), metin: veri };
 }
+
+// ---------------------------------------------------------------------------
+// EAN-13 / EAN-8 — raf etiketi
+// ---------------------------------------------------------------------------
+
+const EAN_L = ['0001101', '0011001', '0010011', '0111101', '0100011', '0110001', '0101111', '0111011', '0110111', '0001011'];
+const EAN_R = ['1110010', '1100110', '1101100', '1000010', '1011100', '1001110', '1010000', '1000100', '1001000', '1110100'];
+/** Soldaki 6 hanenin L/G düzeni ilk haneye göre seçilir (ilk hane böyle kodlanır). */
+const EAN13_PARITE = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+
+function eanKontrolTutuyorMu(veri: string): boolean {
+  const govde = [...veri.slice(0, -1)].reverse().map(Number);
+  const toplam = govde.reduce((t, d, i) => t + d * (i % 2 === 0 ? 3 : 1), 0);
+  return (10 - (toplam % 10)) % 10 === Number(veri.slice(-1));
+}
+
+/** "1011..." bit dizisini çubuk/boşluk modül genişliklerine çevirir (ilk öğe çubuk). */
+function bitlerdenDesen(bitler: string): number[] {
+  const desen: number[] = [];
+  let sayac = 1;
+  for (let i = 1; i <= bitler.length; i++) {
+    if (bitler[i] === bitler[i - 1]) sayac++;
+    else {
+      desen.push(sayac);
+      sayac = 1;
+    }
+  }
+  return desen;
+}
+
+/** EAN-13 çizimi (95 modül); geçersiz veride null. */
+export function ean13Cizimi(veri: string): BarkodCizimi | null {
+  if (!/^\d{13}$/.test(veri) || !eanKontrolTutuyorMu(veri)) return null;
+  const d = [...veri].map(Number);
+  const parite = EAN13_PARITE[d[0]!]!;
+  let bitler = '101';
+  for (let i = 1; i <= 6; i++) {
+    const l = EAN_L[d[i]!]!;
+    bitler += parite[i - 1] === 'L' ? l : [...EAN_R[d[i]!]!].reverse().join('');
+  }
+  bitler += '01010';
+  for (let i = 7; i <= 12; i++) bitler += EAN_R[d[i]!]!;
+  bitler += '101';
+  return { desenler: bitlerdenDesen(bitler), toplamModul: bitler.length, metin: veri };
+}
+
+/** EAN-8 çizimi (67 modül); geçersiz veride null. */
+export function ean8Cizimi(veri: string): BarkodCizimi | null {
+  if (!/^\d{8}$/.test(veri) || !eanKontrolTutuyorMu(veri)) return null;
+  const d = [...veri].map(Number);
+  let bitler = '101';
+  for (let i = 0; i < 4; i++) bitler += EAN_L[d[i]!]!;
+  bitler += '01010';
+  for (let i = 4; i < 8; i++) bitler += EAN_R[d[i]!]!;
+  bitler += '101';
+  return { desenler: bitlerdenDesen(bitler), toplamModul: bitler.length, metin: veri };
+}
+
+export type EtiketBarkodTuru = 'EAN13' | 'EAN8' | 'CODE128';
+
+/**
+ * Raf etiketinde barkodun türü ve çizimi — önizleme ve yazıcı AYNI seçimi yapar.
+ *
+ * Market ürününün barkodu çoğunlukla EAN-13'tür; etikete de EAN-13 olarak
+ * basılır (95 modül, sabit genişlik). Eskiden her barkod CODE128 basılıyordu:
+ * önizleme B kümesiyle 178 modül hesaplarken yazıcı rakamları C kümesine
+ * sıkıştırıp ~112 modül basıyor, kâğıttaki barkod önizlemenin üçte ikisi
+ * kadar çıkıyordu. EAN olmayan kod CODE128-B kalır (yazıcıya da B kümesi
+ * zorlanır).
+ */
+export function etiketBarkodCizimi(veri: string): (BarkodCizimi & { tur: EtiketBarkodTuru }) | null {
+  const ean13 = ean13Cizimi(veri);
+  if (ean13) return { ...ean13, tur: 'EAN13' };
+  const ean8 = ean8Cizimi(veri);
+  if (ean8) return { ...ean8, tur: 'EAN8' };
+  const c = code128Cizimi(veri);
+  return c ? { ...c, tur: 'CODE128' } : null;
+}

@@ -6,8 +6,21 @@
  */
 
 import { useEffect, useState } from 'react';
-import { KDV_ORANLARI, kisaKodBul, kisaKodMu, miktarParse, type BirimTipi, type Kurus, type Miktar } from '@market/shared';
-import { Alan, Diyalog, ParaAlani } from './temel';
+import {
+  barkodUyarisi,
+  birimKarHesabi,
+  KDV_ORANLARI,
+  kdvAyir,
+  kdvEkle,
+  kisaKodBul,
+  kisaKodMu,
+  miktarParse,
+  paraFormat,
+  type BirimTipi,
+  type Kurus,
+  type Miktar,
+} from '@market/shared';
+import { Alan, Diyalog, OnayDiyalogu, ParaAlani } from './temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
@@ -125,6 +138,26 @@ export function UrunKartiDiyalogu({
   const [etiketBasiliyor, setEtiketBasiliyor] = useState(false);
   /** Kısa kod ayrı tutulur; kaydederken barkod listesine katılır. */
   const [kisaKod, setKisaKod] = useState('');
+  /*
+   * "Alış fiyatını KDV dahil yazıyorum" kutusu. Toptancıya ödenen KDV dahil
+   * tutarı yazan kullanıcı, KDV hariç beklenen alana 150 yazıp kârı 2,5 kat
+   * düşük görüyordu. Kutu işaretliyken yazılan tutar KDV dahil sayılır ve
+   * KDV hariç karşılığı kaydedilir; depoda HER ZAMAN KDV hariç durur.
+   */
+  const [alisKdvDahil, setAlisKdvDahil] = useState(false);
+  const [alisDahilGirdi, setAlisDahilGirdi] = useState<Kurus>(0);
+  const [zararOnayi, setZararOnayi] = useState(false);
+  /** Rafta kalan eski mallarla birlikte ortalama maliyet — kâr raporu bunu kullanır. */
+  const [ortalamaMaliyet, setOrtalamaMaliyet] = useState<Kurus | null>(null);
+
+  const mevcutId = urun && urun !== 'yeni' ? urun.id : null;
+  useEffect(() => {
+    setOrtalamaMaliyet(null);
+    if (!mevcutId) return;
+    cagir<{ ortalama: Kurus | null }>('urun.maliyet', { urunId: mevcutId })
+      .then((v) => setOrtalamaMaliyet(v.ortalama))
+      .catch(() => setOrtalamaMaliyet(null));
+  }, [mevcutId]);
 
   useEffect(() => {
     if (!urun) return;
@@ -189,7 +222,25 @@ export function UrunKartiDiyalogu({
 
   if (!urun) return null;
 
+  /** Kaydedilecek (KDV hariç) alış fiyatı. */
+  const alisNet = alisKdvDahil ? kdvAyir(alisDahilGirdi, form.kdvOrani).matrah : form.alisFiyati;
+  const karOzeti = form.satisFiyati > 0 ? birimKarHesabi(alisNet, form.satisFiyati, form.kdvOrani) : null;
+  const zarardami = karOzeti !== null && alisNet > 0 && karOzeti.zarar;
+
+  const alisKdvDahilDegistir = (dahil: boolean) => {
+    if (dahil) setAlisDahilGirdi(kdvEkle(form.alisFiyati, form.kdvOrani).brut);
+    else setForm({ ...form, alisFiyati: alisNet });
+    setAlisKdvDahil(dahil);
+  };
+
+  /** Zararına fiyat bilerek kaydedilsin: önce sorulur. */
+  const kaydetIstegi = () => {
+    if (zarardami) setZararOnayi(true);
+    else void kaydet();
+  };
+
   const kaydet = async () => {
+    setZararOnayi(false);
     if (!form.ad.trim()) {
       bildir.uyari('Ürün adı zorunludur');
       return;
@@ -204,7 +255,7 @@ export function UrunKartiDiyalogu({
         marka: form.marka,
         kategoriId: form.kategoriId,
         birimTipi: form.birimTipi,
-        alisFiyati: form.alisFiyati,
+        alisFiyati: alisNet,
         satisFiyati: form.satisFiyati,
         kdvOrani: form.kdvOrani,
         kritikStok: form.kritikStok,
@@ -231,7 +282,7 @@ export function UrunKartiDiyalogu({
         marka: form.marka.trim() || null,
         kategori_id: form.kategoriId || null,
         birim_tipi: form.birimTipi,
-        alis_fiyati: form.alisFiyati,
+        alis_fiyati: alisNet,
         satis_fiyati: form.satisFiyati,
         kdv_orani: form.kdvOrani,
         kritik_stok: miktarParse(form.kritikStok) ?? 0,
@@ -345,7 +396,7 @@ export function UrunKartiDiyalogu({
           <button type="button" className="tus-ikincil" onClick={onKapat}>
             Vazgeç
           </button>
-          <button type="button" className="tus-birincil" onClick={kaydet} disabled={gonderiliyor}>
+          <button type="button" className="tus-birincil" onClick={kaydetIstegi} disabled={gonderiliyor}>
             {taslak ? 'Uygula' : 'Kaydet'}
           </button>
         </>
@@ -405,6 +456,14 @@ export function UrunKartiDiyalogu({
               </button>
             )}
           </div>
+          {[...barkodlar, form.barkod]
+            .map((b) => (b.trim() ? { b, uyari: barkodUyarisi(b) } : null))
+            .filter((x): x is { b: string; uyari: string } => Boolean(x?.uyari))
+            .map(({ b, uyari }) => (
+              <p key={b} className="mt-1 rounded bg-uyari-yumusak px-2 py-1 text-xs text-uyari">
+                <b className="font-mono">{b}</b>: {uyari} Kasada okutulamayabilir; ✕ ile silip yeniden okutun.
+              </p>
+            ))}
           <span className="mt-1 block text-xs text-metin-4">
             Bir ürünün birden çok barkodu olabilir (farklı ambalaj). Barkodu olmayan ürün için
             {mevcut ? ' "İç Barkod Üret" ile' : ' kaydettikten sonra'} mağaza içi barkod oluşturabilirsiniz.
@@ -482,9 +541,33 @@ export function UrunKartiDiyalogu({
           </select>
         </Alan>
 
-        <Alan etiket="Alış fiyatı (KDV hariç)" ipucu="Kâr hesabı bu tutara göre yapılır.">
-          <ParaAlani deger={form.alisFiyati} onDegisim={(v) => setForm({ ...form, alisFiyati: v })} />
-        </Alan>
+        {/* Kutu Alan'ın DIŞINDA: Alan bir <label>; içine ikinci label konamaz. */}
+        <div>
+          <Alan
+            etiket={alisKdvDahil ? 'Alış fiyatı (KDV DAHİL)' : 'Alış fiyatı (KDV hariç)'}
+            ipucu={
+              alisKdvDahil
+                ? `KDV hariç ${paraFormat(alisNet)} olarak kaydedilir.`
+                : 'Faturadaki KDV hariç birim fiyat. Kâr hesabı buna göre yapılır.'
+            }
+          >
+            {alisKdvDahil ? (
+              <ParaAlani deger={alisDahilGirdi} onDegisim={setAlisDahilGirdi} />
+            ) : (
+              <ParaAlani deger={form.alisFiyati} onDegisim={(v) => setForm({ ...form, alisFiyati: v })} />
+            )}
+          </Alan>
+          <label className="mt-1 flex items-center gap-1.5 text-xs text-metin-3">
+            <input type="checkbox" checked={alisKdvDahil} onChange={(e) => alisKdvDahilDegistir(e.target.checked)} />
+            KDV dahil yazacağım (program KDV&apos;yi kendisi ayırır)
+          </label>
+          {mevcut && ortalamaMaliyet !== null && ortalamaMaliyet !== mevcut.alis_fiyati && (
+            <p className="mt-1 text-xs text-metin-3" title="Kâr raporu ve stok değeri bu maliyetle hesaplanır">
+              Ortalama maliyet: <b className="text-metin-2">{paraFormat(ortalamaMaliyet)}</b> (rafta kalan eski alışlarla
+              birlikte; kâr raporu bunu kullanır)
+            </p>
+          )}
+        </div>
         <Alan etiket="Satış fiyatı (KDV dahil) *" ipucu="Raf etiketiyle aynı olmalıdır.">
           <ParaAlani deger={form.satisFiyati} onDegisim={(v) => setForm({ ...form, satisFiyati: v })} />
         </Alan>
@@ -498,6 +581,7 @@ export function UrunKartiDiyalogu({
             ))}
           </select>
         </Alan>
+        <KarSatiri ozet={karOzeti} alisNet={alisNet} kdvOrani={form.kdvOrani} />
         <Alan etiket="Raf konumu">
           <input className="alan" value={form.rafKonumu} onChange={(e) => setForm({ ...form, rafKonumu: e.target.value })} />
         </Alan>
@@ -621,6 +705,64 @@ export function UrunKartiDiyalogu({
           />
         </Alan>
       </Diyalog>
+      <OnayDiyalogu
+        acik={zararOnayi}
+        baslik="Bu fiyatla ZARARINA satarsınız"
+        mesaj={
+          karOzeti
+            ? `Satış fiyatının KDV'siz kısmı ${paraFormat(karOzeti.satisKdvHaric)}, alış fiyatı ${paraFormat(alisNet)}. Her satışta ${paraFormat(-karOzeti.kar)} zarar edersiniz. Yine de kaydedilsin mi?`
+            : ''
+        }
+        onaylaMetni="Evet, bu fiyatla kaydet"
+        tehlikeli
+        onOnayla={() => void kaydet()}
+        onIptal={() => setZararOnayi(false)}
+      />
     </Diyalog>
+  );
+}
+
+/**
+ * Fiyat alanlarının altındaki "bu üründen ne kazanıyorum" satırı. Raf fiyatı
+ * KDV dahildir; KDV devletin payıdır, kâr KDV'siz kısımdan alış düşülerek
+ * bulunur — raporlar ve alış faturası ekranıyla aynı hesap.
+ */
+function KarSatiri({
+  ozet,
+  alisNet,
+  kdvOrani,
+}: {
+  ozet: ReturnType<typeof birimKarHesabi> | null;
+  alisNet: Kurus;
+  kdvOrani: number;
+}) {
+  if (!ozet) return null;
+  if (alisNet <= 0) {
+    return (
+      <p className="md:col-span-2 rounded bg-yuzey-3 px-3 py-2 text-sm text-metin-3">
+        Alış fiyatı girilirse bu üründen ne kazandığınız burada görünür.
+      </p>
+    );
+  }
+  return (
+    <div
+      className={`md:col-span-2 rounded border px-3 py-2 text-sm ${
+        ozet.zarar ? 'border-tehlike-cizgi bg-tehlike-yumusak text-tehlike' : 'border-cizgi bg-yuzey-3'
+      }`}
+    >
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span>Raf fiyatı {paraFormat(ozet.satisKdvHaric + ozet.satisKdv)}</span>
+        <span className="text-metin-3">
+          − KDV %{kdvOrani} {paraFormat(ozet.satisKdv)}
+        </span>
+        <span>= size kalan {paraFormat(ozet.satisKdvHaric)}</span>
+        <span className="text-metin-3">− alış {paraFormat(alisNet)}</span>
+        <span className="font-semibold">
+          = {ozet.zarar ? 'ZARAR' : 'kâr'} {paraFormat(Math.abs(ozet.kar))}
+          {!ozet.zarar && ` (%${ozet.marjYuzde})`}
+        </span>
+      </div>
+      {ozet.zarar && <p className="mt-1 font-medium">Bu fiyatla her satışta zarar edersiniz.</p>}
+    </div>
   );
 }

@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { goreliZaman, paraFormat, URUN_SURUMU, type Yetki } from '@market/shared';
 import { cagir } from '../kopru';
 import { bildir, hatayiBildir } from '../durum/bildirim';
@@ -20,6 +20,8 @@ interface MenuOgesi {
   ikon: string;
   kisayol?: string;
   yetki?: Yetki;
+  /** Yalnız POS türü Pavo iken görünür. */
+  pavo?: true;
 }
 
 const MENU: MenuOgesi[] = [
@@ -30,6 +32,8 @@ const MENU: MenuOgesi[] = [
   { yol: '/stok', etiket: 'Stok', ikon: '🏷️', yetki: 'stok.goruntule' },
   { yol: '/cari', etiket: 'Cari Hesap', ikon: '📒', yetki: 'cari.goruntule' },
   { yol: '/kasa', etiket: 'Kasa', ikon: '💰', yetki: 'kasa.ac' },
+  // Gün sonu ve mali raporlar; kasayı kapatan kişi (kasiyer) de girer.
+  { yol: '/yazarkasa', etiket: 'Yazarkasa', ikon: '🧾', yetki: 'kasa.kapat', pavo: true },
   { yol: '/raporlar', etiket: 'Raporlar', ikon: '📊', yetki: 'rapor.goruntule' },
   { yol: '/ayarlar', etiket: 'Ayarlar', ikon: '⚙️', yetki: 'ayar.yonet' },
 ];
@@ -42,6 +46,19 @@ export function Kabuk({ children }: { children: ReactNode }) {
   const gezin = useNavigate();
   const [saat, setSaat] = useState(() => new Date());
   const [senkronCalisiyor, setSenkronCalisiyor] = useState(false);
+  const konum = useLocation();
+  const [pavoAcik, setPavoAcik] = useState(false);
+
+  // POS türü Ayarlar'dan değişebilir; sayfa değiştikçe tazelenir (tek IPC, ucuz).
+  useEffect(() => {
+    let iptal = false;
+    cagir<{ tur: string }>('pos.durum')
+      .then((d) => !iptal && setPavoAcik(d.tur === 'PAVO'))
+      .catch(() => !iptal && setPavoAcik(false));
+    return () => {
+      iptal = true;
+    };
+  }, [konum.pathname]);
 
   useEffect(() => {
     const zamanlayici = setInterval(() => setSaat(new Date()), 30_000);
@@ -50,7 +67,7 @@ export function Kabuk({ children }: { children: ReactNode }) {
 
   const senkron = sistem?.senkron;
   const lisans = sistem?.lisans;
-  const gorunurMenu = MENU.filter((m) => !m.yetki || yetkiler.has(m.yetki));
+  const gorunurMenu = MENU.filter((m) => (!m.yetki || yetkiler.has(m.yetki)) && (!m.pavo || pavoAcik));
 
   /**
    * Çıkış koruması (§10.3).
@@ -76,6 +93,14 @@ export function Kabuk({ children }: { children: ReactNode }) {
     }
 
     sepetDurumu.getState().tumunuSifirla();
+    /*
+     * Diskteki sepet kurtarma noktası da ÇIKIŞTAN ÖNCE silinir. Satış ekranı
+     * kaydı 1,2 sn gecikmeyle yazıyor; sepet boşaltılıp hemen çıkış yapılınca
+     * bekleyen "sil" işi ekranla birlikte iptal oluyor, geri girişte eski ürün
+     * "kurtarılan sepet" diye geri geliyordu. Çıkıştan sonra yapılamaz
+     * (oturum kapanınca kanal yetki ister).
+     */
+    await cagir('satis.sepetleriUnut').catch(() => {});
     await cikis();
     gezin('/giris');
   };
@@ -101,8 +126,21 @@ export function Kabuk({ children }: { children: ReactNode }) {
     <div className="flex h-full">
       <nav className="flex w-52 shrink-0 flex-col border-r border-cizgi bg-yuzey" aria-label="Ana menü">
         <div className="border-b border-cizgi px-4 py-3">
-          <p className="text-sm font-semibold text-vurgu">Market Otomasyon</p>
+          <p className="text-sm font-semibold text-vurgu">AKYSOFTMARKETV1</p>
+          {sistem?.isletmeAdi && (
+            <p className="truncate text-xs font-medium text-metin-2" title={sistem.isletmeAdi}>
+              {sistem.isletmeAdi}
+            </p>
+          )}
           <p className="text-xs text-metin-4">v{sistem?.surum ?? URUN_SURUMU}</p>
+          {sistem?.gelistirme && (
+            <p
+              className="mt-1 rounded bg-tehlike-yumusak px-1.5 py-0.5 text-[11px] font-semibold text-tehlike"
+              title="Proje klasöründen çalışan deneme kopyası. Verisi kurulu programdan tamamen ayrıdır."
+            >
+              DEMO — kurulu program değil
+            </p>
+          )}
         </div>
 
         <ul className="flex-1 overflow-y-auto py-2">
@@ -174,6 +212,7 @@ export function Kabuk({ children }: { children: ReactNode }) {
 
 function KasaGostergesi() {
   const kasaOturumId = oturumDurumu((s) => s.sistem?.oturum?.kasaOturumId);
+  const git = useNavigate();
   const [beklenen, setBeklenen] = useState<number | null>(null);
 
   useEffect(() => {
@@ -198,7 +237,21 @@ function KasaGostergesi() {
     };
   }, [kasaOturumId]);
 
-  if (!kasaOturumId) return <Rozet tur="uyari">Kasa kapalı</Rozet>;
+  /*
+   * "Kasa kapalı" tek tıkla kasa açılışına götürür: menüden Kasa'ya gidip
+   * "Kasa Aç"ı aramak, satışa başlamak isteyen kasiyeri bekletiyordu.
+   */
+  if (!kasaOturumId)
+    return (
+      <button
+        type="button"
+        className="rounded-full transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-vurgu"
+        onClick={() => git('/kasa?ac=1')}
+        title="Kasayı açmak için tıklayın"
+      >
+        <Rozet tur="uyari">Kasa kapalı — aç</Rozet>
+      </button>
+    );
   return (
     <span className="flex items-center gap-2">
       <Rozet tur="basari">Kasa açık</Rozet>

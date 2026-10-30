@@ -13,6 +13,8 @@ import {
   paraFormat,
   tarihSaatFormat,
   type BirimTipi,
+  type FisDuzeni,
+  VARSAYILAN_FIS_DUZENI,
   VARSAYILAN_YASAL_UYARI,
   type IadeYontemi,
   type Kurus,
@@ -49,17 +51,19 @@ const ODEME_ETIKETI: Record<OdemeKaydi['odeme_tipi'], string> = {
 export function satisFisi(
   detay: SatisDetayi,
   isletme: IsletmeBilgisi,
-  secenekler: { satirGenisligi?: number; kopyaMi?: boolean; kasiyerAdi?: string | null } = {},
+  secenekler: { satirGenisligi?: number; kopyaMi?: boolean; kasiyerAdi?: string | null; duzen?: FisDuzeni } = {},
 ): Buffer {
   const genislik = secenekler.satirGenisligi ?? 48;
+  const duzen = secenekler.duzen ?? VARSAYILAN_FIS_DUZENI;
   const y = new EscPosYazici(genislik).baslat();
   const { satis, kalemler, odemeler } = detay;
   const iadeMi = satis.iade_mi;
 
   y.hizala('orta').boyut(2).kalin(true).satir(isletme.ad).kalin(false).boyut(1);
-  if (isletme.adres) y.satir(isletme.adres);
-  if (isletme.telefon) y.satir('Tel: ' + isletme.telefon);
-  if (isletme.vergiNo) y.satir('VN: ' + isletme.vergiNo);
+  if (duzen.adres && isletme.adres) y.satir(isletme.adres);
+  if (duzen.telefon && isletme.telefon) y.satir('Tel: ' + isletme.telefon);
+  if (duzen.vergiNo && isletme.vergiNo) y.satir('VN: ' + isletme.vergiNo);
+  if (duzen.ustMetin.trim()) y.satir(duzen.ustMetin.trim());
 
   y.ayirici('=');
   if (iadeMi) y.kalin(true).boyut(2).satir('İADE FİŞİ').boyut(1).kalin(false);
@@ -67,8 +71,10 @@ export function satisFisi(
 
   y.hizala('sol');
   y.ikiSutun('Fiş No: ' + satis.fis_no, tarihSaatFormat(satis.tarih));
-  if (secenekler.kasiyerAdi) y.satir('Kasiyer: ' + secenekler.kasiyerAdi);
-  if (satis.musteri_adi) y.satir('Müşteri: ' + satis.musteri_adi);
+  if (duzen.kasiyer && secenekler.kasiyerAdi) y.satir('Kasiyer: ' + secenekler.kasiyerAdi);
+  // Veresiye/iade fişinde müşteri adı borcun kime yazıldığının kanıtıdır; düzen kapatsa da basılır.
+  const musteriZorunlu = Boolean(iadeMi) || odemeler.some((o) => o.odeme_tipi === 'VERESIYE');
+  if (satis.musteri_adi && (duzen.musteri || musteriZorunlu)) y.satir('Müşteri: ' + satis.musteri_adi);
   if (iadeMi && satis.kaynak_fis_no) y.satir('İade edilen fiş: ' + satis.kaynak_fis_no);
   if (iadeMi && satis.notlar && satis.notlar !== 'Belirtilmedi') y.satir('Neden: ' + satis.notlar);
   y.ayirici();
@@ -76,9 +82,15 @@ export function satisFisi(
   for (const kalem of kalemler) {
     const miktar = Math.abs(kalem.miktar);
     const tutar = Math.abs(kalem.satir_toplam);
-    y.satir(kalem.urun_adi);
-    const solTaraf = `  ${miktarFormat(miktar, kalem.birim_tipi as BirimTipi)} x ${paraFormat(kalem.birim_fiyat, { simge: false })}`;
-    y.ikiSutun(solTaraf, paraFormat(tutar, { simge: false }));
+    if (duzen.kalemDetayi) {
+      y.satir(kalem.urun_adi);
+      const solTaraf = `  ${miktarFormat(miktar, kalem.birim_tipi as BirimTipi)} x ${paraFormat(kalem.birim_fiyat, { simge: false })}`;
+      y.ikiSutun(solTaraf, paraFormat(tutar, { simge: false }));
+    } else {
+      // Tek satır: ad (1 adet değilse yanında miktar) ve tutar.
+      const miktarMetni = miktarFormat(miktar, kalem.birim_tipi as BirimTipi);
+      y.ikiSutun(kalem.urun_adi + (miktarMetni === '1 ad' ? '' : ` x${miktarMetni}`), paraFormat(tutar, { simge: false }));
+    }
     if (kalem.iskonto !== 0) {
       y.ikiSutun('  İskonto', '-' + paraFormat(Math.abs(kalem.iskonto), { simge: false }));
     }
@@ -105,9 +117,11 @@ export function satisFisi(
     mevcut.matrah += Math.abs(kalem.satir_toplam) - Math.abs(kalem.kdv_tutar);
     kdvDilimleri.set(kalem.kdv_orani, mevcut);
   }
-  y.ayirici();
-  for (const [oran, dilim] of [...kdvDilimleri.entries()].sort((a, b) => a[0] - b[0])) {
-    y.ikiSutun(`KDV %${oran} (matrah ${paraFormat(dilim.matrah, { simge: false })})`, paraFormat(dilim.kdv, { simge: false }));
+  if (duzen.kdvDokumu) {
+    y.ayirici();
+    for (const [oran, dilim] of [...kdvDilimleri.entries()].sort((a, b) => a[0] - b[0])) {
+      y.ikiSutun(`KDV %${oran} (matrah ${paraFormat(dilim.matrah, { simge: false })})`, paraFormat(dilim.kdv, { simge: false }));
+    }
   }
 
   y.ayirici();
@@ -135,7 +149,7 @@ export function satisFisi(
   // Türkçe Q klavyede ABD düzenindeki `-` tuşunun yerinde `*` olduğu için
   // "A-000512" fişi "A*000512" olarak okunur. Yalnız harf+rakam basıldığında
   // bu fark hiç oluşmaz. Arama tarafı da ayraçları yok sayar (fisNoSadelestir).
-  y.bosluk(1).barkod(fisNoSadelestir(satis.fis_no), 'CODE128', 50);
+  if (duzen.fisBarkodu) y.bosluk(1).barkod(fisNoSadelestir(satis.fis_no), 'CODE128', 50);
   y.kes();
   return y.bitir();
 }
@@ -209,6 +223,7 @@ export function cariEkstreFisi(
   hareketler: { tarih: string; aciklama: string | null; tutar: Kurus; yuruyen_bakiye: Kurus }[],
   isletme: IsletmeBilgisi,
   satirGenisligi = 48,
+  duzen: FisDuzeni = VARSAYILAN_FIS_DUZENI,
 ): Buffer {
   const y = new EscPosYazici(satirGenisligi).baslat();
   y.hizala('orta').kalin(true).satir(isletme.ad).kalin(false).satir('HESAP EKSTRESİ').ayirici('=').hizala('sol');
@@ -216,7 +231,7 @@ export function cariEkstreFisi(
   if (cari.telefon) y.satir('Tel : ' + cari.telefon);
   y.ayirici();
 
-  for (const hareket of hareketler.slice(-60)) {
+  for (const hareket of hareketler.slice(-duzen.ekstreHareketSayisi)) {
     y.satir(tarihSaatFormat(hareket.tarih) + ' ' + (hareket.aciklama ?? '').slice(0, satirGenisligi - 18));
     y.ikiSutun(
       '   ' + paraFormat(hareket.tutar, { simge: false, isaret: true }),

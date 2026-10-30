@@ -6,9 +6,11 @@
  * olarak işaretlenir ve sonradan tekrar yazdırılabilir.
  */
 
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
-import { dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { EscPosYazici } from './escpos.js';
 
 export type YaziciTipiDb = 'YOK' | 'USB' | 'AG' | 'OTOMATIK' | 'DOSYA' | 'WINDOWS_PAYLASIM';
@@ -20,9 +22,10 @@ export interface YaziciAyari {
   /**
    * USB modunda seçilen yazıcının adı.
    *
-   * RAW ESC/POS göndermek doğrudan bir bayt kanalı ister; Windows'ta bu,
-   * yazıcının paylaşıma açılıp `\\localhost\<ad>` üzerinden yazılmasıyla
-   * olur. Sürücü üzerinden isimle RAW basmak yerel modül gerektirir.
+   * RAW ESC/POS göndermek doğrudan bir bayt kanalı ister. Önce hızlı yol
+   * denenir: yazıcı paylaşıma açıksa `\\localhost\<ad>`. Paylaşım kapalıysa
+   * baytlar Windows yazdırma kuyruğuna (winspool, RAW) bırakılır — paylaşım
+   * gerekmez, yalnız bir iki saniye daha yavaştır.
    */
   usbAdi?: string;
   satirGenisligi: number;
@@ -148,6 +151,148 @@ class DosyaYazicisi implements Yazici {
 }
 
 // ---------------------------------------------------------------------------
+// Windows yazdırma kuyruğu (winspool RAW) — paylaşım gerektirmez
+// ---------------------------------------------------------------------------
+
+/*
+ * Kuyruğa RAW yazmanın Node'da yerel modülsüz yolu: Windows'la gelen
+ * PowerShell, winspool.drv'yi doğrudan çağırır. Betik geçici klasöre bir kez
+ * yazılır; yazıcı adı ve bayt dosyası ortam değişkeniyle geçer (tırnak/kaçış
+ * derdi yok).
+ */
+const KUYRUK_BETIGI = String.raw`$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices;
+public static class MoHamYazici {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public class DOCINFO { public string pDocName; public string pOutputFile; public string pDataType; }
+  [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool OpenPrinter(string ad, out IntPtr h, IntPtr d);
+  [DllImport("winspool.drv", SetLastError = true)] public static extern bool ClosePrinter(IntPtr h);
+  [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)] public static extern int StartDocPrinter(IntPtr h, int seviye, DOCINFO di);
+  [DllImport("winspool.drv", SetLastError = true)] public static extern bool EndDocPrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)] public static extern bool StartPagePrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)] public static extern bool EndPagePrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)] public static extern bool WritePrinter(IntPtr h, byte[] b, int n, out int yazilan);
+  public static string Yaz(string ad, byte[] veri) {
+    IntPtr h;
+    if (!OpenPrinter(ad, out h, IntPtr.Zero)) return "OPEN " + Marshal.GetLastWin32Error();
+    try {
+      DOCINFO di = new DOCINFO(); di.pDocName = "AKYSOFTMARKETV1"; di.pDataType = "RAW";
+      if (StartDocPrinter(h, 1, di) == 0) return "DOC " + Marshal.GetLastWin32Error();
+      try {
+        StartPagePrinter(h);
+        int yazilan;
+        bool tamam = WritePrinter(h, veri, veri.Length, out yazilan);
+        EndPagePrinter(h);
+        if (!tamam || yazilan != veri.Length) return "WRITE " + Marshal.GetLastWin32Error();
+      } finally { EndDocPrinter(h); }
+    } finally { ClosePrinter(h); }
+    return "";
+  }
+}
+"@
+$sonuc = [MoHamYazici]::Yaz($env:MO_YAZICI, [IO.File]::ReadAllBytes($env:MO_DOSYA))
+if ($sonuc) { [Console]::Error.Write($sonuc); exit 2 }
+`;
+
+function kuyrukBetigiYolu(): string {
+  const yol = join(tmpdir(), 'market-otomasyon-ham-yazdir-v1.ps1');
+  if (!existsSync(yol)) writeFileSync(yol, KUYRUK_BETIGI, 'utf8');
+  return yol;
+}
+
+class KuyrukYazicisi implements Yazici {
+  readonly tip = 'USB' as const;
+
+  constructor(
+    private readonly yaziciAdi: string,
+    private readonly satirGenisligi: number,
+  ) {}
+
+  async yazdir(baytlar: Buffer): Promise<YazdirmaSonucu> {
+    if (process.platform !== 'win32') return { basarili: false, hata: 'Yazdırma kuyruğu yalnız Windows’ta kullanılabilir.' };
+    const dosya = join(tmpdir(), `mo-fis-${process.pid}-${Date.now()}.bin`);
+    writeFileSync(dosya, baytlar);
+    return new Promise((cozumle) => {
+      execFile(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', kuyrukBetigiYolu()],
+        { env: { ...process.env, MO_YAZICI: this.yaziciAdi, MO_DOSYA: dosya }, timeout: 30_000, windowsHide: true },
+        (hata, _cikti, hataCiktisi) => {
+          rmSync(dosya, { force: true });
+          if (!hata) return cozumle({ basarili: true });
+          const kod = String(hataCiktisi ?? '').trim();
+          if (kod.startsWith('OPEN 1801')) {
+            return cozumle({
+              basarili: false,
+              hata: `Windows'ta "${this.yaziciAdi}" adlı yazıcı bulunamadı. Ayarlardan yazıcıyı yeniden seçin.`,
+            });
+          }
+          cozumle({
+            basarili: false,
+            hata: `"${this.yaziciAdi}" yazıcısına gönderilemedi (${kod || hata.message}). Yazıcı açık ve kablosu takılı mı?`,
+          });
+        },
+      );
+    });
+  }
+
+  async cekmeceyiAc(): Promise<YazdirmaSonucu> {
+    return this.yazdir(new EscPosYazici(this.satirGenisligi).cekmeceAc().bitir());
+  }
+
+  async test(): Promise<YazdirmaSonucu> {
+    return this.yazdir(testFisi(this.satirGenisligi));
+  }
+}
+
+/**
+ * USB (Windows'a kurulu) yazıcı: önce paylaşım yolu, olmazsa yazdırma kuyruğu.
+ *
+ * Eskiden yalnız `\\localhost\<ad>` deneniyordu; yazıcı paylaşıma açık
+ * değilse ("UNKNOWN: unknown error, open '\\localhost\POS-80C\'") fiş hiç
+ * çıkmıyordu ve kullanıcı Windows'ta paylaşım ayarı yapmak zorundaydı.
+ * Paylaşım bir kez başarısız olunca o yazıcı için doğrudan kuyruğa gidilir:
+ * her fişte önce başarısız yolu beklemek gereksiz.
+ */
+const paylasimiOlmayanlar = new Set<string>();
+
+class UsbYazicisi implements Yazici {
+  readonly tip = 'USB' as const;
+  private readonly paylasim: DosyaYazicisi;
+  private readonly kuyruk: KuyrukYazicisi | null;
+
+  constructor(private readonly ayar: YaziciAyari) {
+    const ad = (ayar.usbAdi ?? '').trim();
+    this.paylasim = new DosyaYazicisi({ ...ayar, tip: 'WINDOWS_PAYLASIM', hedef: usbHedefi(ad) });
+    // UNC ya da aygıt yolu verilmişse kuyruk yolu yok: o zaten bir dosya hedefidir.
+    const yalnizAd = Boolean(ad) && !ad.startsWith('\\\\') && !/^[A-Za-z]{3}\d?:?$/.test(ad);
+    this.kuyruk = yalnizAd && process.platform === 'win32' ? new KuyrukYazicisi(ad, ayar.satirGenisligi) : null;
+  }
+
+  private async dene(baytlar: Buffer): Promise<YazdirmaSonucu> {
+    const ad = (this.ayar.usbAdi ?? '').trim();
+    if (this.kuyruk && paylasimiOlmayanlar.has(ad)) return this.kuyruk.yazdir(baytlar);
+    const sonuc = await this.paylasim.yazdir(baytlar);
+    if (sonuc.basarili || !this.kuyruk) return sonuc;
+    paylasimiOlmayanlar.add(ad);
+    return this.kuyruk.yazdir(baytlar);
+  }
+
+  yazdir(baytlar: Buffer): Promise<YazdirmaSonucu> {
+    return this.dene(baytlar);
+  }
+
+  cekmeceyiAc(): Promise<YazdirmaSonucu> {
+    return this.dene(new EscPosYazici(this.ayar.satirGenisligi).cekmeceAc().bitir());
+  }
+
+  test(): Promise<YazdirmaSonucu> {
+    return this.dene(testFisi(this.ayar.satirGenisligi));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Yazıcı yok — önizleme modu
 // ---------------------------------------------------------------------------
 
@@ -256,7 +401,7 @@ function usbHedefi(usbAdi: string): string {
 }
 
 export function yaziciOlustur(ayar: YaziciAyari): Yazici {
-  const usb = () => new DosyaYazicisi({ ...ayar, tip: 'WINDOWS_PAYLASIM', hedef: usbHedefi(ayar.usbAdi ?? '') });
+  const usb = () => new UsbYazicisi(ayar);
 
   switch (ayar.tip) {
     case 'AG':
@@ -282,7 +427,7 @@ export function testFisi(satirGenisligi = 48): Buffer {
     .boyut(2)
     .satir('TEST FİŞİ')
     .boyut(1)
-    .satir('Market Otomasyon')
+    .satir('AKYSOFTMARKETV1')
     .ayirici()
     .hizala('sol')
     .satir('Türkçe karakter testi:')

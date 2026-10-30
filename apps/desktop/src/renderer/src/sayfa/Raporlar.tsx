@@ -7,6 +7,7 @@ import {
   gunBasi,
   gunEkle,
   gunSonu,
+  karMarjiYuzde,
   miktarFormat,
   paraFormat,
   tarihSaatFormat,
@@ -647,8 +648,9 @@ function UrunRaporuGorunumu({ veri, karGorebilir }: { veri: Record<string, unkno
 
   const listeCiro = enCok.reduce((t, u) => t + Number(u.ciro), 0);
   const listeKar = enCok.reduce((t, u) => t + Number(u.kar), 0);
+  const listeMatrah = enCok.reduce((t, u) => t + Number(u.matrah), 0);
   const bagliSermaye = olu.reduce((t, u) => t + Number(u.bagli_sermaye), 0);
-  const marj = listeCiro > 0 ? Math.round((listeKar / listeCiro) * 1000) / 10 : 0;
+  const marj = karMarjiYuzde(listeKar, listeMatrah);
 
   return (
     <>
@@ -721,7 +723,7 @@ function UrunRaporuGorunumu({ veri, karGorebilir }: { veri: Record<string, unkno
                     <td className="sayi text-right">{miktarFormat(Number(u.adet))}</td>
                     <td className="sayi text-vurgu text-right">{paraFormat(Number(u.kar), { simge: false })}</td>
                     <td className="sayi text-metin-3 text-right">
-                      {Number(u.ciro) > 0 ? `%${Math.round((Number(u.kar) / Number(u.ciro)) * 1000) / 10}` : '—'}
+                      {Number(u.matrah) > 0 ? `%${karMarjiYuzde(Number(u.kar), Number(u.matrah))}` : '—'}
                     </td>
                   </tr>
                 ))}

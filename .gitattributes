@@ -13,3 +13,6 @@
 *.node binary
 *.db binary
 *.exe binary
+
+# Windows toplu dosyalari CRLF ister.
+*.bat text eol=crlf

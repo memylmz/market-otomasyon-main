@@ -7,17 +7,20 @@
  *  - Alındıktan hemen sonra `PRAGMA integrity_check` ile doğrulanır (§18.4);
  *    doğrulanmamış bir dosya yedek sayılmaz.
  *  - İsteğe bağlı AES-256-GCM şifreleme (§15.5) — anahtar dışarıdan verilir.
- *  - Son N sürüm saklanır, eskileri temizlenir; ikincil klasöre (USB/ağ) kopyalanır.
+ *  - Son N sürüm saklanır, eskileri temizlenir; ikincil klasöre (USB/ağ/OneDrive)
+ *    kopyalanır ve ORADA da son N sürüm tutulur.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { butunlukKontrolu, veritabaniAc, type Vt } from '../db/surucu.js';
+import { HEDEF_SEMA_SURUMU } from '../db/gocler.js';
 import { mevcutSurum } from '../db/gocmen.js';
+import { ayarMetin, ayarYaz } from '../depo/ayar.js';
 import { denetimYaz } from '../depo/ozet.js';
 import { dosyaSifreCoz, dosyaSifrele, SIFRELI_UZANTI } from '../guvenlik/sifreleme.js';
 import { yetkiIste, type Aktor, type Baglam } from './baglam.js';
-import { hatalar, simdi } from '@market/shared';
+import { aramaNormalize, AYAR, hatalar, simdi } from '@market/shared';
 
 export interface YedekBilgisi {
   dosya: string;
@@ -25,6 +28,47 @@ export interface YedekBilgisi {
   boyut: number;
   zaman: string;
   sifreli: boolean;
+  /**
+   * İkincil klasöre kopya sonucu (klasör tanımlı değilse yok). Kopya
+   * başarısızsa yedek yine geçerlidir; ama kullanıcı "ikinci kopyam var"
+   * sanmasın diye sonuç ekrana taşınır — eskiden yalnız loga yazılıyordu.
+   */
+  ikincil?: { basarili: boolean; hata?: string };
+}
+
+/** Yedek ayarları. HER KULLANIMDA veritabanından okunur; değişiklik yeniden başlatma beklemez. */
+export interface YedekAyarlari {
+  ikincilKlasor: string | null;
+  saklananAdet: number;
+  siklikSaat: number;
+}
+
+export function yedekAyarlariniOku(vt: Vt): YedekAyarlari {
+  const tamSayi = (anahtar: string, varsayilan: number): number => {
+    const n = Number(ayarMetin(vt, anahtar, String(varsayilan)));
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : varsayilan;
+  };
+  return {
+    ikincilKlasor: ayarMetin(vt, AYAR.YEDEK_IKINCIL_KLASOR, '').trim() || null,
+    saklananAdet: tamSayi(AYAR.YEDEK_SAKLANAN_ADET, 10),
+    siklikSaat: tamSayi(AYAR.YEDEK_SIKLIK_SAAT, 6),
+  };
+}
+
+/**
+ * Otomatik yedek zamanı geldi mi? Sayaç "programın açılışından" değil SON
+ * YEDEKTEN başlar: program her gün 6 saatten kısa açık kalsa da yedek alınır.
+ * Son yedek ileri tarihli görünüyorsa (saat geri alınmış) yedek alınır.
+ */
+export function otomatikYedekGerekliMi(
+  sonYedekZamani: string | null | undefined,
+  siklikSaat: number,
+  simdiMs = Date.now(),
+): boolean {
+  if (!sonYedekZamani) return true;
+  const gecen = simdiMs - Date.parse(sonYedekZamani);
+  if (!Number.isFinite(gecen)) return true;
+  return gecen < 0 || gecen >= siklikSaat * 3_600_000;
 }
 
 export interface YedekSecenekleri {
@@ -72,25 +116,129 @@ export async function yedekAl(baglam: Baglam, secenekler: YedekSecenekleri = {})
     sifreli = true;
   }
 
-  // İkincil konum (USB / ağ) — başarısız olursa yedek yine geçerlidir, sadece uyarılır.
+  const saklanan = secenekler.saklananAdet ?? 10;
+
+  // İkincil konum (USB / ağ / OneDrive) — başarısız olursa yedek yine geçerlidir.
+  let ikincil: YedekBilgisi['ikincil'];
   if (secenekler.ikincilKlasor) {
     try {
       mkdirSync(secenekler.ikincilKlasor, { recursive: true });
       copyFileSync(sonYol, join(secenekler.ikincilKlasor, basename(sonYol)));
+      ikincil = { basarili: true };
     } catch (hata) {
-      kayit.uyari('İkincil yedek konumuna kopyalanamadı', {
-        klasor: secenekler.ikincilKlasor,
-        mesaj: hata instanceof Error ? hata.message : String(hata),
-      });
+      const mesaj = hata instanceof Error ? hata.message : String(hata);
+      ikincil = { basarili: false, hata: mesaj };
+      kayit.uyari('İkincil yedek konumuna kopyalanamadı', { klasor: secenekler.ikincilKlasor, mesaj });
+    }
+    if (ikincil.basarili) {
+      try {
+        ikincilKlasoruTemizle(secenekler.ikincilKlasor, saklanan);
+      } catch (hata) {
+        kayit.uyari('İkincil yedek klasörü temizlenemedi', {
+          klasor: secenekler.ikincilKlasor,
+          mesaj: hata instanceof Error ? hata.message : String(hata),
+        });
+      }
     }
   }
 
-  eskiYedekleriTemizle(baglam, secenekler.saklananAdet ?? 10);
+  eskiYedekleriTemizle(baglam, saklanan);
 
   const durum = statSync(sonYol);
   kayit.bilgi('Yedek alındı', { dosya: basename(sonYol), boyut: durum.size, sifreli, sema_surumu: dogrulama.semaSurumu });
 
-  return { dosya: basename(sonYol), yol: sonYol, boyut: durum.size, zaman: simdi(), sifreli };
+  return { dosya: basename(sonYol), yol: sonYol, boyut: durum.size, zaman: simdi(), sifreli, ...(ikincil ? { ikincil } : {}) };
+}
+
+const YEDEK_ADI = /^market-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/;
+
+/** Klasördeki PROGRAMIN yedek dosyaları, en yenisi başta (sıra addaki zamandan). */
+function programinYedekleri(klasor: string): string[] {
+  return readdirSync(klasor)
+    .filter((d) => YEDEK_ADI.test(d) && (d.endsWith('.db') || d.endsWith('.db' + SIFRELI_UZANTI)))
+    .sort()
+    .reverse();
+}
+
+export interface IkincilKlasorDurumu {
+  yol: string | null;
+  /** Klasör var ve yazılabiliyor mu (null = klasör tanımlı değil). */
+  erisilebilir: boolean | null;
+  hata?: string;
+  /** Klasördeki yedek sayısı ve en yenisi. */
+  adet: number;
+  enYeni: string | null;
+}
+
+/** Klasöre gerçekten yazılabiliyor mu — küçük bir deneme dosyası yazılıp silinir. */
+function yazilabilirMi(klasor: string): { tamam: true } | { tamam: false; hata: string } {
+  try {
+    mkdirSync(klasor, { recursive: true });
+    const deneme = join(klasor, `.market-yazma-denemesi-${process.pid}`);
+    writeFileSync(deneme, 'x');
+    rmSync(deneme, { force: true });
+    return { tamam: true };
+  } catch (hata) {
+    return { tamam: false, hata: hata instanceof Error ? hata.message : String(hata) };
+  }
+}
+
+/** Ayarlar ekranındaki kart için: ikincil klasör tanımlı mı, erişilebilir mi, içinde kaç yedek var. */
+export function ikincilKlasorDurumu(vt: Vt): IkincilKlasorDurumu {
+  const yol = yedekAyarlariniOku(vt).ikincilKlasor;
+  if (!yol) return { yol: null, erisilebilir: null, adet: 0, enYeni: null };
+  if (!existsSync(yol))
+    return { yol, erisilebilir: false, hata: 'Klasör bulunamadı (USB çıkarılmış olabilir).', adet: 0, enYeni: null };
+  try {
+    const yedekler = programinYedekleri(yol);
+    return { yol, erisilebilir: true, adet: yedekler.length, enYeni: yedekler[0] ?? null };
+  } catch (hata) {
+    return { yol, erisilebilir: false, hata: hata instanceof Error ? hata.message : String(hata), adet: 0, enYeni: null };
+  }
+}
+
+/**
+ * İkincil klasörü HEMEN kaydeder (Kaydet düğmesi beklenmez).
+ *
+ * Eskiden klasör seçilince yalnız ekrandaki kutuya yazılıyor, ayar sayfanın
+ * Kaydet düğmesine basılınca kaydediliyordu. "Şimdi Yedek Al" kayıtlı ayara
+ * baktığı için kopya hiç alınmıyor, kullanıcı da klasörü kutuda görüp
+ * kaydedildi sanıyordu. Kaydetmeden önce klasöre yazılabildiği denenir.
+ */
+export function ikincilKlasoruKaydet(baglam: Baglam, aktor: Aktor, yol: string | null): IkincilKlasorDurumu {
+  yetkiIste(aktor, 'ayar.yonet');
+  const temiz = yol?.trim() || '';
+  if (temiz) {
+    const deneme = yazilabilirMi(temiz);
+    if (!deneme.tamam) throw hatalar.dogrulama(`Bu klasöre yazılamıyor: ${deneme.hata}`);
+  }
+  ayarYaz(baglam.vt, AYAR.YEDEK_IKINCIL_KLASOR, temiz);
+  return ikincilKlasorDurumu(baglam.vt);
+}
+
+/**
+ * İkincil klasörde yalnız son N yedeği bırakır.
+ *
+ * Eskiden ana klasör temizlenirken ikincil klasöre hiç dokunulmuyordu: günde
+ * dört yedekle yılda ~1.500 dosya birikir, USB ya da OneDrive kotası dolardı.
+ *
+ * Bu klasör kullanıcının kendi klasörü olabilir (ör. OneDrive'ın kökü), o
+ * yüzden YALNIZ programın ürettiği adlara dokunulur: `market-<zaman>….db`
+ * (ve şifreliyse `.db.enc`). Sıra dosya adındaki zamandan alınır — bulut
+ * eşitlemesi dosyaların değişiklik tarihini bozabilir, ad bozulmaz.
+ */
+export function ikincilKlasoruTemizle(klasor: string, saklanan: number): number {
+  if (!existsSync(klasor)) return 0;
+  const yedekler = programinYedekleri(klasor);
+  const silinecekler = yedekler.slice(Math.max(1, saklanan));
+  for (const dosya of silinecekler) {
+    try {
+      rmSync(join(klasor, dosya), { force: true });
+    } catch {
+      /* silinemeyen dosya kritik değil; bir sonraki yedekte yeniden denenir */
+    }
+  }
+  return silinecekler.length;
 }
 
 export async function yedegiDogrula(yol: string): Promise<{ saglam: boolean; detay: string; semaSurumu: number }> {
@@ -173,6 +321,14 @@ export async function yedektenGeriYukle(
     if (geciciCozulmus) rmSync(geciciCozulmus, { force: true });
     throw hatalar.dogrulama(`Seçilen yedek bozuk, geri yüklenemez: ${dogrulama.detay}`);
   }
+  // Programın daha yeni bir sürümüyle alınmış yedek bu sürümde açılamaz;
+  // dosya değiştirildikten sonra anlaşılırsa program hiç açılmazdı.
+  if (dogrulama.semaSurumu > HEDEF_SEMA_SURUMU) {
+    if (geciciCozulmus) rmSync(geciciCozulmus, { force: true });
+    throw hatalar.dogrulama(
+      'Bu yedek programın daha yeni bir sürümüyle alınmış. Önce programı güncelleyin, sonra geri yükleyin.',
+    );
+  }
 
   denetimYaz(
     vt,
@@ -200,6 +356,80 @@ export async function yedektenGeriYukle(
 
   kayit.uyari('Yedekten geri yükleme yapıldı', { yedek: basename(yedekYolu), geri_alma: basename(geriAlmaYolu) });
   return { geriYuklenenDosya: basename(yedekYolu), oncekiYedek: geriAlmaYolu, yenidenBaslatmaGerekli: true };
+}
+
+export interface SifirlamaSonucu {
+  alinanYedek: string;
+  geriAlmaYolu: string;
+  yenidenBaslatmaGerekli: true;
+}
+
+/**
+ * Tüm yerel veriyi sıfırlar: işletme, kullanıcılar, katalog, hareketler (§18.5).
+ *
+ * Neden satır silerek değil dosya düzeyinde: şema append-only'dir ve hareket
+ * tablolarındaki tetikleyiciler `DELETE` denemesini reddeder. Tutarlı tek yol
+ * veritabanı dosyasını devreden çıkarıp şemayı sıfırdan kurdurmaktır.
+ *
+ * Güvenlik ağı geri yüklemeyle aynıdır: önce zorunlu yedek alınır, ardından
+ * mevcut dosya silinmez, `.sifirlama-oncesi` uzantısıyla saklanır. Yanlışlıkla
+ * çalıştırılsa bile veri geri getirilebilir.
+ */
+export async function veriyiSifirla(baglam: Baglam, aktor: Aktor, onay: string): Promise<SifirlamaSonucu> {
+  yetkiIste(aktor, 'veri.sifirla');
+  const { vt, yollar, kayit } = baglam;
+
+  /*
+   * Yazılı onay: işletme adı birebir yazılmalı. Tek tuşla sıfırlanabilen bir
+   * ekran, kasada yanlışlıkla tıklanmaya en açık yerdir. Kurulum yarım kaldıysa
+   * işletme adı boştur; o durumda sabit söz istenir.
+   */
+  const isletmeAdi = ayarMetin(vt, AYAR.ISLETME_ADI, '').trim();
+  const beklenen = isletmeAdi || 'SIFIRLA';
+  /*
+   * Karşılaştırma `aramaNormalize` ile yapılır. Türkçe'de "I" küçülünce noktasız
+   * "ı" olur: `'SIFIRLA'.toLowerCase()` → "sıfırla". Düz karşılaştırmada kullanıcı
+   * "sifirla" yazdığında eşleşmezdi; aynı tuzak "Yılmaz Market" gibi adlarda da var.
+   * Büyük/küçük ve aksan farkını yutmak burada istenen davranıştır: aranan şey tuş
+   * tuş doğruluk değil, kullanıcının bilinçli onayı.
+   */
+  if (aramaNormalize(onay) !== aramaNormalize(beklenen)) {
+    throw hatalar.dogrulama(`Onay metni eşleşmiyor. Sıfırlamak için "${beklenen}" yazmalısınız.`);
+  }
+
+  // Zorunlu yedek: sıfırlama geri alınabilir olmadan yapılmaz.
+  const ayar = yedekAyarlariniOku(vt);
+  const yedek = await yedekAl(baglam, {
+    etiket: 'sifirlama-oncesi',
+    ikincilKlasor: ayar.ikincilKlasor,
+    saklananAdet: ayar.saklananAdet,
+  });
+
+  // Denetim kaydı bağlantı kapanmadan yazılmalı; sonrasında bu veritabanı gider.
+  denetimYaz(
+    vt,
+    {
+      kullanici_id: aktor.kullaniciId,
+      islem: 'VERI_SIFIRLA',
+      entity: 'sistem',
+      yeni_deger: { isletme: isletmeAdi, sema_surumu: mevcutSurum(vt), yedek: yedek.dosya },
+    },
+    baglam.cihazId,
+  );
+
+  // Mevcut bağlantıyı kapatmadan dosya değiştirilemez.
+  vt.kapat();
+
+  const geriAlmaYolu = `${yollar.vtDosyasi}.sifirlama-oncesi-${damga()}`;
+  if (existsSync(yollar.vtDosyasi)) renameSync(yollar.vtDosyasi, geriAlmaYolu);
+  // WAL ve SHM yan dosyaları eski veritabanına aittir; kalırlarsa yeni dosyayı bozarlar.
+  for (const ek of ['-wal', '-shm']) {
+    const yanDosya = yollar.vtDosyasi + ek;
+    if (existsSync(yanDosya)) rmSync(yanDosya, { force: true });
+  }
+
+  kayit.uyari('Tüm veri sıfırlandı', { isletme: isletmeAdi, yedek: yedek.dosya, geri_alma: basename(geriAlmaYolu) });
+  return { alinanYedek: yedek.dosya, geriAlmaYolu, yenidenBaslatmaGerekli: true };
 }
 
 /** Disk doluluk uyarısı (§20 "disk dolu" senaryosu). */

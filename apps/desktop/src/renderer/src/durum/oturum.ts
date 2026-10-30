@@ -24,6 +24,14 @@ export interface LisansBilgisi {
 export interface SistemDurumu {
   cihazId: string;
   surum: string;
+  /** Açık veritabanının işletme adı. */
+  isletmeAdi?: string;
+  /** Proje klasöründen çalışan deneme kopyası (kurulu program değil). */
+  gelistirme?: boolean;
+  /** Ayarlar → "Satış sonrası fişi otomatik yazdır". */
+  otomatikFis?: boolean;
+  /** Bu yılın fatura düzenleme sınırı (VUK 232); `eksik` = bu yılınki girilmedi. */
+  faturaSiniri?: { tutar: number; yil: number; eksik: boolean };
   kurulumGerekli: boolean;
   oturum: { kullaniciId: string; ad: string; rol: Rol; yetkiler: Yetki[]; kasaOturumId: string | null } | null;
   senkron: SenkronRozeti;
@@ -56,6 +64,10 @@ export function gorunumuUygula(ayarlar: Record<string, unknown> | undefined): vo
   const yazi = String((ayarlar as { yaziBoyutu?: unknown } | undefined)?.yaziBoyutu ?? 'normal');
   if (yazi === 'buyuk' || yazi === 'cok-buyuk') kok.dataset.yazi = yazi;
   else delete kok.dataset.yazi;
+
+  // Ekran tuş takımı bu değeri her odaklanmada okur (bkz. EkranTusTakimi).
+  const tus = String((ayarlar as { tusTakimi?: unknown } | undefined)?.tusTakimi ?? 'otomatik');
+  kok.dataset.tusTakimi = tus === 'acik' || tus === 'kapali' ? tus : 'otomatik';
 }
 
 export const oturumDurumu = create<OturumDurumu>((set, get) => ({

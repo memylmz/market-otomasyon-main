@@ -12,6 +12,7 @@ import {
   gunBasi,
   gunEkle,
   gunSonu,
+  karMarjiYuzde,
   yerelSaat,
   type GunAnahtari,
   type Kurus,
@@ -46,6 +47,7 @@ function ozetleriTopla(satirlar: GunlukOzetKaydi[]): CiroOzeti {
   const islemSayisi = topla((s) => s.islem_sayisi);
   const netCiro = ciro - iade;
   const brutKar = topla((s) => s.brut_kar);
+  const kdvToplam = topla((s) => s.kdv_toplam);
   return {
     ciro,
     iade,
@@ -53,13 +55,14 @@ function ozetleriTopla(satirlar: GunlukOzetKaydi[]): CiroOzeti {
     islemSayisi,
     ortalamaSepet: islemSayisi > 0 ? Math.round(ciro / islemSayisi) : 0,
     brutKar,
-    karMarji: netCiro > 0 ? Math.round((brutKar / netCiro) * 10000) / 100 : 0,
+    // Marj KDV HARİÇ satışa göre (alış faturası ekranıyla aynı tanım).
+    karMarji: karMarjiYuzde(brutKar, netCiro - kdvToplam),
     nakit: topla((s) => s.nakit),
     kart: topla((s) => s.kart),
     veresiye: topla((s) => s.veresiye),
     tahsilat: topla((s) => s.tahsilat),
     gider: topla((s) => s.gider),
-    kdvToplam: topla((s) => s.kdv_toplam),
+    kdvToplam,
   };
 }
 

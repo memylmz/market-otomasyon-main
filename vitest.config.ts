@@ -28,6 +28,9 @@ export default defineConfig({
         'apps/desktop/src/main/donanim/**',
         // Electron çalışma zamanı gerektirir; iş kuralı içermez, servislere delege eder.
         'apps/desktop/src/main/ipc/**',
+        // Müşteri ekranı penceresi: BrowserWindow, monitör olayları, medya şeması.
+        // Kuralları (yayın listesi, medya denetimi) ayrı dosyalarda ve testli.
+        'apps/desktop/src/main/musteri-ekrani/pencere.ts',
       ],
       // Kapsam hedefi alan bazında uygulanır (§3.6 / §21.1).
       //

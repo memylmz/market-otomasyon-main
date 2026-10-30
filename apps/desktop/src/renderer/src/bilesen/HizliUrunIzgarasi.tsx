@@ -8,16 +8,18 @@
  * Arama kutusu YOKTUR: soldaki barkod alanına ürün adı yazmak zaten arama
  * yapıyor, ikinci bir arama alanı dar sütunda yer harcardı.
  *
- * KG/LT ürünlerde miktar elle sorulur (terazi entegrasyonu yoktur — §13.3).
+ * KG/LT ürünlerde miktar, satış ekranının TEK tartım penceresinde sorulur
+ * (TartimDiyalogu) — barkodla okutulan ürünle aynı pencere. Eskiden ızgaranın
+ * kendi penceresi vardı; orada "20 liralık ver" için ayrıca Hesapla'ya basmak
+ * gerekiyor, kampanyalı fiyat yerine liste fiyatıyla hesaplıyordu.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   adet,
   miktarFormat,
   kisaKodBul,
   miktarOlustur,
-  miktarParse,
   paraFormat,
   paraParse,
   type BirimTipi,
@@ -26,7 +28,7 @@ import {
 } from '@market/shared';
 import { Alan, BosDurum, Diyalog, Yukleniyor } from './temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
-import { kampanyaliFiyat, sepetDurumu } from '../durum/sepet';
+import { kampanyaliFiyat, sepetDurumu, type EklenecekUrun } from '../durum/sepet';
 import { cagir } from '../kopru';
 
 interface Urun {
@@ -34,6 +36,7 @@ interface Urun {
   ad: string;
   birim_tipi: BirimTipi;
   satis_fiyati: Kurus;
+  alis_fiyati: Kurus;
   kdv_orani: number;
   stok: Miktar;
   kategori_id: string | null;
@@ -83,18 +86,20 @@ export function HizliUrunIzgarasi({
   adetOneki,
   onCarpanTuketildi,
   onSepeteEklendi,
+  onTartimIste,
 }: {
   /** Satış ekranında girilen "3×" çarpanı; kutucuğa basınca bu adet eklenir. */
   adetOneki: number | null;
   onCarpanTuketildi: () => void;
   /** Sepete eklendi — satış ekranı imleci barkod kutusuna geri alsın (§10.3). */
   onSepeteEklendi: () => void;
+  /** KG/LT ürün: miktar satış ekranının tartım penceresinde sorulur. */
+  onTartimIste: (urun: EklenecekUrun) => void;
 }) {
   const [urunler, setUrunler] = useState<Urun[]>([]);
   const [kategoriler, setKategoriler] = useState<{ id: string; ad: string }[]>([]);
   const [kategoriId, setKategoriId] = useState('');
   const [yukleniyor, setYukleniyor] = useState(true);
-  const [miktarSorulan, setMiktarSorulan] = useState<Urun | null>(null);
   const [muhtelifAcik, setMuhtelifAcik] = useState(false);
 
   const yukle = useCallback(async () => {
@@ -120,26 +125,28 @@ export function HizliUrunIzgarasi({
       .catch(() => setKategoriler([]));
   }, []);
 
+  const eklenecek = (urun: Urun): EklenecekUrun => {
+    // Kampanya ORTAK yardımcıdan gelir; her giriş yolu aynı fiyatı üretsin.
+    const { fiyat, kampanyaId } = kampanyaliFiyat(urun);
+    return {
+      urunId: urun.id,
+      kategoriId: urun.kategori_id ?? null,
+      ad: urun.ad,
+      barkod: urun.barkodlar[0] ?? null,
+      birimTipi: urun.birim_tipi,
+      birimFiyat: fiyat,
+      listeFiyati: urun.satis_fiyati,
+      kdvOrani: urun.kdv_orani,
+      kampanyaId,
+      stok: urun.stok,
+      alisFiyati: urun.alis_fiyati,
+    };
+  };
+
   const ekle = (urun: Urun, miktar: Miktar) => {
     onCarpanTuketildi();
     onSepeteEklendi();
-    // Kampanya ORTAK yardımcıdan gelir; her giriş yolu aynı fiyatı üretsin.
-    const { fiyat, kampanyaId } = kampanyaliFiyat(urun);
-    sepetDurumu.getState().ekle(
-      {
-        urunId: urun.id,
-        kategoriId: urun.kategori_id ?? null,
-        ad: urun.ad,
-        barkod: urun.barkodlar[0] ?? null,
-        birimTipi: urun.birim_tipi,
-        birimFiyat: fiyat,
-        listeFiyati: urun.satis_fiyati,
-        kdvOrani: urun.kdv_orani,
-        kampanyaId,
-        stok: urun.stok,
-      },
-      miktar,
-    );
+    sepetDurumu.getState().ekle(eklenecek(urun), miktar);
     bildir.basari(`${urun.ad} sepete eklendi`, `${miktarFormat(miktar, urun.birim_tipi)} · ${paraFormat(urun.satis_fiyati)}`);
   };
 
@@ -150,13 +157,18 @@ export function HizliUrunIzgarasi({
       ekle(urun, miktarOlustur(adetOneki));
       return;
     }
-    // Çarpan yoksa KG/LT'de miktar elle sorulur (terazi entegrasyonu yoktur).
-    if (urun.birim_tipi !== 'ADET') setMiktarSorulan(urun);
+    // Çarpan yoksa KG/LT'de miktar tartım penceresinde sorulur.
+    if (urun.birim_tipi !== 'ADET') onTartimIste(eklenecek(urun));
     else ekle(urun, adet(1));
   };
 
   return (
-    <aside className="flex w-[38rem] shrink-0 flex-col border-l border-cizgi bg-yuzey" aria-label="Hızlı ürünler">
+    // Ekran tuş takımı satış ekranında buraya (ızgaranın altına) yerleşir; sepet görünür kalır.
+    <aside
+      className="flex w-[38rem] shrink-0 flex-col border-l border-cizgi bg-yuzey"
+      aria-label="Hızlı ürünler"
+      data-tus-takimi-yeri
+    >
       <div className="flex gap-1.5 overflow-x-auto border-b border-cizgi px-3 py-2.5">
         <button
           type="button"
@@ -243,16 +255,6 @@ export function HizliUrunIzgarasi({
         )}
       </div>
 
-      <MiktarDiyalogu
-        urun={miktarSorulan}
-        baslangicMiktar={adetOneki}
-        onKapat={() => setMiktarSorulan(null)}
-        onOnayla={(miktar) => {
-          if (miktarSorulan) ekle(miktarSorulan, miktar);
-          setMiktarSorulan(null);
-        }}
-      />
-
       <MuhtelifDiyalogu
         acik={muhtelifAcik}
         adetOneki={adetOneki}
@@ -264,133 +266,6 @@ export function HizliUrunIzgarasi({
         }}
       />
     </aside>
-  );
-}
-
-function MiktarDiyalogu({
-  urun,
-  baslangicMiktar,
-  onKapat,
-  onOnayla,
-}: {
-  urun: Urun | null;
-  /** Satış ekranındaki "3×" çarpanı — varsa miktar alanı bununla açılır. */
-  baslangicMiktar: number | null;
-  onKapat: () => void;
-  onOnayla: (miktar: Miktar) => void;
-}) {
-  const [metin, setMetin] = useState('1');
-  const [tutarMetni, setTutarMetni] = useState('');
-  const alan = useRef<HTMLInputElement>(null);
-
-  /*
-   * Seçim, değer SIFIRLANDIKTAN SONRA yapılır.
-   *
-   * `autoFocus` alanı odaklayıp içeriği seçiyordu, ama hemen ardından bu efekt
-   * değeri "1"e çekiyor ve React değeri değiştirince seçim kayboluyordu. İlk
-   * açılışta fark edilmiyordu (değer zaten "1"di, değişiklik olmuyordu);
-   * ikinci üründen itibaren kasiyerin yazdığı rakam 1'in yanına ekleniyordu.
-   *
-   * Gecikme Diyalog'un kendi odak zamanlayıcısından (10 ms) uzun tutulur;
-   * aksi hâlde o odaklanma seçimi tekrar bozar.
-   */
-  useEffect(() => {
-    if (!urun) return;
-    setMetin(String(baslangicMiktar ?? 1));
-    setTutarMetni('');
-    const zamanlayici = setTimeout(() => {
-      alan.current?.focus();
-      alan.current?.select();
-    }, 20);
-    return () => clearTimeout(zamanlayici);
-  }, [urun, baslangicMiktar]);
-
-  if (!urun) return null;
-
-  const miktar = miktarParse(metin) ?? 0;
-  const tutar = Math.round((miktar * urun.satis_fiyati) / 1000);
-
-  // "Tutardan miktara" hesabı (§13.3): müşteri "20 liralık ver" dediğinde.
-  const tutardanMiktar = () => {
-    const kurus = Math.round(Number(tutarMetni.replace(',', '.')) * 100);
-    if (!Number.isFinite(kurus) || kurus <= 0 || urun.satis_fiyati <= 0) return;
-    setMetin(String(Math.round((kurus / urun.satis_fiyati) * 1000) / 1000));
-  };
-
-  return (
-    <Diyalog
-      acik
-      baslik={urun.ad}
-      aciklama={`Birim fiyat: ${paraFormat(urun.satis_fiyati)} / ${urun.birim_tipi.toLowerCase()}`}
-      genislik="dar"
-      onKapat={onKapat}
-      altBilgi={
-        <>
-          <button type="button" className="tus-ikincil" onClick={onKapat}>
-            Vazgeç
-          </button>
-          <button type="button" className="tus-birincil" onClick={() => onOnayla(miktar)} disabled={miktar <= 0}>
-            Sepete Ekle
-          </button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <Alan etiket={`Miktar (${urun.birim_tipi.toLowerCase()})`}>
-          <input
-            ref={alan}
-            className="alan sayi py-3 text-2xl"
-            value={metin}
-            onChange={(e) => setMetin(e.target.value)}
-            /*
-             * Odaklanınca içerik SEÇİLİR. Alan varsayılan miktarla dolu gelir
-             * (çoğu satış 1 birimdir), ama farklı bir miktar girecek kasiyerin
-             * önce onu silmesi gerekiyordu — tartılan üründe bu neredeyse her
-             * seferinde oluyor. Seçili gelince üstüne yazmak yeterli.
-             */
-            onFocus={(e) => e.currentTarget.select()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && miktar > 0) onOnayla(miktar);
-            }}
-            data-odak
-            autoFocus
-          />
-        </Alan>
-
-        <div className="flex flex-wrap gap-2">
-          {[0.25, 0.5, 1, 1.5, 2, 3, 5].map((d) => (
-            <button key={d} type="button" className="tus-ikincil px-3 py-1 text-sm" onClick={() => setMetin(String(d))}>
-              {d.toString().replace('.', ',')}
-            </button>
-          ))}
-        </div>
-
-        <Alan etiket="Tutardan miktara" ipucu='Müşteri "20 liralık ver" dediğinde tutarı yazıp hesaplatın.'>
-          <div className="flex gap-2">
-            <input
-              className="alan sayi"
-              placeholder="20,00"
-              value={tutarMetni}
-              onChange={(e) => setTutarMetni(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  tutardanMiktar();
-                }
-              }}
-            />
-            <button type="button" className="tus-ikincil" onClick={tutardanMiktar}>
-              Hesapla
-            </button>
-          </div>
-        </Alan>
-
-        <div className="flex items-baseline justify-between rounded bg-yuzey-3 px-4 py-3">
-          <span className="text-metin-2">Satır tutarı</span>
-          <span className="font-mono text-2xl font-bold text-vurgu">{paraFormat(tutar)}</span>
-        </div>
-      </div>
-    </Diyalog>
   );
 }
 

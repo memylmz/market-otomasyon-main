@@ -391,6 +391,73 @@ export function marjHesapla(alisFiyatiNet: Kurus, satisFiyatiBrut: Kurus, kdvOra
   return Math.round(((matrah - alisFiyatiNet) / matrah) * 10000) / 100;
 }
 
+/**
+ * Kâr marjı yüzdesi (bir ondalık) — KDV HARİÇ satışa göre.
+ *
+ * TEK TANIM: alış faturası, ürün kartı, kasa ve panel raporları hep bunu
+ * kullanır. Eskiden raporlar kârı KDV DAHİL ciroya bölüyordu; %20 KDV'li
+ * üründe %25'lik marj %20,8 görünüyordu ve alış faturası ekranıyla
+ * çelişiyordu. KDV müşterinin parasıdır, marjın tabanına girmez.
+ */
+export function karMarjiYuzde(kar: Kurus, kdvHaricSatis: Kurus): number {
+  return kdvHaricSatis > 0 ? Math.round((kar / kdvHaricSatis) * 1000) / 10 : 0;
+}
+
+export interface BirimKar {
+  /** Raf fiyatının KDV'siz kısmı — marketin geliri. */
+  satisKdvHaric: Kurus;
+  /** Raf fiyatının içindeki KDV — devletin payı. */
+  satisKdv: Kurus;
+  /** Bir birimden kalan kâr (eksi = zarar). */
+  kar: Kurus;
+  marjYuzde: number;
+  zarar: boolean;
+}
+
+/**
+ * Tek birimin kâr dökümü. Alış KDV HARİÇ, satış KDV DAHİL (raf fiyatı) —
+ * ürün kartındaki alanlarla aynı kabul.
+ */
+export function birimKarHesabi(alisFiyatiNet: Kurus, satisFiyatiBrut: Kurus, kdvOrani: number): BirimKar {
+  const { matrah, kdv } = kdvAyir(satisFiyatiBrut, kdvOrani);
+  const kar = matrah - alisFiyatiNet;
+  return { satisKdvHaric: matrah, satisKdv: kdv, kar, marjYuzde: karMarjiYuzde(kar, matrah), zarar: kar < 0 };
+}
+
+/**
+ * Satır zararına mı satılıyor? KDV hariç satış tutarı, KDV hariç maliyetin
+ * altındaysa evet. Maliyet bilinmiyorsa (girilmemiş, 0) karar verilmez.
+ */
+export function satirZarardaMi(kdvHaricSatis: Kurus, birimMaliyet: Kurus | null | undefined, miktar: Miktar): boolean {
+  if (!birimMaliyet || birimMaliyet <= 0) return false;
+  return kdvHaricSatis < yuvarla((miktar * birimMaliyet) / MIKTAR_OLCEK);
+}
+
+/**
+ * Kampanyanın bir ürünün BİR BİRİMİNE düşen fiyatı (zarar kontrolü için).
+ * "3 al 2 öde"de ortalama birim fiyat (2/3), kademelide eşik sonrası fiyat.
+ */
+export function kampanyaliBirimFiyat(
+  k: { tip: KampanyaTipi; deger: number; esikMiktar?: number | null },
+  satisFiyati: Kurus,
+): Kurus {
+  switch (k.tip) {
+    case 'YUZDE':
+      return Math.max(0, satisFiyati - yuzdeUygula(satisFiyati, k.deger));
+    case 'TUTAR':
+      return Math.max(0, satisFiyati - Math.round(k.deger));
+    case 'SABIT_FIYAT':
+    case 'KADEMELI_FIYAT':
+      return Math.max(0, Math.round(k.deger));
+    case 'N_AL_M_ODE': {
+      const alinan = (k.esikMiktar ?? 0) / MIKTAR_OLCEK;
+      return alinan > 0 ? Math.round((satisFiyati * k.deger) / alinan) : satisFiyati;
+    }
+    default:
+      return satisFiyati;
+  }
+}
+
 /** Hedef marja göre KDV dahil satış fiyatı önerir (toplu fiyatlama için). */
 export function marjdanFiyat(alisFiyatiNet: Kurus, hedefMarjYuzde: number, kdvOrani: number): Kurus {
   const bolen = 1 - hedefMarjYuzde / 100;

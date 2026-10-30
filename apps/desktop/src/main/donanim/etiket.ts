@@ -12,7 +12,17 @@
  * ayrışırdı — ve kullanıcı farkı ancak yüz etiket bastıktan sonra görürdü.
  */
 
-import { code128Cizimi, paraFormat, type Kurus } from '@market/shared';
+import {
+  etiketBarkodCizimi,
+  ETIKET_AD_YUKSEKLIK,
+  ETIKET_FIYAT_YUKSEKLIK,
+  paraFormat,
+  VARSAYILAN_ETIKET_DUZENI,
+  type EtiketBarkodTuru,
+  type EtiketDuzeni,
+  type EtiketHiza,
+  type Kurus,
+} from '@market/shared';
 
 export interface EtiketOlcusu {
   enMm: number;
@@ -31,6 +41,8 @@ export interface EtiketIcerigi {
   birimTipi: string;
   rafKonumu?: string | null;
   adet: number;
+  /** Basım tarihi ("30.10.2026") — düzende "tarih" açıksa basılır. */
+  tarih?: string;
 }
 
 export interface EtiketSecenekleri {
@@ -44,11 +56,34 @@ export interface EtiketSecenekleri {
    * "Urun" yazarsa kullanıcı farkı ancak etiketi rafa astıktan sonra görür.
    */
   turkce?: boolean;
+  /** Yazıcının dili — yazı genişliği (ortalama/sağa yaslama) fonta göre hesaplanır. */
+  dil?: 'TSPL' | 'ZPL';
+  /** Ad/fiyat/barkod hizası ve boyutu; verilmezse eski (sola yaslı) görünüm. */
+  duzen?: EtiketDuzeni;
 }
 
 export type YerlesimOgesi =
-  | { tip: 'metin'; xMm: number; yMm: number; metin: string; yukseklikMm: number; kalin: boolean }
-  | { tip: 'barkod'; xMm: number; yMm: number; veri: string; yukseklikMm: number; modulMm: number; genislikMm: number }
+  | {
+      tip: 'metin';
+      xMm: number;
+      yMm: number;
+      metin: string;
+      yukseklikMm: number;
+      kalin: boolean;
+      /** Yazıcının fontuyla basılınca kaplayacağı genişlik — önizleme metni bu genişlikte çizer. */
+      genislikMm?: number;
+    }
+  | {
+      tip: 'barkod';
+      xMm: number;
+      yMm: number;
+      veri: string;
+      yukseklikMm: number;
+      modulMm: number;
+      genislikMm: number;
+      /** EAN-13 / EAN-8 / CODE128 — önizleme ve yazıcı aynı türü kullanır. */
+      tur?: EtiketBarkodTuru;
+    }
   | { tip: 'cerceve'; xMm: number; yMm: number; enMm: number; boyMm: number; kalinlikMm: number };
 
 export interface EtiketYerlesimi {
@@ -70,17 +105,56 @@ function nokta(mm: number, dpi: number): number {
   return Math.round((mm * dpi) / 25.4);
 }
 
+/** TSPL gömülü fontlarının hücre eni / boyu (203 dpi'de 8×12, 12×20, 16×24, 24×32, 32×48 nokta). */
+const TSPL_FONT_ORANI: Record<string, number> = { '1': 8 / 12, '2': 12 / 20, '3': 16 / 24, '4': 24 / 32, '5': 32 / 48 };
+const TSPL_FONT_MM: Record<string, number> = { '1': 1.5, '2': 2.5, '3': 3, '4': 4, '5': 6 };
+
+/**
+ * Metnin YAZICIDA kaplayacağı genişlik (mm).
+ *
+ * Ortalama ve sağa yaslama bu hesaba dayanır: TSPL fontları sabit genişliklidir,
+ * genişlik seçilen font ve çarpandan kesin bulunur. ZPL'nin ^A0 fontuna
+ * yüksekliğin %60'ı kadar genişlik verilir (aşağıda `zpl`), hesap da onu kullanır.
+ */
+function metinGenisligiMm(metin: string, yukseklikMm: number, dil: 'TSPL' | 'ZPL'): number {
+  if (dil === 'ZPL') return metin.length * yukseklikMm * 0.6;
+  const { font, carpan } = tsplFont(yukseklikMm);
+  // Yazıcıya giden metin ölçülür: ₺ kâğıda "TL" olarak basılır (iki harf).
+  const basilan = cp1254eTasi(metin);
+  return basilan.length * (TSPL_FONT_MM[font] ?? yukseklikMm) * carpan * (TSPL_FONT_ORANI[font] ?? 0.6);
+}
+
 /**
  * Uzun ürün adını etikete sığdırır.
  *
  * Kesme YAZI GENİŞLİĞİNE göre yapılır, sabit karakter sayısına göre değil:
  * 30 mm'lik etikete 40 mm'likten daha az harf sığar.
  */
-function adKisalt(ad: string, kullanilabilirMm: number, yukseklikMm: number): string {
-  // Gömülü fontlarda ortalama karakter genişliği ≈ yüksekliğin %55'i.
-  const karakterMm = yukseklikMm * 0.55;
+function adKisalt(ad: string, kullanilabilirMm: number, yukseklikMm: number, dil: 'TSPL' | 'ZPL'): string {
+  const karakterMm = metinGenisligiMm('M', yukseklikMm, dil);
   const sigar = Math.max(4, Math.floor(kullanilabilirMm / karakterMm));
   return ad.length <= sigar ? ad : ad.slice(0, sigar - 1) + '.';
+}
+
+/** Adı en fazla iki satıra böler (kelime sınırından); ikinci satır gerekirse kısaltılır. */
+function adSatirlari(ad: string, kullanilabilirMm: number, yukseklikMm: number, dil: 'TSPL' | 'ZPL'): string[] {
+  const sigar = Math.max(4, Math.floor(kullanilabilirMm / metinGenisligiMm('M', yukseklikMm, dil)));
+  if (ad.length <= sigar) return [ad];
+  const kelimeler = ad.split(/\s+/);
+  let ilk = '';
+  while (kelimeler.length > 0 && (ilk ? ilk.length + 1 : 0) + kelimeler[0]!.length <= sigar) {
+    ilk = ilk ? `${ilk} ${kelimeler.shift()}` : kelimeler.shift()!;
+  }
+  // Tek kelime bile sığmıyorsa harften bölünür.
+  if (!ilk) return [ad.slice(0, sigar), adKisalt(ad.slice(sigar), kullanilabilirMm, yukseklikMm, dil)];
+  return [ilk, adKisalt(kelimeler.join(' '), kullanilabilirMm, yukseklikMm, dil)].filter(Boolean);
+}
+
+/** Hizaya göre x (mm); etiket kenarına dayanmaz. */
+function hizaliX(hiza: EtiketHiza, genislikMm: number, enMm: number): number {
+  if (hiza === 'orta') return Math.max(KENAR_MM, (enMm - genislikMm) / 2);
+  if (hiza === 'sag') return Math.max(KENAR_MM, enMm - KENAR_MM - genislikMm);
+  return KENAR_MM;
 }
 
 /**
@@ -155,66 +229,73 @@ export function etiketYerlesimi(icerik: EtiketIcerigi, olcu: EtiketOlcusu, secen
   const ogeler: YerlesimOgesi[] = [];
   const uyarilar: string[] = [];
   const kullanilabilirMm = olcu.enMm - KENAR_MM * 2;
+  const duzen = secenek.duzen ?? VARSAYILAN_ETIKET_DUZENI;
+  const dil = secenek.dil ?? 'TSPL';
   let y = KENAR_MM;
 
-  const adYukseklik = 3;
   // Yazıcı Türkçe basabiliyorsa metin olduğu gibi kalır; basamıyorsa ASCII'ye iner.
   const yaz = (metin: string): string => (secenek.turkce ? metin : asciyeIndir(metin));
+  /**
+   * Metni ekler; etiketin enine SIĞMAZSA yazıyı küçültür (en fazla 2 mm'ye kadar)
+   * ve uyarır. Büyük fiyat dar etikette kenardan taşıp kesik basılıyordu.
+   * Döner: kullanılan yazı yüksekliği (sonraki satırın yeri buna göre).
+   */
+  const metinEkle = (metin: string, istenenMm: number, kalin: boolean, hiza: EtiketHiza, ad = ''): number => {
+    let yukseklikMm = istenenMm;
+    let genislikMm = metinGenisligiMm(metin, yukseklikMm, dil);
+    while (genislikMm > kullanilabilirMm && yukseklikMm > 2) {
+      yukseklikMm = Math.max(2, Math.round(yukseklikMm * 0.85 * 10) / 10);
+      genislikMm = metinGenisligiMm(metin, yukseklikMm, dil);
+    }
+    if (ad && yukseklikMm < istenenMm) {
+      uyarilar.push(
+        `${ad} seçilen boyutta etikete sığmadı; küçültülerek basılacak. Boyutu küçültün ya da daha geniş etiket kullanın.`,
+      );
+    }
+    ogeler.push({ tip: 'metin', xMm: hizaliX(hiza, genislikMm, olcu.enMm), yMm: y, metin, yukseklikMm, kalin, genislikMm });
+    return yukseklikMm;
+  };
 
-  ogeler.push({
-    tip: 'metin',
-    xMm: KENAR_MM,
-    yMm: y,
-    metin: yaz(adKisalt(icerik.ad, kullanilabilirMm, adYukseklik)),
-    yukseklikMm: adYukseklik,
-    kalin: true,
-  });
-  y += adYukseklik + 1;
+  if (duzen.cerceve) {
+    ogeler.push({ tip: 'cerceve', xMm: 0.5, yMm: 0.5, enMm: olcu.enMm - 1, boyMm: olcu.boyMm - 1, kalinlikMm: 0.3 });
+  }
+
+  const adYukseklik = ETIKET_AD_YUKSEKLIK[duzen.adBoyut];
+  const adlar = duzen.adIkiSatir
+    ? adSatirlari(yaz(icerik.ad), kullanilabilirMm, adYukseklik, dil)
+    : [adKisalt(yaz(icerik.ad), kullanilabilirMm, adYukseklik, dil)];
+  for (const satir of adlar) {
+    y += metinEkle(satir, adYukseklik, true, duzen.adHiza) + 0.6;
+  }
+  y += 0.4;
 
   if (secenek.rafGoster && icerik.rafKonumu) {
-    ogeler.push({
-      tip: 'metin',
-      xMm: KENAR_MM,
-      yMm: y,
-      metin: yaz(`Raf: ${icerik.rafKonumu}`),
-      yukseklikMm: 2,
-      kalin: false,
-    });
+    metinEkle(yaz(`Raf: ${icerik.rafKonumu}`), 2, false, duzen.adHiza);
     y += 3;
   }
 
   // Fiyat etiketin en büyük ve en okunur öğesidir; müşteri önce ona bakar.
-  const fiyatYukseklik = 6;
-  ogeler.push({
-    tip: 'metin',
-    xMm: KENAR_MM,
-    yMm: y,
-    metin: yaz(paraFormat(icerik.fiyat)),
-    yukseklikMm: fiyatYukseklik,
-    kalin: true,
-  });
-  y += fiyatYukseklik + 1;
+  const fiyatYukseklik = ETIKET_FIYAT_YUKSEKLIK[duzen.fiyatBoyut];
+  y += metinEkle(yaz(paraFormat(icerik.fiyat)), fiyatYukseklik, true, duzen.fiyatHiza, 'Fiyat') + 1;
 
   if (secenek.birimFiyatGoster && icerik.birimTipi !== 'ADET') {
-    ogeler.push({
-      tip: 'metin',
-      xMm: KENAR_MM,
-      yMm: y,
-      metin: birimEtiketi(icerik.birimTipi),
-      yukseklikMm: 2,
-      kalin: false,
-    });
+    metinEkle(birimEtiketi(icerik.birimTipi), 2, false, duzen.fiyatHiza);
     y += 3;
   }
 
-  if (icerik.barkod) {
-    const cizim = code128Cizimi(icerik.barkod);
+  // Tarih en alta yazılır; barkod onun yerini bırakır.
+  const tarihPayi = duzen.tarihGoster && icerik.tarih ? 2.5 : 0;
+
+  if (duzen.barkodGoster && icerik.barkod) {
+    const cizim = etiketBarkodCizimi(icerik.barkod);
     if (!cizim) {
-      uyarilar.push('Barkod CODE128 ile kodlanamıyor; etikette barkod basılmayacak.');
+      uyarilar.push('Barkod kodlanamıyor (geçersiz karakter); etikette barkod basılmayacak.');
     } else {
       const noktaMm = 25.4 / olcu.dpi;
       // Modül genişliği etikete SIĞACAK şekilde seçilir; en fazla 4 nokta.
-      const sigacakNokta = Math.floor(kullanilabilirMm / noktaMm / cizim.toplamModul);
+      // EAN'ın iki yanına sessiz bölge payı bırakılır: kenara dayanan EAN'ı okuyucular zor okur.
+      const sessizModul = cizim.tur === 'CODE128' ? 0 : 8;
+      const sigacakNokta = Math.floor(kullanilabilirMm / noktaMm / (cizim.toplamModul + sessizModul));
       const modulNokta = Math.max(1, Math.min(4, sigacakNokta));
       const modulMm = modulNokta * noktaMm;
       const genislikMm = cizim.toplamModul * modulMm;
@@ -229,27 +310,34 @@ export function etiketYerlesimi(icerik: EtiketIcerigi, olcu: EtiketOlcusu, secen
       }
 
       // Barkod, kalan yüksekliği alır; okunabilmesi için en az 6 mm gerekir.
-      const kalanMm = olcu.boyMm - y - KENAR_MM - 3; // 3 mm: altındaki okunur metin
+      const kalanMm = olcu.boyMm - y - KENAR_MM - 3 - tarihPayi; // 3 mm: altındaki okunur metin
       const yukseklikMm = Math.max(4, kalanMm);
       if (kalanMm < 6) uyarilar.push('Barkod yüksekliği 6 mm altında kalıyor; okuma güvenilirliği düşebilir.');
 
       ogeler.push({
         tip: 'barkod',
-        xMm: KENAR_MM,
+        xMm: hizaliX(duzen.barkodHiza, genislikMm, olcu.enMm),
         yMm: y,
         veri: icerik.barkod,
         yukseklikMm,
         modulMm,
         genislikMm,
+        tur: cizim.tur,
       });
       y += yukseklikMm + 3;
     }
   }
 
+  if (tarihPayi > 0 && icerik.tarih) {
+    y = Math.max(y, olcu.boyMm - KENAR_MM - 2);
+    metinEkle(icerik.tarih, 1.8, false, 'sag');
+    y += 2;
+  }
+
   if (y > olcu.boyMm) {
     uyarilar.push(
       `İçerik etiket boyunu aşıyor: ${y.toFixed(1)} mm yer istiyor, ${olcu.boyMm} mm var. ` +
-        'Daha uzun etiket kullanın ya da raf kodu / birim fiyat satırlarını kapatın.',
+        'Daha uzun etiket kullanın ya da yazıları küçültün / raf kodu, birim fiyat, ikinci ad satırını kapatın.',
     );
   }
 
@@ -311,9 +399,17 @@ function tspl(yerlesim: EtiketYerlesimi, olcu: EtiketOlcusu, adet: number): stri
       satirlar.push(`TEXT ${x},${y},"${font}",0,${carpan},${carpan},"${cp1254eTasi(oge.metin)}"`);
     } else if (oge.tip === 'barkod') {
       const modulNokta = Math.max(1, Math.round(oge.modulMm / (25.4 / olcu.dpi)));
-      satirlar.push(
-        `BARCODE ${x},${y},"128",${nokta(oge.yukseklikMm, olcu.dpi)},1,0,${modulNokta},${modulNokta * 2},"${oge.veri}"`,
-      );
+      const h = nokta(oge.yukseklikMm, olcu.dpi);
+      /*
+       * EAN'da kontrol hanesini yazıcı hesaplar (12/7 hane gider). CODE128'de
+       * "128M" + "!104" B kümesini ZORLAR: "128" otomatik kipte yazıcı rakamları
+       * C kümesine sıkıştırıp önizlemeden dar basıyordu.
+       */
+      if (oge.tur === 'EAN13')
+        satirlar.push(`BARCODE ${x},${y},"EAN13",${h},1,0,${modulNokta},${modulNokta},"${oge.veri.slice(0, 12)}"`);
+      else if (oge.tur === 'EAN8')
+        satirlar.push(`BARCODE ${x},${y},"EAN8",${h},1,0,${modulNokta},${modulNokta},"${oge.veri.slice(0, 7)}"`);
+      else satirlar.push(`BARCODE ${x},${y},"128M",${h},1,0,${modulNokta},${modulNokta * 2},"!104${oge.veri}"`);
     } else {
       satirlar.push(
         `BOX ${x},${y},${nokta(oge.xMm + oge.enMm, olcu.dpi) - 1},${nokta(oge.yMm + oge.boyMm, olcu.dpi) - 1},` +
@@ -349,7 +445,11 @@ function zpl(yerlesim: EtiketYerlesimi, olcu: EtiketOlcusu, adet: number): strin
       parcalar.push(`^FO${x},${y}^A0N,${h},${Math.round(h * 0.6)}^FD${oge.metin}^FS`);
     } else if (oge.tip === 'barkod') {
       const modulNokta = Math.max(1, Math.round(oge.modulMm / (25.4 / dpi)));
-      parcalar.push(`^FO${x},${y}^BY${modulNokta}^BCN,${nokta(oge.yukseklikMm, dpi)},Y,N,N^FD${oge.veri}^FS`);
+      const h = nokta(oge.yukseklikMm, dpi);
+      if (oge.tur === 'EAN13') parcalar.push(`^FO${x},${y}^BY${modulNokta}^BEN,${h},Y,N^FD${oge.veri.slice(0, 12)}^FS`);
+      else if (oge.tur === 'EAN8') parcalar.push(`^FO${x},${y}^BY${modulNokta}^B8N,${h},Y,N^FD${oge.veri.slice(0, 7)}^FS`);
+      // ">:" B kümesiyle başlatır — önizlemeyle aynı genişlik.
+      else parcalar.push(`^FO${x},${y}^BY${modulNokta}^BCN,${h},Y,N,N^FD>:${oge.veri}^FS`);
     } else {
       parcalar.push(
         `^FO${x},${y}^GB${nokta(oge.enMm, dpi) - 1},${nokta(oge.boyMm, dpi) - 1},${Math.max(1, nokta(oge.kalinlikMm, dpi))}^FS`,
@@ -375,6 +475,103 @@ export function etiketBaytlari(
   const metin = dil === 'ZPL' ? zpl(yerlesim, olcu, icerik.adet) : tspl(yerlesim, olcu, icerik.adet);
   // Etiket yazıcıları tek baytlık kod sayfası bekler; içerik ASCII'ye indirildi.
   return Buffer.from(metin, 'latin1');
+}
+
+// ---------------------------------------------------------------------------
+// Görüntü olarak basma — Türkçe harfler ve barkod önizlemedeki gibi
+// ---------------------------------------------------------------------------
+
+function xmlKacir(metin: string): string {
+  return metin.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Yerleşimi, etiketin nokta ölçüsünde bir SVG sayfasına çizer.
+ *
+ * Önizlemeyle AYNI çizim: metin yazıcı fontunun genişliğine sığdırılır
+ * (`textLength`), barkod çubukları tam nokta genişliğinde çizilir
+ * (`crispEdges`) — kesirli genişlik okuyucuyu şaşırtır.
+ */
+export function etiketSvgSayfasi(yerlesim: EtiketYerlesimi, dpi: number): { html: string; enNokta: number; boyNokta: number } {
+  const enNokta = nokta(yerlesim.enMm, dpi);
+  const boyNokta = nokta(yerlesim.boyMm, dpi);
+  const parcalar: string[] = [];
+  for (const oge of yerlesim.ogeler) {
+    if (oge.tip === 'cerceve') {
+      const k = oge.kalinlikMm;
+      parcalar.push(
+        `<rect x="${oge.xMm + k / 2}" y="${oge.yMm + k / 2}" width="${oge.enMm - k}" height="${oge.boyMm - k}" fill="none" stroke="#000" stroke-width="${k}"/>`,
+      );
+    } else if (oge.tip === 'metin') {
+      const uzunluk = oge.genislikMm ? ` textLength="${oge.genislikMm}" lengthAdjust="spacingAndGlyphs"` : '';
+      parcalar.push(
+        `<text x="${oge.xMm}" y="${oge.yMm + oge.yukseklikMm * 0.82}" font-size="${oge.yukseklikMm}" font-weight="${oge.kalin ? 700 : 400}"${uzunluk}>${xmlKacir(oge.metin)}</text>`,
+      );
+    } else {
+      const cizim = etiketBarkodCizimi(oge.veri);
+      if (!cizim) continue;
+      let x = oge.xMm;
+      cizim.desenler.forEach((modul, sira) => {
+        const en = modul * oge.modulMm;
+        if (sira % 2 === 0)
+          parcalar.push(`<rect x="${x}" y="${oge.yMm}" width="${en}" height="${oge.yukseklikMm}" fill="#000"/>`);
+        x += en;
+      });
+      parcalar.push(
+        `<text x="${oge.xMm + oge.genislikMm / 2}" y="${oge.yMm + oge.yukseklikMm + 2.2}" font-size="2.2" text-anchor="middle">${xmlKacir(oge.veri)}</text>`,
+      );
+    }
+  }
+  const html =
+    `<!doctype html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0}html,body{background:#fff}` +
+    `svg{display:block}text{font-family:Arial,Helvetica,"Liberation Sans",sans-serif;fill:#000}</style></head><body>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${enNokta}" height="${boyNokta}" viewBox="0 0 ${yerlesim.enMm} ${yerlesim.boyMm}" shape-rendering="crispEdges">` +
+    parcalar.join('') +
+    `</svg></body></html>`;
+  return { html, enNokta, boyNokta };
+}
+
+/**
+ * 1-bit görüntüyü (satır başına paketli, 1 = siyah) yazıcı komutuna çevirir.
+ *
+ * TSPL `BITMAP`'te 0 biti BASILAN noktadır — bitler ters çevrilir. ZPL `^GFA`
+ * 1'i basar, olduğu gibi gider.
+ */
+export function etiketGorselKomutu(
+  dil: 'TSPL' | 'ZPL',
+  bitler: Uint8Array,
+  enNokta: number,
+  boy: number,
+  olcu: EtiketOlcusu,
+  adet: number,
+): Buffer {
+  const satirBayti = Math.ceil(enNokta / 8);
+  if (dil === 'ZPL') {
+    const hex = Buffer.from(bitler).toString('hex').toUpperCase();
+    const govde = [
+      '^XA',
+      `^PW${nokta(olcu.enMm, olcu.dpi)}`,
+      `^LL${nokta(olcu.boyMm, olcu.dpi)}`,
+      `^MD${Math.min(30, Math.max(0, olcu.isi * 2))}`,
+      `^PR${Math.min(12, Math.max(1, olcu.hiz))}`,
+      '^LH0,0',
+      `^FO0,0^GFA,${bitler.length},${bitler.length},${satirBayti},${hex}^FS`,
+      `^PQ${Math.max(1, adet)}`,
+      '^XZ',
+    ].join('\n');
+    return Buffer.from(govde + '\n', 'latin1');
+  }
+  const ters = Buffer.from(bitler.map((b) => ~b & 0xff));
+  const bas = [
+    `SIZE ${olcu.enMm} mm,${olcu.boyMm} mm`,
+    `GAP ${olcu.boslukMm} mm,0 mm`,
+    `DENSITY ${Math.min(15, Math.max(0, olcu.isi))}`,
+    `SPEED ${Math.min(12, Math.max(1, olcu.hiz))}`,
+    'DIRECTION 1',
+    'CLS',
+    `BITMAP 0,0,${satirBayti},${boy},0,`,
+  ].join('\r\n');
+  return Buffer.concat([Buffer.from(bas, 'latin1'), ters, Buffer.from(`\r\nPRINT ${Math.max(1, adet)},1\r\n`, 'latin1')]);
 }
 
 /**

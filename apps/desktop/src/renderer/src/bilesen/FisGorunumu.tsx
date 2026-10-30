@@ -47,7 +47,7 @@ export function FisGorunumu({ satisId }: { satisId: string }) {
  * (sandbox); yükseklik içerik kadar ayarlanır, kağıt ekrana sığacak ölçekte
  * gösterilir.
  */
-function HtmlFis({ html, enNokta }: { html: string; enNokta: number }) {
+export function HtmlFis({ html, enNokta }: { html: string; enNokta: number }) {
   const cerceve = useRef<HTMLIFrameElement>(null);
   const [yukseklik, setYukseklik] = useState(400);
   const olcek = Math.min(1, EKRAN_ENI / enNokta);

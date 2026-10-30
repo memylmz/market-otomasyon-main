@@ -9,3 +9,6 @@ package-lock.json
 
 # Next.js tarafindan uretilir; her build sonrasi geri yazilir.
 next-env.d.ts
+
+# Sahte Pavo cihazının yerel durum dosyaları
+tools/pavo-mock/*.json
