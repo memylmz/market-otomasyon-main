@@ -2,6 +2,11 @@
 
 ## 1. Kasa bilgisayarı
 
+İki durum vardır; adımları farklıdır:
+
+- **A — Yepyeni market:** veri yok, sıfırdan başlanır.
+- **B — Aynı market, bilgisayar değişiyor:** veriler eski bilgisayardan taşınır.
+
 ### Gereksinimler
 
 | | Asgari | Önerilen |
@@ -9,7 +14,7 @@
 | İşletim sistemi | Windows 10 (64-bit) | Windows 11 |
 | RAM | 2 GB | 4 GB |
 | Disk | 2 GB boş | SSD, 10 GB boş |
-| Ekran | 1024×768 | 1366×768 veya üstü |
+| Ekran | 1024×768 | 1366×768 veya üstü, dokunmatik |
 
 Linux (AppImage / deb) ikincil olarak desteklenir.
 
@@ -19,28 +24,94 @@ Linux (AppImage / deb) ikincil olarak desteklenir.
   barkod sonuna `Enter` göndermesi yeterlidir — çoğu okuyucu fabrika ayarında
   böyledir.
 - **Fiş yazıcısı:** 80 mm ESC/POS termal. Ağ (TCP 9100), COM portu veya Windows
-  paylaşımı üzerinden bağlanabilir. Marka bağımsızdır.
+  paylaşımı üzerinden bağlanabilir. Marka bağımsızdır. **USB yazıcı Windows'ta
+  paylaşıma açılmalıdır** (program `\\localhost\<yazıcı adı>` yoluna basar).
 - **Para çekmecesi:** Yazıcının çekmece (kick-out) portuna bağlanır.
-- **POS ve terazi:** Bu sürümde entegre **değildir** (bilinçli kapsam kararı).
+- **Yazarkasa POS:** Pavo N86 (ağ üzerinden). Ayrıntı: [pos-entegrasyonu.md](pos-entegrasyonu.md).
+- **Terazi:** Kasaya seri port / USB-seri ile bağlı terazi canlı okunur; barkodlu
+  etiket basan terazi ayar gerektirmez. Ayrıntı: [terazi-entegrasyonu.md](terazi-entegrasyonu.md).
+- **Müşteri ekranı:** İkinci monitör takılıysa program kendisi açar. Ayrıntı:
+  [musteri-ekrani.md](musteri-ekrani.md).
 
-### Kurulum adımları
+### 0. Hazırlık (bilgisayar gelmeden)
 
-1. `MarketOtomasyon-Kurulum-<sürüm>.exe` dosyasını çalıştırın.
-2. Uygulama ilk açılışta **kurulum sihirbazını** gösterir:
-   - İşletme bilgileri (fişte görünür) ve varsayılan KDV oranı
-   - Yönetici hesabı: ad, kullanıcı adı, şifre (en az 8 karakter, harf + rakam)
-     ve isteğe bağlı hızlı giriş PIN'i
-3. Oluşturduğunuz hesapla giriş yapın.
+- [ ] Güncel kurulum dosyası (`AKYSOFTMARKETV1-Kurulum-<sürüm>.exe`) bir USB bellekte
+- [ ] Lisans anahtarı, senkron sunucu adresi, panel giriş bilgileri elde
+- [ ] B durumunda: eski kasadan alınmış **en son yedek** (USB / OneDrive)
 
-### Kurulum sonrası kontrol listesi
+### 1. Windows hazırlığı (A ve B)
 
-- [ ] **Ayarlar → Donanım** → yazıcıyı tanımlayın, *Test Fişi Yazdır* ile Türkçe
-      karakterleri doğrulayın (`ç ğ ı ö ş ü` düzgün çıkmalı)
-- [ ] **Ayarlar → Yedekleme** → ikincil yedek klasörü (USB veya ağ) tanımlayın
-- [ ] **Ürünler → İçe Aktar** → katalogu CSV ile yükleyin
-- [ ] **Ayarlar → Senkron** → sunucu adresi + *Cihazı Aktive Et*
-- [ ] **Kullanıcılar** → kasiyer hesaplarını oluşturun (PIN verin)
-- [ ] **Kasa → Açılış** → günün ilk kasa açılışını yapın
+- [ ] Windows güncellemeleri bitti, bilgisayar yeniden başlatıldı
+- [ ] *Ayarlar → Sistem → Güç* → **Uyku: Hiçbir zaman** (uyuyan kasada Pavo
+      bağlantısı ve otomatik yedek durur)
+- [ ] İnternet ve **Pavo ile aynı modem** (mümkünse kablo)
+- [ ] OneDrive / Google Drive'a market hesabıyla girildi, `MarketYedek` klasörü açıldı
+
+### 2. Programı kurma (A ve B)
+
+1. `AKYSOFTMARKETV1-Kurulum-<sürüm>.exe` dosyasını çalıştırın. *"Windows
+   bilgisayarınızı korudu"* çıkarsa **Ek bilgi → Yine de çalıştır** (program henüz
+   dijital imzalı değildir).
+2. Kurulum yerini olduğu gibi bırakın; masaüstü kısayolu işaretli kalsın.
+3. Program açılınca iki seçenek gelir: **Yeni market kur** ve **Yedekten geri yükle**.
+
+### A — Yepyeni market
+
+1. **Yeni market kur** → işletme bilgileri (fişte görünür), varsayılan KDV oranı,
+   yönetici hesabı (şifre en az 8 karakter, harf + rakam; isteğe bağlı PIN).
+   Bu hesapla giriş yapın.
+2. **Ayarlar → Senkron & Lisans** → sunucu adresi → *Kaydet* → **Cihazı Aktive Et**
+   (lisans anahtarı + cihaz adı, ör. "Kasa 1") → senkron modu **Fırsatçı** →
+   *Kaydet*. Durum rozeti 🟢 olmalı. Ayrıntı: bölüm 5.
+3. **Ayarlar → Donanım** → fiş yazıcısı → *Test Fişi Yazdır* (`ç ğ ı ö ş ü`
+   düzgün çıkmalı); varsa terazi (*Teraziyi Test Et*) ve etiket yazıcısı → *Kaydet*.
+   Barkod okuyucuyu önce Not Defteri'nde deneyin.
+4. **Ayarlar → POS & Yazarkasa** → *Pavo N86* → cihaz adresi (IP) ve seri no →
+   *Kaydet* → **Eşleştir** (Pavo ekranında onaylayın). Sağdaki kart "Bağlı" demeli.
+5. **Ayarlar → Müşteri Ekranı** (ikinci monitör varsa) ve **Ayarlar → Görünüm**
+   (tema, yazı boyutu, ekran tuş takımı).
+6. **Ayarlar → Yedekleme** → **Klasör Seç** → OneDrive'daki `MarketYedek` →
+   *Kaydet* → **Şimdi Yedek Al**. Bildirimde "ikincil klasöre de kopyalandı"
+   yazmalı.
+7. **Ürünler → İçe Aktar** (bölüm 2) ya da ürünleri panelden girin.
+8. **Kasiyerler panelden açılır** (kasada kullanıcı yönetimi yoktur): *Panel →
+   Kullanıcılar* → kasiyer + PIN. Senkronla birkaç dakikada kasaya iner.
+9. **Deneme:** Pavo bağlıyken her satış **yasal fiştir** (iptal ve iade de kayda
+   geçer). Akışı önce *POS & Yazarkasa → Test simülatörü* ile deneyin; sonra Pavo'ya
+   dönüp tek küçük gerçek satış yapın. Fiş, çekmece ve müşteri ekranını kontrol edin.
+10. **İlk gün:** sabah *Kasa → Kasa Açılışı Yap*; akşam *Yazarkasa → Gün Sonunu Al*
+    ve *Kasa → Kapanış*. Ertesi gün satışların panelde göründüğünü kontrol edin.
+
+### B — Aynı market, yeni bilgisayar
+
+Eski bilgisayar çalışıyorsa **önce** orada:
+
+1. Gün sonunu alın, kasayı kapatın.
+2. *Ayarlar → Senkron & Lisans → Şimdi Senkronize Et*.
+3. *Ayarlar → Yedekleme → Şimdi Yedek Al* ve bu yedeği USB'ye / OneDrive'a kopyalayın.
+4. **Eski bilgisayarda programı bir daha açmayın.** Yedek, kasanın cihaz kimliğini
+   ve lisans bilgisini de taşır; aynı kimlikle iki kasa çalışırsa senkron karışır.
+
+Yeni bilgisayarda (Windows hazırlığı ve kurulumdan sonra):
+
+1. **Yedekten geri yükle** → **Başka Yerden Seç (USB, OneDrive)** → son yedek →
+   **Seçili Yedeği Geri Yükle**. Program kendini yeniden açar; **eski kullanıcı adı
+   ve şifreyle** girin. Satışlar, stok, veresiye ve ayarlar yerindedir.
+2. Bilgisayara bağlı ayarları kontrol edin (yedekle geldiler ama yeni bilgisayarda
+   farklı olabilirler):
+   - [ ] Fiş yazıcısı: Windows'ta yeniden kurulup paylaşıma açıldı, programda
+         seçildi, *Test Fişi Yazdır* çalışıyor
+   - [ ] Terazi: COM portu yeniden seçildi, *Teraziyi Test Et* çalışıyor
+   - [ ] Pavo: *POS & Yazarkasa* "Bağlı" diyor (demiyorsa **Eşleştir**)
+   - [ ] Yedekleme: ikincil klasör yeni bilgisayarda doğru (gerekirse **Klasör Seç**)
+3. Senkron rozeti 🟢 olmalı; değilse *Şimdi Senkronize Et*.
+4. *Kasa Açılışı* → bir küçük satış → devam.
+
+**Eski bilgisayar öldü ve yedek yoksa:** A'daki adımları izleyin, 2. adımda **aynı
+lisans anahtarıyla** aktive edin. Buluttan ürünler, müşteriler ve kullanıcılar
+gelir; **geçmiş satışlar, kasa hareketleri ve veresiye bakiyeleri gelmez**
+(bkz. [yedekleme-dr.md](yedekleme-dr.md)). İkincil yedek klasörü bu yüzden ilk gün
+tanımlanır.
 
 ---
 
@@ -126,7 +197,7 @@ Telefonda tarayıcıdan açıp **"Ana ekrana ekle"** derseniz uygulama gibi çal
 
 ## 5. Kasayı buluta bağlama
 
-Kasada *Ayarlar → Senkron*:
+Kasada *Ayarlar → Senkron & Lisans*:
 
 1. **Senkron sunucu adresi**: `https://api.sizinalanadi.com`
 2. **Kaydet**
@@ -136,7 +207,7 @@ Kasada *Ayarlar → Senkron*:
 4. **Senkron modu** seçin:
    - *Manuel* — yalnız düğmeye basınca
    - *Gün sonu* — kasa kapanışında otomatik
-   - *Fırsatçı* — internet varsa arka planda her N dakikada
+   - *Fırsatçı* — internet varsa arka planda her N dakikada (**önerilen**)
 
 Durum çubuğundaki rozet 🟢 olduğunda bağlantı çalışıyordur.
 
@@ -146,26 +217,30 @@ Durum çubuğundaki rozet 🟢 olduğunda bağlantı çalışıyordur.
 
 ```
 Sabah   → Giriş → Kasa Açılış (kasadaki nakdi gir)
-Gün içi → Satış ekranı (barkod okut → F12 → ödeme)
+Gün içi → Satış ekranı (barkod okut → F4/F5 → ödeme)
         → Mal kabul, fire, tahsilat işlemleri
-Akşam   → Kasa → Gün Sonu (nakdi say, tutarı gir)
+Akşam   → Yazarkasa → Gün Sonunu Al (Pavo Z raporu)
+        → Kasa → Kapanış (nakdi say, tutarı gir)
           → kasa farkı hesaplanır, vardiya raporu basılır
           → senkron otomatik denenir
 ```
 
 ## Satış ekranı kısayolları
 
+Ekranın altındaki çubukta da yazar.
+
 | Tuş | İşlev |
 |---|---|
 | `Enter` | Barkodu sepete ekle |
-| `3 x <barkod>` | 3 adet ekle |
-| `F2` | Ürün ara (isim/marka/barkod) |
-| `F4` | Seçili satıra iskonto |
-| `F6` | Müşteri seç (veresiye) |
+| `3 x <barkod>` ya da `3*<barkod>` | 3 adet ekle |
+| `F1` | Müşteri seç (veresiye) |
+| `F2` | Tahsilat |
+| `F3` | Ürün ara (isim/marka/barkod) |
+| `F4` | Ödeme + fiş |
+| `F5` | Ödeme (fişsiz) |
 | `F8` | Seçili satırı sil |
-| `F9` | Fiyat sorgulama modu |
-| `F10` | Askıya al / geri çağır |
-| `F12` | Ödeme ekranı |
+| `F9` | Fiyat sorgulama |
+| `F10` | Yeni sepet |
 | `↑ ↓` | Satır seç |
 | `+ −` | Seçili satırın adedini değiştir |
 | `ESC` | İptal / sepeti temizle |
@@ -180,7 +255,7 @@ Akşam   → Kasa → Gün Sonu (nakdi say, tutarı gir)
 | Fiş basılmıyor ama satış kaydediliyor | Beklenen davranıştır — satış yazıcıya bağımlı değildir. *Raporlar → Satışlar → Fiş yazdır* ile tekrar deneyin. |
 | Türkçe karakterler fişte bozuk | Fiş görüntüye çevrilip basıldığı için kod sayfasıyla ilgisi yoktur. *Ayarlar → Donanım → Fişi görüntü olarak bas* açık olmalı; kapalıysa yazıcının kod sayfasına düşer ve Türkçe bozulur. |
 | Türkçe karakterler etikette bozuk | *Ayarlar → Donanım → Komut dili = TSPL* seçin. TSPL, CP1254 kod sayfasını kullanır; ZPL'de küçük ı/İ ailesi bozuk basılır. |
-| Senkron rozeti 🔴 | İnternet bağlantısı ve *Ayarlar → Senkron* sunucu adresi. Kasa bu durumda da normal çalışır. |
+| Senkron rozeti 🔴 | İnternet bağlantısı ve *Ayarlar → Senkron & Lisans* sunucu adresi. Kasa bu durumda da normal çalışır. |
 | "Kasa açık değil" uyarısı | *Kasa → Açılış* yapın. |
-| Uygulama açılmıyor, DB hatası | *Ayarlar → Yedekleme → Geri Yükle* ya da `docs/yedekleme-dr.md` felaket senaryosu. |
+| Uygulama açılmıyor, DB hatası | Kurulum ekranı geliyorsa **Yedekten geri yükle**; program hiç açılmıyorsa `docs/yedekleme-dr.md` → elle geri yükleme. |
 | Geliştirmede "Veritabanı sürücüsü yüklenemedi" / "No such built-in module: node:sqlite" | Yerel modül Electron ABI'sine göre hazır değil. `npm run native -w @market/desktop` çalıştırın. `npm install` sonrası gerekebilir. |

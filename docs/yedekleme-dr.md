@@ -14,9 +14,13 @@ Blueprint §18'in operasyonel karşılığı.
 ## Katmanlar
 
 1. **Yerel otomatik yedek** — `%APPDATA%/Market Otomasyon/yedekler/`
-   Varsayılan 6 saatte bir, son 10 sürüm saklanır.
-2. **İkincil konum** — USB bellek veya ağ klasörü.
-   *Ayarlar → Yedekleme → İkincil yedek klasörü* alanından tanımlanır.
+   Varsayılan 6 saatte bir, son 10 sürüm saklanır. Sayaç **son yedekten**
+   başlar (program her 10 dakikada "son yedek eskidi mi?" diye bakar); program
+   her gün kısa süre açık kalsa da yedek alınır.
+2. **İkincil konum** — USB bellek, ağ klasörü ya da **OneDrive / Google Drive
+   klasörü** (seçilirse yedek kendiliğinden buluta yüklenir; yalnız yedekler
+   şifresiz gider). *Ayarlar → Yedekleme → İkincil yedek klasörü → Klasör Seç*.
+   Orada da son N yedek tutulur; klasördeki başka dosyalara dokunulmaz.
 3. **Bulut** — Senkronlanan veri zaten ikinci bir kopyadır.
    Sunucu tarafında ayrıca düzenli DB yedeği alınmalıdır (Turso otomatik yapar;
    kendi sunucunuzda `sqlite3 .backup` ya da dosya kopyası + sürümleme).
@@ -42,12 +46,18 @@ en tehlikeli durumdur.
 
 ## Geri yükleme
 
-*Ayarlar → Yedekleme → Geri Yükle*
+İki yerden yapılır:
 
-1. Seçilen yedek önce **doğrulanır**; bozuksa işlem hiç başlamaz.
+- *Ayarlar → Yedekleme → Mevcut Yedekler → Geri Yükle* ya da **Başka Yerden
+  Geri Yükle (USB, OneDrive)…** (oturum açıkken).
+- **Kurulum ekranı → Yedekten geri yükle** (yeni bilgisayar ya da sıfırlama
+  sonrası; yalnız henüz yönetici yokken çalışır).
+
+1. Seçilen yedek önce **doğrulanır**; bozuksa ya da programın daha yeni bir
+   sürümüyle alınmışsa işlem hiç başlamaz.
 2. Mevcut veritabanı silinmez — `market.db.geri-alma-<zaman>` olarak saklanır.
 3. Eski `-wal` / `-shm` yan dosyaları temizlenir (kalırlarsa yeni dosyayı bozarlar).
-4. Yedek kopyalanır ve **uygulama yeniden başlatılmalıdır.**
+4. Yedek kopyalanır ve program **kendini yeniden başlatır** (sıfırlamada da).
 
 Yanlış yedek seçilirse `.geri-alma-*` dosyasını geri adlandırarak dönülebilir.
 
@@ -57,10 +67,12 @@ Yanlış yedek seçilirse `.geri-alma-*` dosyasını geri adlandırarak dönüle
 
 ```
 1. Yeni PC'ye kurulum paketini kur
-2. Uygulamayı aç → kurulum sihirbazı
-3. Ayarlar → Senkron → Cihazı Aktive Et (lisans anahtarı ile)
-4a. Son yedek elinizdeyse: Ayarlar → Yedekleme → Geri Yükle
-4b. Yedek yoksa: buluttan tam çekme (pull) ile katalog/cari/kullanıcı iner
+2. Uygulamayı aç → kurulum ekranı
+3a. Son yedek elinizdeyse (USB / OneDrive): "Yedekten geri yükle" →
+    "Başka Yerden Seç" → dosyayı seç → program yeniden açılır, eski kullanıcıyla gir
+3b. Yedek yoksa: "Yeni market kur" → Ayarlar → Senkron → Cihazı Aktive Et;
+    buluttan katalog/cari/kullanıcı iner (satış geçmişi gelmez)
+4. Ayarlar → Senkron: lisans aktivasyonunu kontrol et
 5. Kasa → Açılış → çalışmaya devam
 ```
 

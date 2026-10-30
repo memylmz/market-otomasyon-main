@@ -58,7 +58,22 @@ Yeni bilgisayarda yalnızca bakıldıysa (işlem yapılmadıysa) bu adım boş g
 Yeni bilgisayarda sizin ürünleriniz/carileriniz indirilmiş durumda. Programı
 kaldırmak bunları **silmez** (bilinçli: kaldırma kullanıcı verisini korur).
 
-1. Market Otomasyon'u tamamen kapatın (sistem tepsisinde de kapalı olsun).
+### Yöntem 1 — uygulama içinden (önerilen)
+
+ADMIN hesabıyla girin:
+
+*Ayarlar → Yedekleme → Tehlikeli bölge* → işletme adını birebir yazın →
+**Sıfırla** → uygulamayı yeniden başlatın.
+
+Sıfırlama öncesinde otomatik yedek alınır ve mevcut veritabanı
+`.sifirlama-oncesi` uzantısıyla saklanır. Yanlış bilgisayarda çalıştırılsa bile
+veri geri getirilebilir — elle klasör silmenin aksine.
+
+### Yöntem 2 — klasörü elle silmek
+
+Uygulama hiç açılmıyorsa ya da yedeklerin de gitmesi isteniyorsa:
+
+1. AKYSOFTMARKETV1'i tamamen kapatın (sistem tepsisinde de kapalı olsun).
 2. `Win + R` → `%APPDATA%` → Enter.
 3. **`Market Otomasyon`** klasörünü silin. İçinde veritabanı, senkron
    anahtarı, ayarlar, yedekler ve loglar vardır; hepsi gider.
@@ -99,7 +114,7 @@ npm run seed -w @market/api -- --isletme "Yeni Marketin Adı" --kullanici yenipa
 
 ## 3. Yeni bilgisayarda temiz kurulum
 
-1. `MarketOtomasyon-Kurulum-<sürüm>.exe` dosyasını çalıştırın.
+1. `AKYSOFTMARKETV1-Kurulum-<sürüm>.exe` dosyasını çalıştırın.
 2. Kurulum sihirbazı açılır:
    - **İşletme bilgileri:** yeni marketin adı, adresi, vergi no, varsayılan KDV
    - **Yönetici hesabı:** yeni marketin yöneticisi (sizin hesabınız değil)

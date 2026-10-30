@@ -1,4 +1,4 @@
-# Market Otomasyon Sistemi
+# AKYSOFTMARKETV1 — Market Otomasyon Sistemi
 
 **Barkodlu stok + cari hesaplı, offline-first market otomasyonu.**
 Masaüstü kasa uygulaması · bulut senkron servisi · mobil-öncelikli web yönetim paneli.
@@ -203,6 +203,7 @@ Ayrıntı: [`docs/kvkk.md`](docs/kvkk.md)
 
 - [Kurulum ve ilk çalıştırma](docs/kurulum.md)
 - [Yeni market için kurulum (ayrı işletme, ayrı lisans)](docs/yeni-market-kurulumu.md)
+- [Müşteri ekranı (çift ekranlı POS, reklam ve kampanya yayını)](docs/musteri-ekrani.md)
 - [Senkron protokolü](docs/senkron-protokolu.md)
 - [Yedekleme ve felaket kurtarma](docs/yedekleme-dr.md)
 - [Güvenlik](docs/guvenlik.md)
