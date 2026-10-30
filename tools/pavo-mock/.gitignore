@@ -2,3 +2,4 @@
 mock_state*.json
 e2e_*.json
 pavo-state*.json
+pavo-*.json
