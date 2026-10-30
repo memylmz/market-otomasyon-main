@@ -163,6 +163,8 @@ export const OLAY_TIPI = [
   'KATEGORI_KAYDEDILDI',
   /** Kasada açılan/düzenlenen kampanya; buluta ve diğer kasalara gider. */
   'KAMPANYA_KAYDEDILDI',
+  /** Bir partinin son kullanma tarihi / lot numarası düzeltildi (miktar ve maliyet değişmez). */
+  'SKT_DUZELTILDI',
   'ALIS_FATURASI_ONAYLANDI',
   /** Onaylı fatura iptal edildi — stok ve tedarikçi borcu ters kayıtla geri alınır (§11.8). */
   'ALIS_FATURASI_IPTAL',

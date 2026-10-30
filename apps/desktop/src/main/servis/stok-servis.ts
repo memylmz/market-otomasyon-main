@@ -17,6 +17,7 @@ import {
   zAlisGirdi,
   zFireGirdi,
   zStokGirisiGirdi,
+  zSktDuzeltGirdi,
   zTedarikciIadeGirdi,
   type AlisGirdi,
   type Kurus,
@@ -1177,5 +1178,70 @@ export function alisFaturasiGuncelle(
       cihazId,
       zaman,
     );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// SKT / lot düzeltme
+// ---------------------------------------------------------------------------
+
+/**
+ * Mal kabulde yanlış girilen son kullanma tarihini / lot no'yu düzeltir.
+ *
+ * Parti (ürün + eski SKT + eski lot) ile tanımlanır ve o partinin TÜM
+ * hareketleri birlikte düzelir: yalnız girişi değiştirmek, aynı partiden
+ * yapılmış fire/iadeyi eski tarihte bırakır ve kalan miktar ikiye bölünürdü.
+ * Miktar ve maliyet DEĞİŞMEZ (veritabanı kilidi yalnız bu iki alana izin verir).
+ * Alış faturası kalemi de güncellenir ki faturada doğru tarih görünsün.
+ */
+export function sktDuzelt(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): { hareket: number; kalem: number } {
+  yetkiIste(aktor, 'stok.giris');
+  const ayrisim = zSktDuzeltGirdi.safeParse(hamGirdi);
+  if (!ayrisim.success) throw hatalar.dogrulama(ayrisim.error.issues[0]?.message ?? 'SKT bilgisi geçerli değil.');
+  const g = ayrisim.data;
+  const eskiLot = g.eski_lot || null;
+  const yeniLot = g.yeni_lot || null;
+  const { vt, cihazId } = baglam;
+  const zaman = simdi();
+
+  return vt.islem(() => {
+    const hareket = vt
+      .hazirla(
+        `UPDATE stok_hareketleri SET skt = ?, lot_no = ?, updated_at = ?
+         WHERE urun_id = ? AND skt IS ? AND lot_no IS ?`,
+      )
+      .calistir(g.yeni_skt, yeniLot, zaman, g.urun_id, g.eski_skt, eskiLot).changes;
+    if (hareket === 0) throw hatalar.bulunamadi('Bu tarih ve lotla parti');
+    const kalem = vt
+      .hazirla('UPDATE alis_kalemleri SET skt = ?, lot_no = ? WHERE urun_id = ? AND skt IS ? AND lot_no IS ?')
+      .calistir(g.yeni_skt, yeniLot, g.urun_id, g.eski_skt, eskiLot).changes;
+
+    olayYaz(
+      vt,
+      {
+        id: uuid(),
+        olay_tipi: 'SKT_DUZELTILDI',
+        entity: 'urun',
+        entity_id: g.urun_id,
+        veri: { urun_id: g.urun_id, eski_skt: g.eski_skt, eski_lot: eskiLot, yeni_skt: g.yeni_skt, yeni_lot: yeniLot, zaman },
+        olusturma_zamani: zaman,
+      },
+      cihazId,
+      zaman,
+    );
+    denetimYaz(
+      vt,
+      {
+        kullanici_id: aktor.kullaniciId,
+        islem: 'SKT_DUZELT',
+        entity: 'urun',
+        entity_id: g.urun_id,
+        eski_deger: { skt: g.eski_skt, lot: eskiLot },
+        yeni_deger: { skt: g.yeni_skt, lot: yeniLot, hareket, kalem },
+      },
+      cihazId,
+      zaman,
+    );
+    return { hareket, kalem };
   });
 }

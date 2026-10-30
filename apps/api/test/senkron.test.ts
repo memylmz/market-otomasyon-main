@@ -525,6 +525,47 @@ describe('kasada açılan kampanya (§11.8)', () => {
   });
 });
 
+describe('sürüm farkına dayanıklı senkron', () => {
+  it('sunucunun tanımadığı olay tipi yalnız kendisi bekletilir; diğerleri işlenir', async () => {
+    const satis = satisOlayi();
+    const yeni = { ...satisOlayi(), tip: 'GELECEKTE_EKLENECEK_OLAY' };
+    const yanit = await push([satis, yeni]);
+    expect(yanit.statusCode).toBe(200);
+    const govde = yanit.json() as {
+      kabul_edilen: string[];
+      reddedilen: { uuid: string; kod: string; kalici: boolean }[];
+    };
+    expect(govde.kabul_edilen).toEqual([satis.uuid]);
+    expect(govde.reddedilen).toEqual([expect.objectContaining({ uuid: yeni.uuid, kod: 'DESTEKLENMEYEN_OLAY', kalici: false })]);
+  });
+
+  it('SKT düzeltmesi buluttaki partinin hareketlerine ve alış kalemlerine uygulanır', async () => {
+    const urunId = '77777777-7777-4777-8777-777777777777';
+    const zaman = simdi();
+    await vt.calistir(
+      `INSERT INTO stok_hareketleri (isletme_id, id, urun_id, hareket_tipi, miktar, birim_maliyet, skt, lot_no, created_at, cihaz_id)
+       VALUES (?, ?, ?, 'GIRIS', 10000, 500, '2026-11-02', 'L1', ?, 'kasa-01')`,
+      [ISLETME_ID, uuid(), urunId, zaman],
+    );
+    const yanit = await push([
+      {
+        uuid: uuid(),
+        tip: 'SKT_DUZELTILDI',
+        entity: 'urun',
+        entity_id: urunId,
+        olusturma_zamani: zaman,
+        veri: { urun_id: urunId, eski_skt: '2026-11-02', eski_lot: 'L1', yeni_skt: '2026-12-02', yeni_lot: 'L1' },
+      },
+    ]);
+    expect((yanit.json() as { kabul_edilen: string[] }).kabul_edilen).toHaveLength(1);
+    const satir = await vt.tek<{ skt: string }>('SELECT skt FROM stok_hareketleri WHERE isletme_id = ? AND urun_id = ?', [
+      ISLETME_ID,
+      urunId,
+    ]);
+    expect(satir?.skt).toBe('2026-12-02');
+  });
+});
+
 describe('durum ve mutabakat (§18.4)', () => {
   it('sunucu kayıt sayılarını raporlar', async () => {
     await push([satisOlayi()]);

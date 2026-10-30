@@ -759,6 +759,30 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
       return;
     }
 
+    case 'SKT_DUZELTILDI': {
+      // Partinin SKT/lot düzeltmesi: o partinin tüm hareketleri ve alış kalemleri.
+      // Tekrar uygulanması zararsızdır (eski değerle eşleşen satır kalmaz).
+      const parametreler = [
+        veri.yeni_skt ?? null,
+        veri.yeni_lot ?? null,
+        baglam.isletmeId,
+        metin(veri.urun_id),
+        veri.eski_skt ?? null,
+        veri.eski_lot ?? null,
+      ];
+      await islem.calistir(
+        `UPDATE stok_hareketleri SET skt = ?, lot_no = ?
+         WHERE isletme_id = ? AND urun_id = ? AND skt IS ? AND lot_no IS ?`,
+        parametreler,
+      );
+      await islem.calistir(
+        `UPDATE alis_kalemleri SET skt = ?, lot_no = ?
+         WHERE isletme_id = ? AND urun_id = ? AND skt IS ? AND lot_no IS ?`,
+        parametreler,
+      );
+      return;
+    }
+
     case 'KAMPANYA_KAYDEDILDI': {
       // Kasada açılan/düzenlenen kampanya. Panelden yapılan son değişiklik daha
       // yeniyse LWW onu korur; kampanya silinmez, pasife alınır (aktif_mi).

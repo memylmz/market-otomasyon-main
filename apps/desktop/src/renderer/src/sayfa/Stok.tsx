@@ -5,6 +5,7 @@ import { useLocation } from 'react-router-dom';
 import { miktarFormat, miktarParse, paraFormat, tarihSaatFormat, type Kurus, type Miktar } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
 import { AlisFaturasiIcerigi, type AlisFaturasiDetayi, type AlisFaturasiKalemi } from '../bilesen/AlisFaturasiDiyalogu';
+import { SktDuzeltDiyalogu, type SktPartisi } from '../bilesen/SktDuzeltDiyalogu';
 import { UrunSecici, type SecilenUrun } from '../bilesen/UrunSecici';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
@@ -59,6 +60,7 @@ export function StokSayfasi() {
    * hareketin içinde süzüyordu; bir ürünün eski hareketleri hiç görünmüyordu.
    */
   const [hareketUrunu, setHareketUrunu] = useState<{ id: string; ad: string } | null>(null);
+  const [sktDuzeltilen, setSktDuzeltilen] = useState<SktPartisi | null>(null);
 
   const girisYetkisi = useYetki('stok.giris');
   const fireYetkisi = useYetki('stok.fire');
@@ -203,6 +205,15 @@ export function StokSayfasi() {
           </table>
         )}
 
+        <SktDuzeltDiyalogu
+          parti={sktDuzeltilen}
+          onKapat={() => setSktDuzeltilen(null)}
+          onDuzeltildi={() => {
+            setSktDuzeltilen(null);
+            void yukle();
+          }}
+        />
+
         {sekme === 'skt' && (
           <table className="tablo">
             <thead className="sticky top-0 bg-yuzey">
@@ -214,6 +225,7 @@ export function StokSayfasi() {
                   Kalan (tahmini)
                 </th>
                 <th>Durum</th>
+                {girisYetkisi && <th />}
               </tr>
             </thead>
             <tbody>
@@ -230,6 +242,17 @@ export function StokSayfasi() {
                       <Rozet tur="uyari">{s.kalan_gun} gün kaldı</Rozet>
                     )}
                   </td>
+                  {girisYetkisi && (
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        className="tus-ikincil px-2 py-1 text-xs"
+                        onClick={() => setSktDuzeltilen({ urun_id: s.urun_id, ad: s.ad, skt: s.skt, lot_no: s.lot_no })}
+                      >
+                        ✎ Düzelt
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {(rapor?.sktYaklasanlar.length ?? 0) === 0 && (
@@ -1192,7 +1215,13 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
           </>
         }
       >
-        {secili && <AlisFaturasiIcerigi fatura={detay ?? secili} kalemler={kalemler} />}
+        {secili && (
+          <AlisFaturasiIcerigi
+            fatura={detay ?? secili}
+            kalemler={kalemler}
+            onSktDuzeltildi={girisYetkisi ? () => void detayAc(secili) : undefined}
+          />
+        )}
       </Diyalog>
 
       <Diyalog

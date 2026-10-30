@@ -6,6 +6,14 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Eklenenler
 
+- **SKT / lot düzeltme.** Mal kabulde yanlış girilen son kullanma tarihi ve lot no alış
+  faturası detayından (✎ düzelt) ya da Stok → SKT Takibi'nden düzeltilir; partinin tüm
+  kayıtları birlikte düzelir, miktar ve maliyet değişmez. Düzeltme buluta da gider
+  (`SKT_DUZELTILDI`). Stok hareketi kilidi yalnız bu iki alan için gevşetildi (göç 21).
+- **Sürüm farkına dayanıklı senkron.** Sunucu tanımadığı bir olay tipini artık yalnız o olayı
+  "sonra tekrar dene" diye reddeder; gönderimin geri kalanı işlenir. Eskiden kasa sunucudan
+  önce güncellenirse senkron tamamen takılıyordu.
+
 - **Gün sonu (Z) hatırlatması.** Pavo'dan satış yapılıp Z alınmadıysa kasa
   kapanışında uyarı; önceki günlerin Z'si eksikse üst çubukta kırmızı "Z alınmadı"
   rozeti (Yazarkasa'ya götürür). Z cihazın kendi tuşlarıyla alındıysa cihaz arşivinden
@@ -238,6 +246,9 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Düzeltilenler
 
+- **Mal kabulde SKT girilemiyordu.** Alan yalnız ürün kartında "SKT takibi" işaretliyse
+  görünüyordu. Artık tabloda her satırın SKT sütunu var (takip açık üründe zorunlu, diğerlerinde
+  isteğe bağlı).
 - **Muhtelif kalem.** Aynı tutarlı, adsız ikinci muhtelif kalem öncekiyle birleşip "adet 2"
   oluyordu; artık her ekleme ayrı satırdır. "Muhtelif" sistem kaydı Ürünler listesinde,
   aramada, hızlı ızgarada, stok uyarılarında ve panelin ürün listesinde görünmez (satış

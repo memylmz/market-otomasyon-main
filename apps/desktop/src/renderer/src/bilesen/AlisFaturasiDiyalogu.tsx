@@ -5,6 +5,7 @@ import { miktarFormat, paraFormat, tarihFormat, tarihSaatFormat, type Kurus, typ
 import { BosDurum, Diyalog, Rozet, TutarSatiri, Yukleniyor } from './temel';
 import { hatayiBildir } from '../durum/bildirim';
 import { cagir } from '../kopru';
+import { SktDuzeltDiyalogu, type SktPartisi } from './SktDuzeltDiyalogu';
 
 export interface AlisFaturasiDetayi {
   id: string;
@@ -23,6 +24,7 @@ export interface AlisFaturasiDetayi {
 
 export interface AlisFaturasiKalemi {
   id: string;
+  urun_id?: string;
   urun_adi: string;
   birim_tipi?: string;
   miktar: Miktar;
@@ -39,9 +41,20 @@ export interface AlisFaturasiKalemi {
  * Tedarikçi "şu faturada ne vardı?" diye sorduğunda cevap tek ekranda olmalı;
  * cari ekstresindeki tek satırlık "Mal alımı" tutarı bunu söylemez.
  */
-export function AlisFaturasiIcerigi({ fatura, kalemler }: { fatura: AlisFaturasiDetayi; kalemler: AlisFaturasiKalemi[] }) {
+export function AlisFaturasiIcerigi({
+  fatura,
+  kalemler,
+  onSktDuzeltildi,
+}: {
+  fatura: AlisFaturasiDetayi;
+  kalemler: AlisFaturasiKalemi[];
+  /** Verilirse onaylı faturada her kalemin SKT/lot'u düzeltilebilir. */
+  onSktDuzeltildi?: () => void;
+}) {
   const iptal = fatura.durum === 'IPTAL';
   const odenen = fatura.odenen ?? null;
+  const [duzeltilen, setDuzeltilen] = useState<SktPartisi | null>(null);
+  const duzeltilebilir = Boolean(onSktDuzeltildi) && fatura.durum === 'ONAYLANDI';
 
   return (
     <div className="space-y-3">
@@ -73,7 +86,19 @@ export function AlisFaturasiIcerigi({ fatura, kalemler }: { fatura: AlisFaturasi
               <td className="sayi text-right">{paraFormat(k.birim_fiyat, { simge: false })}</td>
               <td className="sayi text-metin-3 text-right">%{k.kdv_orani}</td>
               <td className="sayi font-semibold text-right">{paraFormat(k.satir_toplam, { simge: false })}</td>
-              <td className="text-xs text-metin-4">{[k.skt, k.lot_no].filter(Boolean).join(' · ') || '—'}</td>
+              <td className="text-xs text-metin-4">
+                {[k.skt?.split('-').reverse().join('.'), k.lot_no].filter(Boolean).join(' · ') || '—'}
+                {duzeltilebilir && k.urun_id && (
+                  <button
+                    type="button"
+                    className="ml-2 text-vurgu hover:underline"
+                    title="SKT / lot düzelt"
+                    onClick={() => setDuzeltilen({ urun_id: k.urun_id as string, ad: k.urun_adi, skt: k.skt, lot_no: k.lot_no })}
+                  >
+                    ✎ düzelt
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
           {kalemler.length === 0 && (
@@ -85,6 +110,15 @@ export function AlisFaturasiIcerigi({ fatura, kalemler }: { fatura: AlisFaturasi
           )}
         </tbody>
       </table>
+
+      <SktDuzeltDiyalogu
+        parti={duzeltilen}
+        onKapat={() => setDuzeltilen(null)}
+        onDuzeltildi={() => {
+          setDuzeltilen(null);
+          onSktDuzeltildi?.();
+        }}
+      />
 
       <div className="space-y-1 rounded bg-yuzey-3 px-4 py-3">
         <TutarSatiri etiket="Ara toplam (KDV hariç)" tutar={fatura.ara_toplam} />

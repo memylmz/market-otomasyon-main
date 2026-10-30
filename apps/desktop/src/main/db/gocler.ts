@@ -1098,6 +1098,34 @@ export const GOCLER: readonly Goc[] = [
       ALTER TABLE pavo_satislari DROP COLUMN belge_no;
     `,
   },
+  {
+    surum: 21,
+    ad: 'skt_duzeltilebilir',
+    /*
+     * Stok hareketleri yalnız eklenir; miktar, maliyet, belge DEĞİŞTİRİLEMEZ.
+     * Ama son kullanma tarihi ve lot no para/miktar taşımayan bilgilerdir ve
+     * mal kabulde yanlış girilebilir. Kilit yalnız o iki alanın (ve
+     * updated_at'in) düzeltilmesine izin verecek şekilde daraltılır: UPDATE OF
+     * listesindeki bir sütun değişmeye kalkarsa yine reddedilir.
+     */
+    yukari: `
+      DROP TRIGGER IF EXISTS trg_stok_hareket_degistirilemez;
+      CREATE TRIGGER trg_stok_hareket_degistirilemez
+      BEFORE UPDATE OF id, urun_id, hareket_tipi, miktar, birim_maliyet, belge_id, belge_tipi,
+                       neden_kodu, aciklama, kullanici_id, created_at, cihaz_id
+      ON stok_hareketleri
+      BEGIN
+        SELECT RAISE(ABORT, 'stok_hareketleri append-only bir tablodur; güncellenemez');
+      END;
+    `,
+    asagi: `
+      DROP TRIGGER IF EXISTS trg_stok_hareket_degistirilemez;
+      CREATE TRIGGER trg_stok_hareket_degistirilemez BEFORE UPDATE ON stok_hareketleri
+      BEGIN
+        SELECT RAISE(ABORT, 'stok_hareketleri append-only bir tablodur; güncellenemez');
+      END;
+    `,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

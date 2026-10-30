@@ -172,7 +172,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
    * satırdan sonra el okuyucuya döner. Toptancı fiyatları sırayla söyler;
    * kullanıcı "yaz, Enter, yaz, Enter" diye ilerler.
    */
-  const hucreyeGit = (sutun: 'miktar' | 'alis' | 'raf', sira: number) => {
+  const hucreyeGit = (sutun: 'miktar' | 'alis' | 'raf' | 'skt', sira: number) => {
     if (sira >= satirlar.length) {
       barkodaDon();
       return;
@@ -799,6 +799,12 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                       <th className="w-24 text-right">Miktar</th>
                       <th className="w-28 text-right">Alış</th>
                       <th className="w-28 text-right">Raf fiyatı</th>
+                      <th
+                        className="w-36"
+                        title="Son kullanma tarihi. SKT takibi açık üründe zorunlu, diğerlerinde isteğe bağlı."
+                      >
+                        SKT
+                      </th>
                       <th className="w-16 text-right">Kâr</th>
                       <th className="w-28 text-right">Tutar</th>
                       <th className="w-8" />
@@ -878,6 +884,28 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                                 eski {paraFormat(s.mevcutSatis, { simge: false })}
                               </span>
                             )}
+                          </td>
+                          <td>
+                            {/*
+                              SKT her satırda girilebilir. Eskiden yalnız ürün kartında
+                              "SKT takibi" işaretliyse görünüyordu; işaretsiz üründe
+                              tarihi girmenin yolu yoktu.
+                            */}
+                            <span data-hucre={`skt-${i}`}>
+                              <input
+                                type="date"
+                                className={`alan h-9 w-full px-2 ${s.sktZorunlu && !s.skt ? 'border-tehlike' : ''}`}
+                                aria-label={`${s.ad || 'Satır'} son kullanma tarihi`}
+                                value={s.skt}
+                                onChange={(e) => guncelle(i, { skt: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    hucreyeGit('skt', i + 1);
+                                  }
+                                }}
+                              />
+                            </span>
                           </td>
                           <td
                             className={`pt-3 text-right font-mono text-sm ${
@@ -1342,7 +1370,8 @@ function SatirPaneli({
         </p>
       )}
 
-      {(s.sktZorunlu || s.skt || s.lot) && (
+      {/* SKT ve lot her üründe girilebilir; SKT takibi açık üründe zorunlu. */}
+      {
         <div className="grid grid-cols-2 gap-2">
           <Alan etiket={s.sktZorunlu ? 'Son kullanma tarihi *' : 'Son kullanma tarihi'}>
             <input
@@ -1356,7 +1385,7 @@ function SatirPaneli({
             <input className="alan" value={s.lot} onChange={(e) => guncelle({ lot: e.target.value })} />
           </Alan>
         </div>
-      )}
+      }
 
       {/*
         Düzenlenen satırda hata KIRMIZI gösterilmez: yeni barkod okutulur okutulmaz

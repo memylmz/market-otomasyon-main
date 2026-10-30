@@ -149,6 +149,7 @@ import {
   sayimTamamla,
   stokDuzeltme,
   stokGirisi,
+  sktDuzelt,
   tedarikciIade,
 } from '../servis/stok-servis.js';
 import {
@@ -586,6 +587,8 @@ export function kanallariOlustur(
     }),
     // Durum çubuğu ve satış ekranı: tarihi geçen/yaklaşan partiler (uyarı; satış engellenmez).
     'stok.sktUyarilari': (girdi?: { gun?: number }) => (a(), sktUyarilari(b().vt, girdi?.gun ?? 7)),
+    // Mal kabulde yanlış girilen SKT/lot düzeltmesi (parti bazında; miktar/maliyet değişmez).
+    'stok.sktDuzelt': (girdi: unknown) => sktDuzelt(b(), a(), girdi),
     'stok.hareketler': (girdi: {
       urunId?: string;
       belgeId?: string;

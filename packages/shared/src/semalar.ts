@@ -613,6 +613,30 @@ export const zKampanyaGirdi = z
   });
 export type KampanyaGirdi = z.infer<typeof zKampanyaGirdi>;
 
+const zGunNull = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Tarih YYYY-AA-GG biçiminde olmalı.')
+  .nullable();
+const zLotNull = z.string().trim().max(60).nullable();
+
+/**
+ * Partinin SKT / lot düzeltmesi. Parti (ürün + eski SKT + eski lot) ile
+ * tanımlanır; o partiye ait TÜM hareketler (giriş, fire, iade) birlikte
+ * düzelir — yoksa partinin kalan miktarı ikiye bölünürdü.
+ */
+export const zSktDuzeltGirdi = z
+  .object({
+    urun_id: zUuid,
+    eski_skt: zGunNull,
+    eski_lot: zLotNull,
+    yeni_skt: zGunNull,
+    yeni_lot: zLotNull,
+  })
+  .refine((g) => g.eski_skt !== g.yeni_skt || (g.eski_lot || null) !== (g.yeni_lot || null), {
+    message: 'Değişiklik yok.',
+  });
+export type SktDuzeltGirdi = z.infer<typeof zSktDuzeltGirdi>;
+
 export const zAyar = z.object({
   anahtar: z.string().min(1).max(120),
   deger: z.string(),

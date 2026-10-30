@@ -3,18 +3,23 @@
 import {
   hatalar,
   HATA_KODU,
+  OLAY_TIPI,
   PULL_VARLIKLARI,
   SEMA_SURUMU,
   SENKRON_PROTOKOL_SURUMU,
   simdi,
+  SINIRLAR,
   UCLAR,
   UygulamaHatasi,
   zPullIstegi,
   zPushIstegi,
+  zSenkronOlayi,
   type PullKaydi,
   type PullVarligi,
   type ReddedilenOlay,
+  type SenkronOlayi,
 } from '@market/shared';
+import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { olayiIsle } from '../olay-isleyici.js';
 import { mevcutVersiyon } from '../vt/baglanti.js';
@@ -71,10 +76,26 @@ const PULL_TABLOLARI: Record<PullVarligi, { tablo: string; sutunlar: string }> =
   },
 };
 
+const bilinenOlayTipleri = new Set<string>(OLAY_TIPI);
+
+/** Push gövdesi; olay tipi serbest metin (tanınmayan tip tek tek reddedilir). */
+const zPushIstegiSunucu = zPushIstegi.extend({
+  olaylar: z
+    .array(zSenkronOlayi.extend({ tip: z.string().min(1).max(60) }))
+    .max(SINIRLAR.PUSH_BATCH_AZAMI, 'Tek istekte çok fazla olay gönderildi'),
+});
+
 export async function senkronRotalari(uygulama: FastifyInstance): Promise<void> {
   // ----------------------------------------------------------------- PUSH
   uygulama.post(UCLAR.senkronPush, { preHandler: cihazKorumasi }, async (istek) => {
-    const govde = zPushIstegi.parse(istek.body);
+    /*
+     * Olay tipi burada SERBEST metin olarak ayrıştırılır. Kasa sunucudan önce
+     * güncellenip yeni bir olay tipi gönderirse, katı doğrulama TÜM gönderimi
+     * reddediyordu: senkron tamamen takılıyor, satışlar panele gitmiyordu.
+     * Artık tanınmayan olay yalnız kendisi, "sonra tekrar dene" (kalıcı değil)
+     * diye reddedilir; sunucu güncellenince kasa onu yeniden gönderir.
+     */
+    const govde = zPushIstegiSunucu.parse(istek.body);
     const cihaz = istek.cihaz;
     if (!cihaz) throw new UygulamaHatasi(HATA_KODU.CIHAZ_YETKISIZ);
 
@@ -96,7 +117,16 @@ export async function senkronRotalari(uygulama: FastifyInstance): Promise<void> 
     await uygulama.vt.islem(async (islem) => {
       const baglam = { isletmeId: cihaz.isletmeId, cihazId: cihaz.cihazId, zaman };
       for (const olay of govde.olaylar) {
-        const sonuc = await olayiIsle(islem, baglam, olay);
+        if (!bilinenOlayTipleri.has(olay.tip)) {
+          reddedilen.push({
+            uuid: olay.uuid,
+            kod: 'DESTEKLENMEYEN_OLAY',
+            mesaj: `Sunucu bu olay tipini henüz tanımıyor: ${olay.tip}. Sunucu güncellenince yeniden gönderilir.`,
+            kalici: false,
+          });
+          continue;
+        }
+        const sonuc = await olayiIsle(islem, baglam, olay as SenkronOlayi);
         if (sonuc.durum === 'kabul') kabulEdilen.push(olay.uuid);
         else if (sonuc.durum === 'yinelenen') yinelenen.push(olay.uuid);
         else {
