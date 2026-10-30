@@ -1,0 +1,4 @@
+# Sahte cihazın durum dosyaları (eşleşme, sıra no, satış defteri) — yerel.
+mock_state*.json
+e2e_*.json
+pavo-state*.json
