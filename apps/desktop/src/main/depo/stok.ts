@@ -285,6 +285,31 @@ export interface SktSatiri {
  * listeden düşer. Fire gibi partisi bilinen çıkışlar o partiden zaten
  * düşülür; geri kalan her çıkış FEFO varsayımıyla dağıtılır.
  */
+export interface SktUyarisi {
+  urun_id: string;
+  ad: string;
+  /** Elde kalan en yakın tarihli partinin SKT'si. */
+  skt: string;
+  kalan_gun: number;
+  kalan_miktar: Miktar;
+}
+
+/**
+ * Ürün başına EN YAKIN tarihli kalan parti — satış ekranı ve durum çubuğu
+ * uyarısı için. Uyarıdır, satış engellenmez: parti dağılımı bir tahmindir
+ * (satışta hangi partinin satıldığı bilinmez, en eskisinden gittiği varsayılır).
+ */
+export function sktUyarilari(vt: Vt, gunSayisi = 7, bugunAnahtari: GunAnahtari = bugun()): SktUyarisi[] {
+  const enYakin = new Map<string, SktUyarisi>();
+  for (const s of sktYaklasanlar(vt, gunSayisi, bugunAnahtari)) {
+    const mevcut = enYakin.get(s.urun_id);
+    if (!mevcut || s.skt < mevcut.skt) {
+      enYakin.set(s.urun_id, { urun_id: s.urun_id, ad: s.ad, skt: s.skt, kalan_gun: s.kalan_gun, kalan_miktar: s.kalan_miktar });
+    }
+  }
+  return [...enYakin.values()].sort((a, b) => a.kalan_gun - b.kalan_gun);
+}
+
 export function sktYaklasanlar(vt: Vt, gunSayisi = 30, bugunAnahtari: GunAnahtari = bugun()): SktSatiri[] {
   const sinir = gunEkle(bugunAnahtari, gunSayisi);
   // Sınıra giren partisi olan ürünlerin TÜM partileri gerekir: dağıtım uzak tarihten başlar.

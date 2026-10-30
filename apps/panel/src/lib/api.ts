@@ -230,6 +230,18 @@ export async function girisYap(kullaniciAdi: string, sifre: string): Promise<Pan
   return yanit.kullanici;
 }
 
+/**
+ * Kendi şifresini değiştirir. Sunucu diğer bütün oturumları kapatır ve bu
+ * oturum için yeni token verir; panel açık kalır.
+ */
+export async function sifreDegistir(mevcutSifre: string, yeniSifre: string): Promise<void> {
+  const yanit = await api<{ access_token: string; refresh_token: string; kullanici: PanelKullanicisi }>(UCLAR.sifreDegistir, {
+    method: 'POST',
+    body: JSON.stringify({ mevcut_sifre: mevcutSifre, yeni_sifre: yeniSifre }),
+  });
+  oturumuYaz(yanit.access_token, yanit.refresh_token, yanit.kullanici);
+}
+
 export async function cikisYap(): Promise<void> {
   try {
     await api(UCLAR.cikis, { method: 'POST' });

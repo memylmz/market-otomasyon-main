@@ -39,6 +39,8 @@ export const PAVO_AYAR = {
   SON_SIRA: 'pavo.son_sira',
   /** HTTPS'te ilk bağlantıda sabitlenen sertifika özeti (TOFU). */
   SERTIFIKA: 'pavo.sertifika',
+  /** Son alınan gün sonu (Z) raporunun zamanı (ISO) — "Z alınmadı" uyarısı için. */
+  SON_Z: 'pavo.son_z',
 } as const;
 
 /**
@@ -46,7 +48,12 @@ export const PAVO_AYAR = {
  * kaydeder; sayfa açıldığında okunan bayat sıra numarası kaydedilseydi cihaz
  * sonraki her isteği "eski sıra" diye reddederdi (hata 73).
  */
-export const PAVO_KORUNAN_AYARLAR: readonly string[] = [PAVO_AYAR.PARMAK_IZI, PAVO_AYAR.SON_SIRA, PAVO_AYAR.SERTIFIKA];
+export const PAVO_KORUNAN_AYARLAR: readonly string[] = [
+  PAVO_AYAR.PARMAK_IZI,
+  PAVO_AYAR.SON_SIRA,
+  PAVO_AYAR.SERTIFIKA,
+  PAVO_AYAR.SON_Z,
+];
 
 export const PAVO_VARSAYILAN_UYGULAMA_ADI = 'Market Otomasyon';
 

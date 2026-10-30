@@ -5,10 +5,10 @@
 import { useState } from 'react';
 import { goreliZaman } from '@market/shared';
 import { BosDurum, HataKutusu, Kabuk, Rozet, Yukleniyor } from '@/bilesen/kabuk';
-import { api, kullaniciyiOku, uclar } from '@/lib/api';
+import { api, kullaniciyiOku, sifreDegistir, uclar } from '@/lib/api';
 import { useVeri } from '@/lib/kanca';
 
-type Sekme = 'magaza' | 'cihazlar';
+type Sekme = 'magaza' | 'cihazlar' | 'hesap';
 
 export default function AyarlarSayfasi() {
   const [sekme, setSekme] = useState<Sekme>('magaza');
@@ -21,6 +21,7 @@ export default function AyarlarSayfasi() {
           {[
             { anahtar: 'magaza' as const, etiket: 'Mağaza Ayarları' },
             { anahtar: 'cihazlar' as const, etiket: 'Cihazlar & Senkron' },
+            { anahtar: 'hesap' as const, etiket: 'Hesabım / Şifre' },
           ].map((s) => (
             <button
               key={s.anahtar}
@@ -37,6 +38,7 @@ export default function AyarlarSayfasi() {
 
         {sekme === 'magaza' && <MagazaAyarlariSekmesi yoneticiMi={kullanici?.rol === 'ADMIN'} />}
         {sekme === 'cihazlar' && <CihazlarSekmesi yoneticiMi={kullanici?.rol === 'ADMIN'} />}
+        {sekme === 'hesap' && <SifreSekmesi kullaniciAdi={kullanici?.kullanici_adi ?? ''} />}
       </div>
     </Kabuk>
   );
@@ -286,5 +288,101 @@ function CihazlarSekmesi({ yoneticiMi }: { yoneticiMi: boolean }) {
         durdurabilirsiniz.
       </p>
     </div>
+  );
+}
+
+/**
+ * Şifre değiştirme. Panelde yoktu; unutulan şifre veritabanından elle
+ * sıfırlanıyordu. Değişince diğer cihazlardaki panel oturumları kapanır.
+ */
+function SifreSekmesi({ kullaniciAdi }: { kullaniciAdi: string }) {
+  const [mevcut, setMevcut] = useState('');
+  const [yeni, setYeni] = useState('');
+  const [tekrar, setTekrar] = useState('');
+  const [calisiyor, setCalisiyor] = useState(false);
+  const [mesaj, setMesaj] = useState<{ tur: 'basari' | 'hata'; metin: string } | null>(null);
+
+  const kurallar = [
+    { tamam: yeni.length >= 8, metin: 'En az 8 karakter' },
+    { tamam: /[A-Za-zÇĞİÖŞÜçğıöşü]/.test(yeni), metin: 'En az bir harf' },
+    { tamam: /\d/.test(yeni), metin: 'En az bir rakam' },
+    { tamam: yeni !== '' && yeni === tekrar, metin: 'İki yeni şifre aynı' },
+  ];
+  const gecerli = mevcut !== '' && kurallar.every((k) => k.tamam);
+
+  const gonder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gecerli) return;
+    setCalisiyor(true);
+    setMesaj(null);
+    try {
+      await sifreDegistir(mevcut, yeni);
+      setMevcut('');
+      setYeni('');
+      setTekrar('');
+      setMesaj({ tur: 'basari', metin: 'Şifre değiştirildi. Diğer cihazlardaki panel oturumları kapatıldı.' });
+    } catch (h) {
+      setMesaj({ tur: 'hata', metin: h instanceof Error ? h.message : 'Şifre değiştirilemedi.' });
+    } finally {
+      setCalisiyor(false);
+    }
+  };
+
+  return (
+    <form className="kart max-w-md space-y-3 p-4" onSubmit={gonder}>
+      <div>
+        <h2 className="text-base font-semibold">Şifre değiştir</h2>
+        <p className="mt-1 text-sm text-metin-3">
+          Kullanıcı: <span className="font-medium text-metin">{kullaniciAdi}</span>
+        </p>
+      </div>
+      <label className="block">
+        <span className="etiket">Mevcut şifre</span>
+        <input
+          type="password"
+          className="alan"
+          autoComplete="current-password"
+          value={mevcut}
+          onChange={(e) => setMevcut(e.target.value)}
+        />
+      </label>
+      <label className="block">
+        <span className="etiket">Yeni şifre</span>
+        <input
+          type="password"
+          className="alan"
+          autoComplete="new-password"
+          value={yeni}
+          onChange={(e) => setYeni(e.target.value)}
+        />
+      </label>
+      <label className="block">
+        <span className="etiket">Yeni şifre (tekrar)</span>
+        <input
+          type="password"
+          className="alan"
+          autoComplete="new-password"
+          value={tekrar}
+          onChange={(e) => setTekrar(e.target.value)}
+        />
+      </label>
+      <ul className="space-y-0.5 text-xs">
+        {kurallar.map((k) => (
+          <li key={k.metin} className={k.tamam ? 'text-vurgu' : 'text-metin-4'}>
+            {k.tamam ? '✓' : '○'} {k.metin}
+          </li>
+        ))}
+      </ul>
+      {mesaj && (
+        <p
+          className={`rounded px-3 py-2 text-sm ${mesaj.tur === 'basari' ? 'bg-vurgu-yumusak text-vurgu' : 'bg-tehlike-yumusak text-tehlike'}`}
+        >
+          {mesaj.metin}
+        </p>
+      )}
+      <button type="submit" className="tus-birincil w-full" disabled={!gecerli || calisiyor}>
+        {calisiyor ? 'Değiştiriliyor…' : 'Şifreyi Değiştir'}
+      </button>
+    </form>
   );
 }

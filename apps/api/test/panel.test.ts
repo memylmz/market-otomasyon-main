@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { bugun, simdi, UCLAR, uuid } from '@market/shared';
-import { parolaHashle, tokenHashle } from '../src/guvenlik.js';
+import { parolaDogrula, parolaHashle, tokenHashle } from '../src/guvenlik.js';
 import { sunucuOlustur } from '../src/sunucu.js';
 import { semayiHazirla, vtOlustur, type MerkezVt } from '../src/vt/baglanti.js';
 import { yapilandirmayiOku } from '../src/yapilandirma.js';
@@ -1377,5 +1377,62 @@ describe('ürün listesi — tek ürün', () => {
     const v = (await panelGet(`${UCLAR.urunler}?id=${a.id}&limit=1`)).json() as { data: { id: string; ad: string }[] };
     expect(v.data).toHaveLength(1);
     expect(v.data[0]).toMatchObject({ id: a.id, ad: 'Defter' });
+  });
+});
+
+describe('panelde şifre değiştirme', () => {
+  const sifreDegistir = (mevcut_sifre: string, yeni_sifre: string) =>
+    uygulama.inject({
+      method: 'POST',
+      url: UCLAR.sifreDegistir,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { mevcut_sifre, yeni_sifre },
+    });
+  const giris = (sifre: string) =>
+    uygulama.inject({ method: 'POST', url: UCLAR.giris, payload: { kullanici_adi: 'patron', sifre } });
+
+  it('mevcut şifre doğruysa değişir; eski şifre geçmez, yenisi geçer, diğer oturumlar kapanır', async () => {
+    const yanit = await sifreDegistir('Sifre1234', 'YeniSifre99');
+    expect(yanit.statusCode).toBe(200);
+    expect((yanit.json() as { access_token: string }).access_token).toBeTruthy();
+    expect((await giris('Sifre1234')).statusCode).toBe(401);
+    expect((await giris('YeniSifre99')).statusCode).toBe(200);
+    const acik = await vt.tek<{ adet: number }>(
+      `SELECT COUNT(*) adet FROM refresh_tokenlar r JOIN panel_kullanicilari p ON p.id = r.kullanici_id
+       WHERE p.kullanici_adi = 'patron' AND r.iptal_mi = 0`,
+    );
+    // Değiştirme yanıtındaki ve az önceki girişteki iki oturum açık; eskisi kapandı.
+    expect(Number(acik?.adet)).toBe(2);
+  });
+
+  it('mevcut şifre yanlışsa ya da yeni şifre zayıfsa reddedilir', async () => {
+    expect((await sifreDegistir('Yanlis0000', 'YeniSifre99')).statusCode).toBe(401);
+    expect((await sifreDegistir('Sifre1234', 'kisa1')).statusCode).toBe(400);
+    expect((await sifreDegistir('Sifre1234', 'sadeceharf')).statusCode).toBe(400);
+    expect((await giris('Sifre1234')).statusCode).toBe(200);
+  });
+
+  it('kasaya aynalanmış kopyanın şifresi de değişir ve kasalara inmek için sürüm alır', async () => {
+    await semayiHazirla(vt);
+    const once = await vt.tek<{ versiyon: number }>(
+      "SELECT versiyon FROM kullanicilar WHERE isletme_id = ? AND kullanici_adi = 'patron'",
+      [ISLETME_ID],
+    );
+    expect((await sifreDegistir('Sifre1234', 'YeniSifre99')).statusCode).toBe(200);
+    const sonra = await vt.tek<{ versiyon: number; sifre_hash: string }>(
+      "SELECT versiyon, sifre_hash FROM kullanicilar WHERE isletme_id = ? AND kullanici_adi = 'patron'",
+      [ISLETME_ID],
+    );
+    expect(Number(sonra?.versiyon)).toBeGreaterThan(Number(once?.versiyon));
+    expect(parolaDogrula('YeniSifre99', sonra?.sifre_hash)).toBe(true);
+  });
+
+  it('token olmadan şifre değiştirilemez', async () => {
+    const yanit = await uygulama.inject({
+      method: 'POST',
+      url: UCLAR.sifreDegistir,
+      payload: { mevcut_sifre: 'Sifre1234', yeni_sifre: 'YeniSifre99' },
+    });
+    expect(yanit.statusCode).toBe(401);
   });
 });

@@ -183,6 +183,52 @@ export function SatisSayfasi() {
   }, []);
 
   /*
+   * SKT UYARISI: tarihi geçmiş ya da 3 gün içinde dolacak partisi olan ürün
+   * sepete girince kasiyer uyarılır. SATIŞ ENGELLENMEZ: parti dağılımı bir
+   * tahmindir (satışta hangi partinin satıldığı bilinmez), elindeki ürünün
+   * tarihi farklı olabilir. Liste bir kez çekilir, 10 dakikada bir tazelenir.
+   */
+  useEffect(() => {
+    let skt = new Map<string, { kalan_gun: number; skt: string }>();
+    const yukle = () =>
+      cagir<{ urun_id: string; skt: string; kalan_gun: number }[]>('stok.sktUyarilari', { gun: 3 })
+        .then((liste) => {
+          skt = new Map(liste.map((s) => [s.urun_id, s]));
+        })
+        .catch(() => {
+          /* uyarı listesi çekilemezse satış etkilenmez */
+        });
+    void yukle();
+    const zamanlayici = setInterval(() => void yukle(), 10 * 60_000);
+    let onceki = new Set(sepetDurumu.getState().satirlar.map((s) => s.urunId));
+    const birak = sepetDurumu.subscribe((d) => {
+      const simdiki = new Set(d.satirlar.map((s) => s.urunId));
+      for (const satir of d.satirlar) {
+        if (onceki.has(satir.urunId)) continue;
+        const u = skt.get(satir.urunId);
+        if (!u) continue;
+        const tarih = u.skt.split('-').reverse().join('.');
+        if (u.kalan_gun < 0) {
+          bildir.uyari(
+            `SKT geçmiş olabilir: ${satir.ad}`,
+            `Kayıtlara göre ${tarih} tarihli parti duruyor. Ürünün tarihine bakın.`,
+          );
+        } else {
+          bildir.bilgi(
+            `SKT yaklaşıyor: ${satir.ad}`,
+            u.kalan_gun === 0 ? `Bugün (${tarih}) doluyor.` : `${u.kalan_gun} gün kaldı (${tarih}).`,
+          );
+        }
+      }
+      onceki = simdiki;
+    });
+    return () => {
+      clearInterval(zamanlayici);
+      birak();
+    };
+  }, []);
+
+  /*
    * SEPET KURTARMA (§10.3).
    *
    * Sepet sekmeleri yalnız bellekteydi: elektrik kesintisinde ya da çökmede

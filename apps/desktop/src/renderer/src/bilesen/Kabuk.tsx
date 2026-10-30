@@ -221,6 +221,8 @@ export function Kabuk({ children }: { children: ReactNode }) {
             </span>
           </button>
 
+          <UyariRozetleri />
+
           {lisans?.mesaj && (
             <span className="truncate" title={lisans.mesaj}>
               <Rozet tur={lisans.yonetimKisitli ? 'tehlike' : 'uyari'}>Lisans</Rozet>
@@ -235,6 +237,73 @@ export function Kabuk({ children }: { children: ReactNode }) {
         <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
       </div>
     </div>
+  );
+}
+
+/**
+ * Durum çubuğundaki uyarılar: alınmamış gün sonu (Z) ve tarihi geçen/yaklaşan
+ * ürünler. Sekmeye bakmayan da görsün diye burada. Tıklanınca ilgili ekran
+ * açılır; hiçbir işlemi engellemez. Sayfa değiştikçe ve 15 dakikada bir tazelenir.
+ */
+function UyariRozetleri() {
+  const git = useNavigate();
+  const konum = useLocation();
+  const [z, setZ] = useState<{ pavo: boolean; oncekiEksikGunler: string[] } | null>(null);
+  const [skt, setSkt] = useState<{ gecmis: number; yaklasan: number }>({ gecmis: 0, yaklasan: 0 });
+  const [tik, setTik] = useState(0);
+
+  useEffect(() => {
+    const zamanlayici = setInterval(() => setTik((t) => t + 1), 15 * 60_000);
+    return () => clearInterval(zamanlayici);
+  }, []);
+
+  useEffect(() => {
+    let iptal = false;
+    cagir<{ pavo: boolean; oncekiEksikGunler: string[] }>('pavo.zDurumu')
+      .then((d) => !iptal && setZ(d))
+      .catch(() => !iptal && setZ(null));
+    cagir<{ kalan_gun: number }[]>('stok.sktUyarilari', { gun: 7 })
+      .then(
+        (liste) =>
+          !iptal &&
+          setSkt({ gecmis: liste.filter((s) => s.kalan_gun < 0).length, yaklasan: liste.filter((s) => s.kalan_gun >= 0).length }),
+      )
+      .catch(() => {
+        /* durum çubuğu hatası akışı bozmamalı */
+      });
+    return () => {
+      iptal = true;
+    };
+  }, [konum.pathname, tik]);
+
+  const eksikZ = z?.pavo ? z.oncekiEksikGunler : [];
+  return (
+    <>
+      {eksikZ.length > 0 && (
+        <button
+          type="button"
+          onClick={() => git('/yazarkasa')}
+          title="Pavo'dan satış yapılan bu günlerin gün sonu (Z) raporu alınmamış. Z yasal olarak her gün alınmalı."
+          className="rounded bg-tehlike px-2 py-1 text-xs font-semibold text-white hover:opacity-90"
+        >
+          ⚠ Z alınmadı: {eksikZ.map((g) => g.split('-').reverse().slice(0, 2).join('.')).join(', ')}
+        </button>
+      )}
+      {(skt.gecmis > 0 || skt.yaklasan > 0) && (
+        <button
+          type="button"
+          onClick={() => git('/stok', { state: { sekme: 'skt' } })}
+          title="Stok → SKT Takibi. Tarihler mal kabulde girilen partilerden tahmin edilir."
+          className={`rounded px-2 py-1 text-xs font-semibold ${
+            skt.gecmis > 0 ? 'bg-tehlike-yumusak text-tehlike' : 'bg-uyari-yumusak text-uyari'
+          } hover:opacity-90`}
+        >
+          ⏳ SKT: {skt.gecmis > 0 ? `${skt.gecmis} geçmiş` : ''}
+          {skt.gecmis > 0 && skt.yaklasan > 0 ? ' · ' : ''}
+          {skt.yaklasan > 0 ? `${skt.yaklasan} yaklaşıyor` : ''}
+        </button>
+      )}
+    </>
   );
 }
 

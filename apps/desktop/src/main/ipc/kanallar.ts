@@ -47,6 +47,7 @@ import {
   pavoEsles,
   pavoGecmisGunSonu,
   pavoGunSonu,
+  pavoZDurumu,
   pavoOdemedenVazgec,
   pavoRaporArsivi,
   pavoRaporNushasi,
@@ -84,7 +85,7 @@ import {
   musteriAlisverisleri,
 } from '../depo/satis.js';
 import { cakismalariListele, kaliciHataliOlaylar, olayYaz } from '../depo/senkron.js';
-import { acikSayim, hareketleriListele, maliyetleriOku, sayimFarklari } from '../depo/stok.js';
+import { acikSayim, hareketleriListele, maliyetleriOku, sayimFarklari, sktUyarilari } from '../depo/stok.js';
 import { pinGucunuDenetle, sifreGucunuDenetle } from '../guvenlik/parola.js';
 import { mutabakatYap, senkronCalistir, senkronDurumu } from '../senkron/motor.js';
 import { bekleyenAlisTalimatlariniIsle } from '../servis/alis-talimat-servis.js';
@@ -109,6 +110,7 @@ import {
   muhtelifUrunu,
   kategoriSil,
   kampanyaKaydet,
+  kampanyaZararKontrol,
 } from '../servis/katalog-servis.js';
 import { cihaziAktiveEt, cevrimdisiAktivasyon, cihazTokeniOku, lisansDurumu } from '../servis/lisans-servis.js';
 import { cikisYap, girisYap, hizliKullanicilar, yetkiliOnayi } from '../servis/oturum-servis.js';
@@ -582,6 +584,8 @@ export function kanallariOlustur(
     'stok.duzeltme': (girdi: { urunId: string; yeniMiktar: Miktar; neden: string }) => ({
       hareketId: stokDuzeltme(b(), a(), girdi.urunId, girdi.yeniMiktar, girdi.neden),
     }),
+    // Durum çubuğu ve satış ekranı: tarihi geçen/yaklaşan partiler (uyarı; satış engellenmez).
+    'stok.sktUyarilari': (girdi?: { gun?: number }) => (a(), sktUyarilari(b().vt, girdi?.gun ?? 7)),
     'stok.hareketler': (girdi: {
       urunId?: string;
       belgeId?: string;
@@ -796,6 +800,8 @@ export function kanallariOlustur(
     'pavo.bankaGunSonu': () => pavoBankaGunSonu(b(), a()),
     // Mali raporlar. Yalnız gunSonu günü kapatır (geri alınamaz); diğerleri okur/basar.
     'pavo.gunSonu': (girdi: { bankaGunSonu?: boolean }) => pavoGunSonu(b(), a(), girdi),
+    // "Z alınmadı" uyarısı: kasa kapanışı ve durum çubuğu sorar; hiçbir işlemi engellemez.
+    'pavo.zDurumu': () => (a(), pavoZDurumu(b())),
     'pavo.xRaporu': (girdi: { fark?: boolean }) => pavoXRaporu(b(), a(), girdi),
     'pavo.donemRaporu': (girdi: { baslangic: string; bitis: string; bastir?: boolean }) => pavoDonemRaporu(b(), a(), girdi),
     'pavo.gecmisGunSonu': (girdi: { tarih: string; bastir?: boolean }) => pavoGecmisGunSonu(b(), a(), girdi),
@@ -871,6 +877,7 @@ export function kanallariOlustur(
      * kasalara gider; panelden yapılan değişiklik de pull ile iner (§11.4).
      */
     'kampanya.kaydet': (girdi: unknown) => kampanyaKaydet(b(), a(), girdi),
+    'kampanya.zararKontrol': (girdi: Parameters<typeof kampanyaZararKontrol>[2]) => kampanyaZararKontrol(b(), a(), girdi),
 
     // ------------------------------------------------------------------ ayar
     'ayar.tumu': () => {

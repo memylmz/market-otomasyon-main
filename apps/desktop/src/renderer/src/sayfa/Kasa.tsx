@@ -1,7 +1,7 @@
 /** Kasa / vardiya ekranı (§10.8) — açılış, hareketler, gün sonu. */
 
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { paraFormat, tarihSaatFormat, type Kurus } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, TutarSatiri, Yukleniyor } from '../bilesen/temel';
 import { SatisFisiDiyalogu } from '../bilesen/SatisFisiDiyalogu';
@@ -362,12 +362,19 @@ function GunSonuDiyalogu({
   const [notlar, setNotlar] = useState('');
   const [gonderiliyor, setGonderiliyor] = useState(false);
   const [sonuc, setSonuc] = useState<{ kasaFarki: Kurus; beklenenNakit: Kurus } | null>(null);
+  const [zEksik, setZEksik] = useState(false);
+  const gezin = useNavigate();
 
   useEffect(() => {
     if (acik) {
       setSayilan(0);
       setNotlar('');
       setSonuc(null);
+      setZEksik(false);
+      // Pavo'dan satış yapıldıysa ve Z alınmadıysa hatırlat; kapanış engellenmez.
+      cagir<{ pavo: boolean; bugunEksik: boolean }>('pavo.zDurumu')
+        .then((d) => setZEksik(d.pavo && d.bugunEksik))
+        .catch(() => setZEksik(false));
     }
   }, [acik]);
 
@@ -417,6 +424,17 @@ function GunSonuDiyalogu({
       }
     >
       <div className="space-y-4">
+        {zEksik && (
+          <div className="rounded border border-tehlike bg-tehlike-yumusak p-3 text-sm text-tehlike">
+            <p className="font-semibold">⚠ Bugünün gün sonu (Z) raporu Pavo'dan alınmadı</p>
+            <p className="mt-1 text-xs">
+              Z raporu yasal olarak her gün alınmalı. Kasayı kapatmak Z yerine geçmez; önce ya da sonra Yazarkasa ekranından alın.
+            </p>
+            <button type="button" className="tus-ikincil mt-2 text-xs" onClick={() => gezin('/yazarkasa')}>
+              Yazarkasa → Gün sonu (Z)
+            </button>
+          </div>
+        )}
         <div className="rounded bg-yuzey-3 p-4">
           <TutarSatiri etiket="Beklenen nakit" tutar={beklenen} buyuk />
         </div>

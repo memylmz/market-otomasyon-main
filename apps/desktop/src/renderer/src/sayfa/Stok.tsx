@@ -1,6 +1,7 @@
 /** Stok yönetimi (§10.6): mal kabul, fire, sayım, hareket geçmişi, kritik stok, SKT. */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { miktarFormat, miktarParse, paraFormat, tarihSaatFormat, type Kurus, type Miktar } from '@market/shared';
 import { Alan, BosDurum, Diyalog, ParaAlani, Rozet, Yukleniyor } from '../bilesen/temel';
 import { AlisFaturasiIcerigi, type AlisFaturasiDetayi, type AlisFaturasiKalemi } from '../bilesen/AlisFaturasiDiyalogu';
@@ -39,7 +40,9 @@ interface Hareket {
 }
 
 export function StokSayfasi() {
-  const [sekme, setSekme] = useState<Sekme>('ozet');
+  // Durum çubuğundaki SKT uyarısından gelinirse doğrudan SKT sekmesi açılır.
+  const gelenSekme = (useLocation().state as { sekme?: Sekme } | null)?.sekme;
+  const [sekme, setSekme] = useState<Sekme>(gelenSekme ?? 'ozet');
   const [rapor, setRapor] = useState<StokRaporu | null>(null);
   const [hareketler, setHareketler] = useState<Hareket[]>([]);
   const [yukleniyor, setYukleniyor] = useState(true);
@@ -51,6 +54,11 @@ export function StokSayfasi() {
     to: '',
     arama: '',
   });
+  /*
+   * Ürün süzgeci VERİTABANINDA uygulanır. Yazı kutusu yalnız ekrandaki son 300
+   * hareketin içinde süzüyordu; bir ürünün eski hareketleri hiç görünmüyordu.
+   */
+  const [hareketUrunu, setHareketUrunu] = useState<{ id: string; ad: string } | null>(null);
 
   const girisYetkisi = useYetki('stok.giris');
   const fireYetkisi = useYetki('stok.fire');
@@ -61,10 +69,11 @@ export function StokSayfasi() {
       const [r, h] = await Promise.all([
         cagir<StokRaporu>('stok.rapor'),
         cagir<Hareket[]>('stok.hareketler', {
-          limit: 300,
+          limit: hareketUrunu ? 2000 : 300,
           tip: hareketFiltre.tip || undefined,
           from: hareketFiltre.from || undefined,
           to: hareketFiltre.to || undefined,
+          urunId: hareketUrunu?.id,
         }),
       ]);
       setRapor(r);
@@ -74,7 +83,7 @@ export function StokSayfasi() {
     } finally {
       setYukleniyor(false);
     }
-  }, [hareketFiltre.tip, hareketFiltre.from, hareketFiltre.to]);
+  }, [hareketFiltre.tip, hareketFiltre.from, hareketFiltre.to, hareketUrunu]);
 
   useEffect(() => {
     void yukle();
@@ -283,17 +292,34 @@ export function StokSayfasi() {
                   onChange={(e) => setHareketFiltre((f) => ({ ...f, to: e.target.value }))}
                 />
               </label>
-              <input
-                className="alan max-w-[220px]"
-                placeholder="Ürün adında ara…"
-                value={hareketFiltre.arama}
-                onChange={(e) => setHareketFiltre((f) => ({ ...f, arama: e.target.value }))}
-              />
-              {(hareketFiltre.tip || hareketFiltre.from || hareketFiltre.to || hareketFiltre.arama) && (
+              {hareketUrunu ? (
+                <span className="flex items-center gap-2 rounded border border-vurgu px-3 py-1.5 text-sm">
+                  <span className="font-medium">{hareketUrunu.ad}</span>
+                  <button
+                    type="button"
+                    className="text-metin-3 hover:text-tehlike"
+                    aria-label="Ürün süzgecini kaldır"
+                    onClick={() => setHareketUrunu(null)}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ) : (
+                <div className="w-72">
+                  <UrunSecici
+                    onSec={(u) => setHareketUrunu({ id: u.id, ad: u.ad })}
+                    placeholder="Ürün: barkod okutun ya da ad yazın…"
+                  />
+                </div>
+              )}
+              {(hareketFiltre.tip || hareketFiltre.from || hareketFiltre.to || hareketFiltre.arama || hareketUrunu) && (
                 <button
                   type="button"
                   className="tus-ikincil px-3 py-1 text-sm"
-                  onClick={() => setHareketFiltre({ tip: '', from: '', to: '', arama: '' })}
+                  onClick={() => {
+                    setHareketFiltre({ tip: '', from: '', to: '', arama: '' });
+                    setHareketUrunu(null);
+                  }}
                 >
                   Filtreleri temizle
                 </button>

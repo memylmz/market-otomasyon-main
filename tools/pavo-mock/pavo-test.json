@@ -1,0 +1,155 @@
+{
+  "pairedFingerprint": "market-kasa-5964c100-9563-4672-86e1-b0f00c0d3d4c",
+  "lastSeq": 7,
+  "idCounter": 1001,
+  "invoiceCounter": 101,
+  "sales": [
+    {
+      "Id": 1001,
+      "SaleNumber": "OQigO8CWb6",
+      "IsOffline": false,
+      "OrderNo": "3e28de50-2fbd-4835-b161-ee3abcfedc15",
+      "TypeId": 1,
+      "StatusId": 4,
+      "SaleDate": "2026-10-31T01:24:55.820080",
+      "GrossPrice": 50.5,
+      "TotalPrice": 50.5,
+      "CurrencyCode": "TRY",
+      "ExchangeRate": 1.0,
+      "TotalVATAmount": 0.5,
+      "MerchantId": 2688,
+      "TerminalId": 14632,
+      "TerminalSerialNo": "PAVMOCK00002",
+      "ApplicationId": 28,
+      "MultiPayment": false,
+      "MultiDocument": false,
+      "GMUVersion": "mock-1.0",
+      "RefererApp": "Market Otomasyon",
+      "RefererAppVersion": "2.1.0",
+      "AddedSaleItems": [
+        {
+          "Id": 10010,
+          "SaleId": 1001,
+          "StatusId": 1,
+          "Name": "ŞEKERLİ ÇİĞ KÖFTE ığüşöç",
+          "ItemQuantity": 1.0,
+          "UnitPriceAmount": 50.5,
+          "GrossPriceAmount": 50.5,
+          "TotalPriceAmount": 50.5,
+          "VATAmount": 0.5,
+          "VATRate": 1.0,
+          "UnitName": "Adet",
+          "TaxGroupId": 50,
+          "IsGeneric": false,
+          "ConvertedTotal": 50.5,
+          "ReservedText": "7b6acf04-a96a-4acb-afb6-f30983dcd174"
+        }
+      ],
+      "AddedPriceEffects": [],
+      "AddedPayments": [
+        {
+          "Id": 100100,
+          "SaleId": 1001,
+          "StatusId": 2,
+          "MerchantId": 2688,
+          "PaymentAmount": 50.5,
+          "PaymentTypeId": 1,
+          "PaymentMediatorId": 1,
+          "OperationTypeId": 1,
+          "IsExternal": false,
+          "CashPayment": {
+            "Id": 0,
+            "PaymentId": 100100,
+            "SaleId": 1001,
+            "GivenAmount": 50.5,
+            "ChangeAmount": 0.0
+          },
+          "CurrencyCode": "TRY",
+          "ExchangeRate": 1.0,
+          "ConvertedTotal": 50.5,
+          "MediatorPaymentReference": "OQigO8CWb6-2026-10-31T01:24:55.843225",
+          "ExternalReference": "null"
+        }
+      ],
+      "FinancialDocuments": [
+        {
+          "Id": 101,
+          "InvoiceNo": "8OC2026000000101",
+          "InquiryLink": "http://overegov-mock.local/EArchiveInquiryView/Index?ettn=0ebb1889-2413-77d0-bbb3-d993a293fa07",
+          "DocumentNo": "0ebb1889-2413-77d0-bbb3-d993a293fa07",
+          "Type": {
+            "Id": 2,
+            "Name": "E-Arşiv",
+            "Cancellable": true
+          }
+        }
+      ],
+      "SaleUid": "9f3790a6-6dc9-707b-6019-8f8f3c2012f0",
+      "IsInFlightSale": false,
+      "CancelRequested": false,
+      "SaleInquieryLink ": "p.overtech.com.tr/OQigO8CWb6",
+      "SaleInquieryLink": "p.overtech.com.tr/OQigO8CWb6",
+      "IsSuspendedSale": false,
+      "RemainingPaymentAmount": 0.0,
+      "Taxes": [
+        {
+          "TaxRate": 1.0,
+          "TotalTaxAmount": 0.5,
+          "TotalAmount": 50.5
+        }
+      ]
+    }
+  ],
+  "reports": [
+    {
+      "BatchId": 12001,
+      "BatchType": "T",
+      "DifferenceIndicator": "N",
+      "ZReportNo": 1,
+      "TotalPaymentCount": 1,
+      "TotalPaymentAmount": 50.5,
+      "TotalCancelledCount": 0,
+      "TotalCancelledAmount": 0.0,
+      "MinumumPaymentDate": "2026-10-31T01:24:55.820080",
+      "MaximumPaymentDate": "2026-10-31T01:24:55.820080",
+      "CreateDate": "2026-10-31T01:25:00.554576",
+      "UserName": "MOCK_USER",
+      "TerminalNo": "PAVMOCK00002",
+      "TaxInfo": "47649695044",
+      "PaymentSummary": [
+        {
+          "PaymentType": "Nakit (TL)",
+          "PaymentCount": 1,
+          "PaymentSum": 50.5,
+          "CancelCount": 0,
+          "CancelSum": 0.0,
+          "PaymentTotal": 50.5
+        }
+      ],
+      "VATSummary": [
+        {
+          "VATType": "KDV %1",
+          "BaseAmount": 50.0,
+          "TaxAmount": 0.5
+        }
+      ],
+      "DocumentSummary": [
+        {
+          "DocumentType": "Satış",
+          "DocumentCount": 1,
+          "DocumentAmount": 50.5
+        }
+      ],
+      "ProductSummary": [
+        {
+          "ProductName": "ŞEKERLİ ÇİĞ KÖFTE ığüşöç",
+          "Quantity": 1.0,
+          "TotalAmount": 50.5
+        }
+      ]
+    }
+  ],
+  "reportIdCounter": 12001,
+  "zReportNo": 1,
+  "lastZSaleId": 1001
+}

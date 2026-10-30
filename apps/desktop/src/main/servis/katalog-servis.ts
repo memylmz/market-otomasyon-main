@@ -9,6 +9,7 @@ import {
   HATA_KODU,
   icBarkodUret,
   kampanyaFiyatiBul,
+  kampanyaliBirimFiyat,
   kdvAyir,
   marjdanFiyat,
   paraParse,
@@ -23,6 +24,7 @@ import {
   AYAR,
   type Miktar,
   VARSAYILAN_KDV_ORANI,
+  type KampanyaTipi,
   type Kurus,
 } from '@market/shared';
 import {
@@ -54,7 +56,7 @@ import { stokOlayiYaz } from './stok-servis.js';
 import { sonrakiSayac } from '../depo/ortak.js';
 import { denetimYaz } from '../depo/ozet.js';
 import { olayYaz } from '../depo/senkron.js';
-import { hareketEkle, stokOku } from '../depo/stok.js';
+import { hareketEkle, maliyetleriOku, stokOku } from '../depo/stok.js';
 import { ayarlariOku, yetkiIste, type Aktor, type Baglam } from './baglam.js';
 
 // ---------------------------------------------------------------------------
@@ -1025,6 +1027,62 @@ export function kategoriyiSenkrondanSil(baglam: Baglam, kategoriId: string): voi
 // ---------------------------------------------------------------------------
 // Kampanya (§11.8)
 // ---------------------------------------------------------------------------
+
+export interface KampanyaZarari {
+  /** Kampanyayla maliyetinin altında satılacak ürün sayısı (TÜM katalogda). */
+  adet: number;
+  /** En çok zarar edilen ilk ürünler (ekranda örnek olarak). */
+  ornekler: { ad: string; zarar: Kurus }[];
+}
+
+/**
+ * Kampanya kaydedilmeden önce: hangi ürünler ZARARINA satılır?
+ *
+ * Arayüz eskiden yüklediği en fazla 500 ürüne bakıyordu; büyük katalogda
+ * zarardaki ürünler gözden kaçıyordu. Hesap burada tüm aktif ürünler üzerinde
+ * yapılır. Maliyet ağırlıklı ortalamadır (yoksa son alış), KDV hariç
+ * kampanyalı fiyatla karşılaştırılır. Kampanya bilerek zararına da
+ * yapılabilir; sonuç yalnız uyarıdır.
+ */
+export function kampanyaZararKontrol(
+  baglam: Baglam,
+  aktor: Aktor,
+  girdi: {
+    tip: KampanyaTipi;
+    deger: number;
+    esik_miktar?: number | null;
+    kapsam: 'URUN' | 'KATEGORI' | 'TUM';
+    hedef_id?: string | null;
+  },
+): KampanyaZarari {
+  yetkiIste(aktor, 'kampanya.yonet');
+  const { vt } = baglam;
+  if (!Number.isFinite(girdi.deger)) return { adet: 0, ornekler: [] };
+  if (girdi.kapsam !== 'TUM' && !girdi.hedef_id) return { adet: 0, ornekler: [] };
+  const kosul = girdi.kapsam === 'URUN' ? 'AND id = ?' : girdi.kapsam === 'KATEGORI' ? 'AND kategori_id = ?' : '';
+  const urunler = vt
+    .hazirla(`SELECT id, ad, satis_fiyati, alis_fiyati, kdv_orani FROM urunler WHERE aktif_mi = 1 ${kosul}`)
+    .tumu<{ id: string; ad: string; satis_fiyati: Kurus; alis_fiyati: Kurus; kdv_orani: number }>(
+      ...(kosul ? [girdi.hedef_id] : []),
+    );
+  const maliyetler = maliyetleriOku(
+    vt,
+    urunler.map((u) => u.id),
+  );
+  const zarardakiler: { ad: string; zarar: Kurus }[] = [];
+  for (const u of urunler) {
+    const maliyet = maliyetler.get(u.id) ?? u.alis_fiyati;
+    if (!(maliyet > 0)) continue;
+    const birim = kampanyaliBirimFiyat(
+      { tip: girdi.tip, deger: girdi.deger, esikMiktar: girdi.esik_miktar ?? null },
+      u.satis_fiyati,
+    );
+    const zarar = maliyet - kdvAyir(birim, u.kdv_orani).matrah;
+    if (zarar > 0) zarardakiler.push({ ad: u.ad, zarar });
+  }
+  zarardakiler.sort((a, b) => b.zarar - a.zarar);
+  return { adet: zarardakiler.length, ornekler: zarardakiler.slice(0, 5) };
+}
 
 /**
  * Kampanyayı kasada kaydeder ve buluta gönderir.

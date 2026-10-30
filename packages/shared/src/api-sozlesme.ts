@@ -290,6 +290,18 @@ export const zSaglikYaniti = z.object({
 });
 export type SaglikYaniti = z.infer<typeof zSaglikYaniti>;
 
+/** Panelde kendi şifresini değiştirme. Yeni şifre en az 8 karakter, harf ve rakam içerir. */
+export const zSifreDegistirIstegi = z.object({
+  mevcut_sifre: z.string().min(1).max(200),
+  yeni_sifre: z
+    .string()
+    .min(8, 'Yeni şifre en az 8 karakter olmalı.')
+    .max(200)
+    .regex(/[A-Za-zÇĞİÖŞÜçğıöşü]/, 'Yeni şifre en az bir harf içermeli.')
+    .regex(/\d/, 'Yeni şifre en az bir rakam içermeli.'),
+});
+export type SifreDegistirIstegi = z.infer<typeof zSifreDegistirIstegi>;
+
 // ---------------------------------------------------------------------------
 // Uç nokta yolları — istemci ve sunucu bu sabitleri kullanır (yazım hatası olmaz)
 // ---------------------------------------------------------------------------
@@ -298,6 +310,7 @@ export const UCLAR = {
   giris: `${API_ONEKI}/auth/login`,
   yenile: `${API_ONEKI}/auth/refresh`,
   cikis: `${API_ONEKI}/auth/logout`,
+  sifreDegistir: `${API_ONEKI}/auth/password`,
   cihazAktivasyon: `${API_ONEKI}/devices/activate`,
   cihazlar: `${API_ONEKI}/devices`,
   senkronPush: `${API_ONEKI}/sync/push`,

@@ -412,6 +412,17 @@ CREATE TABLE IF NOT EXISTS sync_cakismalar (
   kaynak_a TEXT, kaynak_b TEXT, cozum TEXT NOT NULL, cozum_zamani TEXT NOT NULL, detay TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_cakisma ON sync_cakismalar(isletme_id, cozum_zamani);
+
+-- Sık sorgular için indeksler. Turso okunan (taranan) satır başına ücretlendirir;
+-- indekssiz arama, işletmenin TÜM geçmişini tarar ve veri biriktikçe hem yavaşlar
+-- hem kotayı yer. Fiş detayı/iptal ödemeleri satis_id ile, vardiya raporu kasa
+-- hareketlerini oturumla, banka mutabakatı belge ile, panel stok hareketlerini
+-- tarihle arar. (SKT indeksi, sütun eklendikten sonra semayiHazirla'da.)
+CREATE INDEX IF NOT EXISTS ix_odeme_satis ON odemeler(isletme_id, satis_id);
+CREATE INDEX IF NOT EXISTS ix_kasahar_oturum ON kasa_hareketleri(isletme_id, kasa_oturum_id);
+CREATE INDEX IF NOT EXISTS ix_kasahar_belge ON kasa_hareketleri(isletme_id, belge_id);
+CREATE INDEX IF NOT EXISTS ix_kasa_oturum_acilis ON kasa_oturumlari(isletme_id, acilis_zamani);
+CREATE INDEX IF NOT EXISTS ix_stok_zaman ON stok_hareketleri(isletme_id, created_at);
 `;
 
 /**
@@ -510,6 +521,9 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'stok_hareketleri', 'belge_tipi TEXT');
   await sutunEkle(vt, 'stok_hareketleri', 'neden_kodu TEXT');
   await sutunEkle(vt, 'stok_hareketleri', 'aciklama TEXT');
+  // SKT listesi yalnız tarihli partileri arar; `skt` sütunu sonradan eklendiği
+  // için indeks şema metninde değil burada, sütundan SONRA kurulur.
+  await vt.calistir('CREATE INDEX IF NOT EXISTS ix_stok_skt ON stok_hareketleri(isletme_id, skt) WHERE skt IS NOT NULL');
 
   /*
    * `belge_tipi` cari defterinde de gerekiyor: bir tahsilatın ZATEN İPTAL

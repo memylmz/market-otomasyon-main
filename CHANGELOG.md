@@ -6,6 +6,20 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Eklenenler
 
+- **Gün sonu (Z) hatırlatması.** Pavo'dan satış yapılıp Z alınmadıysa kasa
+  kapanışında uyarı; önceki günlerin Z'si eksikse üst çubukta kırmızı "Z alınmadı"
+  rozeti (Yazarkasa'ya götürür). Z cihazın kendi tuşlarıyla alındıysa cihaz arşivinden
+  anlaşılır. Hiçbir işlem engellenmez.
+- **SKT uyarıları görünür.** Tarihi geçmiş ya da 3 gün içinde dolacak partisi olan ürün
+  sepete girince uyarı; üst çubukta "⏳ SKT: 2 geçmiş · 3 yaklaşıyor" rozeti (Stok → SKT
+  Takibi'ni açar). Satış engellenmez — parti dağılımı bir tahmindir.
+- **Stok → Hareketler'de ürün süzgeci.** Barkod okutulur ya da ad yazılır; o ürünün tüm
+  hareketleri veritabanından gelir (eskiden yalnız ekrandaki son 300 hareket süzülüyordu).
+- **Panelde şifre değiştirme** (Ayarlar → Hesabım / Şifre). Diğer cihazlardaki panel
+  oturumları kapanır; kasaya aynalanmış yönetici kopyasının şifresi de güncellenir.
+- **Kampanya zarar kontrolü tüm katalogda** (ana süreçte, ağırlıklı ortalama maliyetle).
+- **Sunucuyu uyanık tutan zamanlanmış görev** (GitHub Actions, market saatlerinde).
+
 - **Kampanyalar kasadan da yönetilir.** Menüde "Kampanyalar": panelle aynı form
   (yüzde, tutar, sabit fiyat, N al M öde, kademeli fiyat; tüm ürünler / kategori /
   tek ürün), zararına satış uyarısı. Kaydedilen kampanya bu kasada hemen geçerli
@@ -224,6 +238,12 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Düzeltilenler
 
+- **Bulut veritabanında eksik indeksler**: ödemeler (satış), kasa hareketleri (vardiya,
+  belge), kasa oturumları (tarih), stok hareketleri (tarih, SKT). Fiş detayı ve satış
+  iptali işletmenin tüm ödeme geçmişini tarıyordu; veri biriktikçe yavaşlar ve Turso
+  okuma kotasını yerdi.
+- **Kasanın sunucu bekleme süresi 30 → 90 sn.** Ücretsiz sunucu uykudan ~60 sn'de
+  uyandığı için uzun aradan sonraki ilk senkron düşüyordu.
 - **Müşteri ekranı ilk açılışta Windows görev çubuğunun altında kalıyordu**;
   Ayarlar'da Kaydet'e basılınca düzeliyordu. Pencere artık göründükten sonra
   monitöre yeniden yerleşir.

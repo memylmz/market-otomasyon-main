@@ -10,6 +10,7 @@ import {
   uuid,
   zCihazAktivasyonIstegi,
   zGirisIstegi,
+  zSifreDegistirIstegi,
   zYenilemeIstegi,
   type Rol,
 } from '@market/shared';
@@ -17,6 +18,7 @@ import { ROL_YETKILERI } from '@market/shared';
 import type { FastifyInstance } from 'fastify';
 import { parolaDogrula, parolaHashle, tokenHashle, tokenUret } from '../guvenlik.js';
 import { panelKorumasi, rolIste } from './koruma.js';
+import { sonrakiVersiyon } from '../vt/baglanti.js';
 
 interface PanelKullanicisi {
   id: string;
@@ -190,6 +192,59 @@ export async function kimlikRotalari(uygulama: FastifyInstance): Promise<void> {
 
     // Refresh rotasyonu (§15.1): kullanılan token iptal edilir, yenisi verilir.
     await uygulama.vt.calistir('UPDATE refresh_tokenlar SET iptal_mi = 1 WHERE id = ?', [kayit.id]);
+    return tokenlariUret(uygulama, kullanici);
+  });
+
+  // ------------------------------------------------------- şifre değiştir
+  /*
+   * Panelde şifre değiştirme yoktu; unutulan şifre veritabanından elle
+   * sıfırlanıyordu. Mevcut şifre doğrulanır, yeni şifre o hesabın KENDİ
+   * tablosuna (panel ya da kasadan gelen yönetici) yazılır ve diğer bütün
+   * oturumlar kapatılır: şifre çalındığı için değiştiriliyorsa açık kalan
+   * eski oturum işe yaramamalı.
+   */
+  uygulama.post(UCLAR.sifreDegistir, { preHandler: panelKorumasi }, async (istek) => {
+    const ayrisim = zSifreDegistirIstegi.safeParse(istek.body);
+    if (!ayrisim.success) throw hatalar.dogrulama(ayrisim.error.issues[0]?.message ?? 'Şifre bilgileri geçerli değil.');
+    const girdi = ayrisim.data;
+    const kullanici = await girisKullanicisiniBul(uygulama, 'id', String(istek.kullanici?.id));
+    if (!kullanici || Number(kullanici.aktif_mi) !== 1) throw hatalar.kimlik();
+    if (!parolaDogrula(girdi.mevcut_sifre, kullanici.sifre_hash)) {
+      throw new UygulamaHatasi(HATA_KODU.KIMLIK, 'Mevcut şifre hatalı.');
+    }
+    if (girdi.mevcut_sifre === girdi.yeni_sifre) throw hatalar.dogrulama('Yeni şifre eskisiyle aynı olamaz.');
+
+    const zaman = simdi();
+    const hash = parolaHashle(girdi.yeni_sifre);
+    await uygulama.vt.islem(async (islem) => {
+      // Kasalara inen kayıt değişirse sürüm ve zaman ilerletilir ki pull onu görsün.
+      const versiyon = await sonrakiVersiyon(islem, kullanici.isletme_id);
+      if (kullanici.kaynak === 'panel') {
+        await islem.calistir('UPDATE panel_kullanicilari SET sifre_hash = ?, updated_at = ? WHERE id = ?', [
+          hash,
+          zaman,
+          kullanici.id,
+        ]);
+        // Panel yöneticisinin kasaya aynalanmış kopyası (şifresi panelinkiyle
+        // aynıysa) da güncellenir; yoksa kasada eski şifre geçerli kalırdı.
+        // Kasada AYRI şifreyle açılmış aynı adlı hesaba dokunulmaz.
+        await islem.calistir(
+          `UPDATE kullanicilar SET sifre_hash = ?, updated_at = ?, versiyon = ?
+           WHERE isletme_id = ? AND kullanici_adi = ? AND sifre_hash = ?`,
+          [hash, zaman, versiyon, kullanici.isletme_id, kullanici.kullanici_adi, kullanici.sifre_hash],
+        );
+      } else {
+        await islem.calistir('UPDATE kullanicilar SET sifre_hash = ?, updated_at = ?, versiyon = ? WHERE id = ?', [
+          hash,
+          zaman,
+          versiyon,
+          kullanici.id,
+        ]);
+      }
+    });
+    await uygulama.vt.calistir('UPDATE refresh_tokenlar SET iptal_mi = 1 WHERE kullanici_id = ?', [kullanici.id]);
+    istek.log.info({ kullanici_id: kullanici.id }, 'Panel şifresi değiştirildi');
+    // Bu oturum yeni tokenlarla sürer; diğer cihazlardaki oturumlar düşer.
     return tokenlariUret(uygulama, kullanici);
   });
 

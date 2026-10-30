@@ -78,7 +78,10 @@ export class SenkronIstemcisi {
     if (this.secenekler.erisimToken) basliklar.authorization = `Bearer ${this.secenekler.erisimToken}`;
 
     const kontrolcu = new AbortController();
-    const zamanAsimi = setTimeout(() => kontrolcu.abort(), this.secenekler.zamanAsimiMs ?? 30_000);
+    // 90 sn: ücretsiz bulut sunucusu (Render) uykudan ~60 sn'de uyanıyor; 30 sn'lik
+    // bekleme uzun aradan sonraki ilk senkronu her seferinde düşürüyordu. Senkron
+    // arka planda çalışır, satışı bekletmez.
+    const zamanAsimi = setTimeout(() => kontrolcu.abort(), this.secenekler.zamanAsimiMs ?? 90_000);
 
     let yanit: Response;
     try {

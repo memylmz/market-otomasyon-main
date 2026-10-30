@@ -25,6 +25,7 @@
 import {
   AYAR,
   bugun,
+  gunAnahtari,
   gunEkle,
   gunFarki,
   hatalar,
@@ -1023,6 +1024,8 @@ export async function pavoGunSonu(
   }
   const y = await pavoCagri(() => raporGonder(baglam, '/CreateReportWithSummaries', { ReportType: 'T' }));
   const rapor = ilkRapor(raporVeyaFirlat(y), 'GUN_SONU');
+  // Cihaz hata vermediyse Z alınmıştır (rapor gövdesi boş gelse de).
+  ayarYaz(baglam.vt, PAVO_AYAR.SON_Z, simdi());
   if (!rapor) return { rapor: null, banka };
   // Özet Z numarasını taşımayabilir; arşiv satırı taşır. Gece yarısından sonra
   // alınan gün sonu dünün tarihine düşebilir → dün de taranır. Rapor ALINDI;
@@ -1034,6 +1037,87 @@ export async function pavoGunSonu(
   } catch {
     return { rapor, banka };
   }
+}
+
+export interface ZDurumu {
+  /** Pavo açık değilse uyarı yoktur. */
+  pavo: boolean;
+  /** Bugün Pavo'dan satış yapıldı ve ondan sonra Z alınmadı. */
+  bugunEksik: boolean;
+  /** Önceki günlerden Z'si alınmamış, Pavo satışı olan günler (YYYY-AA-GG). */
+  oncekiEksikGunler: string[];
+  sonZ: string | null;
+}
+
+/** Cihaz arşivi en fazla bu sıklıkla sorulur; durum çubuğu her sayfada soruyor. */
+const Z_ARSIV_ARALIGI_MS = 10 * 60_000;
+/** Veritabanı başına son arşiv sorgusu (yeniden açılan veritabanı baştan sorar). */
+const sonArsivSorgusu = new WeakMap<Vt, number>();
+
+/** ISO zamanı cihazın yerel saat biçimine çevirir ("YYYY-AA-GGTSS:dd:ss"). */
+function yerelSaat(iso: string): string {
+  const t = new Date(iso);
+  const iki = (n: number) => String(n).padStart(2, '0');
+  return `${t.getFullYear()}-${iki(t.getMonth() + 1)}-${iki(t.getDate())}T${iki(t.getHours())}:${iki(t.getMinutes())}:${iki(t.getSeconds())}`;
+}
+
+/**
+ * Gün sonu (Z) alındı mı? Z yasal olarak her gün alınmalı; program bunu
+ * hatırlatmıyordu.
+ *
+ * Son Z'den SONRA Pavo'dan geçmiş satış varsa o günlerin Z'si eksiktir. Z
+ * cihazın kendi tuşlarıyla da alınabildiği için, eksik görünüyorsa cihazın
+ * rapor arşivine de bakılır: son satıştan sonra gün sonu raporu varsa Z
+ * alınmış sayılır ve zamanı kaydedilir. Cihaza ulaşılamazsa yerel kayıt esas
+ * alınır (uyarı fazla çıkar, eksik çıkmaz). Satış ya da kapanış ENGELLENMEZ.
+ */
+export async function pavoZDurumu(baglam: Baglam): Promise<ZDurumu> {
+  const bos: ZDurumu = { pavo: false, bugunEksik: false, oncekiEksikGunler: [], sonZ: null };
+  if (!pavoAcikMi(baglam)) return bos;
+  const { vt } = baglam;
+  const sonZ = ayarMetin(vt, PAVO_AYAR.SON_Z, '') || null;
+  // En fazla 7 gün geriye bakılır; daha eskisi için uyarının anlamı kalmaz.
+  const alt = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const esik = sonZ && sonZ > alt ? sonZ : alt;
+  const satislar = vt
+    .hazirla(
+      `SELECT s.tarih FROM pavo_satislari ps JOIN satislar s ON s.id = ps.satis_id
+       WHERE s.tarih > ? ORDER BY s.tarih`,
+    )
+    .tumu<{ tarih: string }>(esik);
+  if (satislar.length === 0) return { ...bos, pavo: true, sonZ };
+
+  const sonSatis = satislar[satislar.length - 1]!.tarih;
+  if (Date.now() - (sonArsivSorgusu.get(vt) ?? 0) > Z_ARSIV_ARALIGI_MS) {
+    sonArsivSorgusu.set(vt, Date.now());
+    try {
+      const y = await pavoCagri(() =>
+        raporGonder(baglam, '/ListReports', { StartDate: gunAnahtari(satislar[0]!.tarih), EndDate: bugun() }, KISA_MS),
+      );
+      if (!y.hata) {
+        const sonGunSonu = pavoRaporlariCoz(y.veri)
+          .filter((r) => r.tur === 'GUN_SONU' && r.olusturma)
+          .map((r) => r.olusturma as string)
+          .sort()
+          .pop();
+        if (sonGunSonu && sonGunSonu >= yerelSaat(sonSatis)) {
+          ayarYaz(vt, PAVO_AYAR.SON_Z, simdi());
+          return { ...bos, pavo: true, sonZ: simdi() };
+        }
+      }
+    } catch {
+      /* cihaz kapalı/meşgul: yerel kayıt esas alınır */
+    }
+  }
+
+  const bugunGun = bugun();
+  const gunler = [...new Set(satislar.map((s) => gunAnahtari(s.tarih)))];
+  return {
+    pavo: true,
+    bugunEksik: gunler.includes(bugunGun),
+    oncekiEksikGunler: gunler.filter((g) => g !== bugunGun),
+    sonZ,
+  };
 }
 
 /** Durum: arayüz akışı buna göre değişir (her satış cihaza gider). */

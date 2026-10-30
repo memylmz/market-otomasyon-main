@@ -109,6 +109,8 @@ export class SahteCihaz implements PavoTasiyici {
   raporAnahtariIste = false;
   /** Banka gün sonu başarısız olsun. */
   bankaBasarisiz = false;
+  /** Rapor arşivi (ListReports) yerine dönecek satırlar; null → varsayılan sahte arşiv. */
+  arsivRaporlari: Record<string, unknown>[] | null = null;
   private vazgec = false;
   private id = 1000;
 
@@ -229,7 +231,7 @@ export class SahteCihaz implements PavoTasiyici {
         return this.tamam({ Batches: [SAHTE_OZET] });
       case '/ListReports':
         // Aynı satırın iki kez gelmesi de sınanır.
-        return this.tamam({ Reports: [SAHTE_X_SATIRI, SAHTE_Z_SATIRI, SAHTE_Z_SATIRI] });
+        return this.tamam({ Reports: this.arsivRaporlari ?? [SAHTE_X_SATIRI, SAHTE_Z_SATIRI, SAHTE_Z_SATIRI] });
       case '/GetReportSummaries':
         return s.ReportId === 12001
           ? this.tamam({ Batches: [SAHTE_OZET] })

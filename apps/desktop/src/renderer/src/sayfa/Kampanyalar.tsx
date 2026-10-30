@@ -7,16 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  kampanyaliBirimFiyat,
-  kdvAyir,
-  paraFormat,
-  paraParse,
-  tarihFormat,
-  type KampanyaKapsami,
-  type KampanyaTipi,
-  type Kurus,
-} from '@market/shared';
+import { paraFormat, paraParse, tarihFormat, type KampanyaKapsami, type KampanyaTipi, type Kurus } from '@market/shared';
 import { Alan, BosDurum, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
 import { useYetki } from '../durum/oturum';
@@ -332,30 +323,38 @@ function KampanyaFormu({
   const esikMiktar = (): number | null =>
     esikIsteyenTip(tip) ? Math.round(Number(esikAdet.trim().replace(',', '.')) * 1000) : null;
 
-  /** Bu kampanyayla ZARARINA satılacak ürünler; engellenmez, kaydetmeden önce sorulur. */
-  const zarardakiler = useMemo(() => {
+  /*
+   * Bu kampanyayla ZARARINA satılacak ürünler; engellenmez, kaydetmeden önce
+   * sorulur. Hesap ana süreçte TÜM katalog üzerinde yapılır (ekrana yüklenen
+   * liste en fazla 500 ürün); yazarken her tuşta değil, kısa bir bekleyişle.
+   */
+  const [zarar, setZarar] = useState<{ adet: number; ornekler: { ad: string; zarar: Kurus }[] }>({ adet: 0, ornekler: [] });
+  useEffect(() => {
     const d = degerSayisi();
     const esik = esikMiktar();
-    if (deger.trim() === '' || !Number.isFinite(d) || (esik !== null && !(esik > 0))) return [];
-    const kapsanan =
-      kapsam === 'TUM'
-        ? urunler
-        : kapsam === 'URUN'
-          ? seciliUrun
-            ? [seciliUrun]
-            : []
-          : urunler.filter((u) => u.kategori_id === hedefId);
-    return kapsanan
-      .filter((u) => u.alis_fiyati > 0)
-      .map((u) => {
-        const birim = kampanyaliBirimFiyat({ tip, deger: d, esikMiktar: esik }, u.satis_fiyati);
-        return { urun: u, zarar: u.alis_fiyati - kdvAyir(birim, u.kdv_orani).matrah };
+    if (deger.trim() === '' || !Number.isFinite(d) || (esik !== null && !(esik > 0)) || (kapsam !== 'TUM' && !hedefId)) {
+      setZarar({ adet: 0, ornekler: [] });
+      return;
+    }
+    let iptal = false;
+    const zamanlayici = setTimeout(() => {
+      cagir<{ adet: number; ornekler: { ad: string; zarar: Kurus }[] }>('kampanya.zararKontrol', {
+        tip,
+        deger: d,
+        esik_miktar: esik,
+        kapsam,
+        hedef_id: kapsam === 'TUM' ? null : hedefId,
       })
-      .filter((x) => x.zarar > 0)
-      .sort((a, b) => b.zarar - a.zarar);
+        .then((z) => !iptal && setZarar(z))
+        .catch(() => !iptal && setZarar({ adet: 0, ornekler: [] }));
+    }, 300);
+    return () => {
+      iptal = true;
+      clearTimeout(zamanlayici);
+    };
     // degerSayisi/esikMiktar bu alanlardan türer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tip, deger, esikAdet, kapsam, hedefId, urunler, seciliUrun]);
+  }, [tip, deger, esikAdet, kapsam, hedefId]);
 
   const kaydet = async () => {
     if (!baslangic || !bitis) {
@@ -373,10 +372,8 @@ function KampanyaFormu({
       return;
     }
     if (
-      zarardakiler.length > 0 &&
-      !window.confirm(
-        `Bu kampanyayla ${zarardakiler.length} ürün alış fiyatının altında, ZARARINA satılacak. Yine de kaydedilsin mi?`,
-      )
+      zarar.adet > 0 &&
+      !window.confirm(`Bu kampanyayla ${zarar.adet} ürün maliyetinin altında, ZARARINA satılacak. Yine de kaydedilsin mi?`)
     ) {
       return;
     }
@@ -537,16 +534,16 @@ function KampanyaFormu({
           Kampanya aktif
         </label>
 
-        {zarardakiler.length > 0 && (
+        {zarar.adet > 0 && (
           <div className="rounded border border-tehlike bg-tehlike-yumusak p-3 text-sm text-tehlike">
-            <p className="font-semibold">⚠ Bu kampanyayla {zarardakiler.length} ürün zararına satılır</p>
+            <p className="font-semibold">⚠ Bu kampanyayla {zarar.adet} ürün maliyetinin altında, zararına satılır</p>
             <ul className="mt-2 space-y-0.5 text-xs">
-              {zarardakiler.slice(0, 5).map((x) => (
-                <li key={x.urun.id}>
-                  {x.urun.ad} — tanesinde {paraFormat(x.zarar)} zarar
+              {zarar.ornekler.map((x) => (
+                <li key={x.ad}>
+                  {x.ad} — tanesinde {paraFormat(x.zarar)} zarar
                 </li>
               ))}
-              {zarardakiler.length > 5 && <li>… ve {zarardakiler.length - 5} ürün daha</li>}
+              {zarar.adet > zarar.ornekler.length && <li>… ve {zarar.adet - zarar.ornekler.length} ürün daha</li>}
             </ul>
           </div>
         )}

@@ -1,0 +1,23 @@
+# Render'ın ücretsiz planı 15 dakika istek gelmeyince sunucuyu uyutur; ilk
+# istek ~60 sn bekler. Market saatlerinde 10 dakikada bir sağlık ucuna
+# dokunarak uyanık tutulur. Açık depoda GitHub Actions ücretsizdir.
+# Gece (TR 00:00-06:00) dokunulmaz: ayda ~560 saat, Render'ın 750 saatlik
+# ücretsiz kotasının içinde kalır. GitHub zamanlamayı birkaç dakika
+# geciktirebilir; nadiren uyursa kasa yine çalışır, senkron gecikir.
+name: Sunucuyu uyanık tut
+
+on:
+  schedule:
+    # UTC 03:00-20:59 = TR 06:00-23:59
+    - cron: '*/10 3-20 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  uyandir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Sağlık ucuna istek
+        run: curl --silent --show-error --max-time 120 --retry 2 https://market-api-oc7k.onrender.com/v1/health
