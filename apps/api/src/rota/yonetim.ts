@@ -6,6 +6,7 @@
  */
 
 import {
+  MUHTELIF_URUN_NOTU,
   aramaNormalize,
   barkodNormalize,
   hatalar,
@@ -199,9 +200,10 @@ export async function yonetimRotalari(uygulama: FastifyInstance): Promise<void> 
        FROM urunler u
        LEFT JOIN stok_ozet s ON s.isletme_id = u.isletme_id AND s.urun_id = u.id
        LEFT JOIN kategoriler k ON k.isletme_id = u.isletme_id AND k.id = u.kategori_id
-       WHERE u.isletme_id = ? AND u.silindi_mi = 0
+       WHERE u.isletme_id = ? AND u.silindi_mi = 0 AND COALESCE(u.notlar, '') <> ?
        LIMIT 5000`,
-      [isletmeId],
+      // "Muhtelif" sistem kaydı ürün listesinde görünmez.
+      [isletmeId, MUHTELIF_URUN_NOTU],
     );
 
     const q = istek.query as { kategori_id?: string; siralama?: string; ofset?: string; sadece_kritik?: string; id?: string };

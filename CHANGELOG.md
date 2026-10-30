@@ -238,6 +238,10 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Düzeltilenler
 
+- **Muhtelif kalem.** Aynı tutarlı, adsız ikinci muhtelif kalem öncekiyle birleşip "adet 2"
+  oluyordu; artık her ekleme ayrı satırdır. "Muhtelif" sistem kaydı Ürünler listesinde,
+  aramada, hızlı ızgarada, stok uyarılarında ve panelin ürün listesinde görünmez (satış
+  satırının bağlandığı teknik kayıttır, ürün değildir).
 - **Bulut veritabanında eksik indeksler**: ödemeler (satış), kasa hareketleri (vardiya,
   belge), kasa oturumları (tarih), stok hareketleri (tarih, SKT). Fiş detayı ve satış
   iptali işletmenin tüm ödeme geçmişini tarıyordu; veri biriktikçe yavaşlar ve Turso

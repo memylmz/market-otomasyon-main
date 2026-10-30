@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { bugun, simdi, UCLAR, uuid } from '@market/shared';
+import { bugun, MUHTELIF_URUN_NOTU, simdi, UCLAR, uuid } from '@market/shared';
 import { parolaDogrula, parolaHashle, tokenHashle } from '../src/guvenlik.js';
 import { sunucuOlustur } from '../src/sunucu.js';
 import { semayiHazirla, vtOlustur, type MerkezVt } from '../src/vt/baglanti.js';
@@ -319,6 +319,19 @@ describe('katalog yönetimi — kasa ile aynı kurallar (§11.4)', () => {
     const liste = await panelGet(`${UCLAR.urunler}?limit=50`);
     const adlar = (liste.json() as { data: { ad: string }[] }).data.map((u) => u.ad);
     expect(adlar).toEqual(['armut', 'Çilek', 'ırmak', 'incir', 'Ülker', 'zeytin']);
+  });
+
+  it('"Muhtelif" sistem kaydı ürün listesinde görünmez', async () => {
+    await urunEkle('Süt', 100, 200);
+    const zaman = simdi();
+    await vt.calistir(
+      `INSERT INTO urunler (isletme_id, id, ad, birim_tipi, alis_fiyati, satis_fiyati, kdv_orani, kritik_stok,
+                            ideal_stok, aktif_mi, skt_takibi, notlar, created_at, updated_at, cihaz_id, versiyon)
+       VALUES (?, ?, 'Muhtelif', 'ADET', 0, 0, 20, 0, 0, 1, 0, ?, ?, ?, 'kasa-01', 1)`,
+      [ISLETME_ID, uuid(), MUHTELIF_URUN_NOTU, zaman, zaman],
+    );
+    const liste = await panelGet(`${UCLAR.urunler}?limit=50`);
+    expect((liste.json() as { data: { ad: string }[] }).data.map((u) => u.ad)).toEqual(['Süt']);
   });
 
   it('arama aksan ve harf boyutundan bağımsızdır', async () => {

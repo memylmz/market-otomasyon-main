@@ -229,8 +229,11 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
 
     set((s) => {
       // Aynı ürün + aynı fiyat zaten sepetteyse miktarı artır (barkod tekrar okutma).
+      // Muhtelif kalem (ozelAd taşır) HİÇ birleşmez: her ekleme ayrı bir mal
+      // ("10 ₺ poşet" + "10 ₺ gazete"); ad yazılmasa bile kasiyer iki satır görmeli.
       const mevcut = s.satirlar.find(
         (x) =>
+          !urun.ozelAd &&
           x.urunId === urun.urunId &&
           x.birimFiyat === urun.birimFiyat &&
           // Muhtelif satırlarda ad da eşleşmeli: "Pil 25₺" ile "Gazete 25₺"

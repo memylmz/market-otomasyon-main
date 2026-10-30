@@ -273,8 +273,9 @@ export function urunAra(vt: Vt, terim: string, limit = 30): UrunGorunumu[] {
        FROM urunler u
        LEFT JOIN stok_ozet so ON so.urun_id = u.id
        LEFT JOIN kategoriler k ON k.id = u.kategori_id
-       WHERE u.arama_metni LIKE ? ESCAPE '\\'
-          OR u.id IN (SELECT urun_id FROM barkodlar WHERE barkod LIKE ? ESCAPE '\\')
+       WHERE (u.arama_metni LIKE ? ESCAPE '\\'
+          OR u.id IN (SELECT urun_id FROM barkodlar WHERE barkod LIKE ? ESCAPE '\\'))
+         AND u.id NOT IN (SELECT deger FROM ayarlar WHERE anahtar = 'urun.muhtelif_id')
        ORDER BY u.aktif_mi DESC,
                 CASE WHEN u.arama_metni LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END,
                 ${adSiralamasi(vt, 'u.ad')}
@@ -294,7 +295,8 @@ export function urunleriListele(
   filtre: UrunFiltresi = {},
   sayfa?: SayfaSecenekleri,
 ): { kayitlar: UrunGorunumu[]; toplam: number } {
-  const kosullar: string[] = [];
+  // "Muhtelif" sistem kaydı ürün değildir; listede görünmez (MUHTELIF_URUN_NOTU).
+  const kosullar: string[] = ["u.id NOT IN (SELECT deger FROM ayarlar WHERE anahtar = 'urun.muhtelif_id')"];
   const parametreler: unknown[] = [];
 
   if (filtre.sadecePasif) {

@@ -587,3 +587,11 @@ export const SINIRLAR = {
 export const PARA_BIRIMI = '₺';
 export const YEREL = 'tr-TR';
 export const ZAMAN_DILIMI = 'Europe/Istanbul';
+
+/**
+ * "Muhtelif" sistem ürününün notu. Satış satırı bir ürüne bağlı olmak zorunda
+ * olduğu için barkodsuz tek seferlik kalemler bu kayda yaslanır; kayıt ürün
+ * listelerinde, aramada ve stok uyarılarında GÖSTERİLMEZ. Kasa kaydı
+ * `urun.muhtelif_id` ayarıyla, bulut (panel) bu notla tanır.
+ */
+export const MUHTELIF_URUN_NOTU = 'Barkodsuz tek seferlik satışlar için sistem kaydı. Silmeyin.';

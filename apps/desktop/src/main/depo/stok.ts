@@ -235,6 +235,7 @@ export function kritikStoktakiler(vt: Vt, limit = 200): KritikStokSatiri[] {
        FROM urunler u
        LEFT JOIN stok_ozet so ON so.urun_id = u.id
        WHERE u.aktif_mi = 1 AND u.kritik_stok > 0 AND COALESCE(so.miktar, 0) <= u.kritik_stok
+         AND u.id NOT IN (SELECT deger FROM ayarlar WHERE anahtar = 'urun.muhtelif_id')
        ORDER BY (COALESCE(so.miktar, 0) - u.kritik_stok), u.ad
        LIMIT ?`,
     )
@@ -246,7 +247,8 @@ export function kritikStokSayisi(vt: Vt): number {
     .hazirla(
       `SELECT COUNT(*) AS adet FROM urunler u
        LEFT JOIN stok_ozet so ON so.urun_id = u.id
-       WHERE u.aktif_mi = 1 AND u.kritik_stok > 0 AND COALESCE(so.miktar, 0) <= u.kritik_stok`,
+       WHERE u.aktif_mi = 1 AND u.kritik_stok > 0 AND COALESCE(so.miktar, 0) <= u.kritik_stok
+         AND u.id NOT IN (SELECT deger FROM ayarlar WHERE anahtar = 'urun.muhtelif_id')`,
     )
     .tek<{ adet: number }>();
   return satir?.adet ?? 0;
@@ -257,7 +259,7 @@ export function negatifStoktakiler(vt: Vt, limit = 200): { urun_id: string; ad: 
     .hazirla(
       `SELECT u.id AS urun_id, u.ad, so.miktar AS stok
        FROM stok_ozet so JOIN urunler u ON u.id = so.urun_id
-       WHERE so.miktar < 0 ORDER BY so.miktar LIMIT ?`,
+       WHERE so.miktar < 0 AND u.id NOT IN (SELECT deger FROM ayarlar WHERE anahtar = 'urun.muhtelif_id') ORDER BY so.miktar LIMIT ?`,
     )
     .tumu<{ urun_id: string; ad: string; stok: number }>(limit);
 }

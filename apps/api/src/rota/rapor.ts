@@ -6,7 +6,7 @@
  * dashboard ≤2 sn hedefi tutar (§3.1).
  */
 
-import { UCLAR, bugun, gunBasi, gunEkle, gunSonu, simdi, zTarihAraligi } from '@market/shared';
+import { MUHTELIF_URUN_NOTU, UCLAR, bugun, gunBasi, gunEkle, gunSonu, simdi, zTarihAraligi } from '@market/shared';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { panelKorumasi } from './koruma.js';
@@ -360,9 +360,9 @@ export async function raporRotalari(uygulama: FastifyInstance): Promise<void> {
       uygulama.vt.tumu(
         `SELECT u.id urun_id, u.ad, s.miktar stok, u.birim_tipi
          FROM urunler u JOIN stok_ozet s ON s.isletme_id = u.isletme_id AND s.urun_id = u.id
-         WHERE u.isletme_id = ? AND u.silindi_mi = 0 AND s.miktar < 0
+         WHERE u.isletme_id = ? AND u.silindi_mi = 0 AND s.miktar < 0 AND COALESCE(u.notlar, '') <> ?
          ORDER BY s.miktar LIMIT 200`,
-        [isletmeId],
+        [isletmeId, MUHTELIF_URUN_NOTU],
       ),
       /*
        * SKT takibi — kasadaki sorgunun aynısı: lot bazında KALAN miktar.
