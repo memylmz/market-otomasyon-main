@@ -92,6 +92,7 @@ export function HizliUrunIzgarasi({
   onCarpanTuketildi,
   onSepeteEklendi,
   onTartimIste,
+  onSepeteAl,
 }: {
   /** Satış ekranında girilen "3×" çarpanı; kutucuğa basınca bu adet eklenir. */
   adetOneki: number | null;
@@ -100,6 +101,11 @@ export function HizliUrunIzgarasi({
   onSepeteEklendi: () => void;
   /** KG/LT ürün: miktar satış ekranının tartım penceresinde sorulur. */
   onTartimIste: (urun: EklenecekUrun) => void;
+  /**
+   * Satış ekranının ekleme yolu (paketi tanımlı üründe "tekli / paket" sorar).
+   * Verilmezse doğrudan sepete eklenir.
+   */
+  onSepeteAl?: (urun: EklenecekUrun, miktar: Miktar) => void;
 }) {
   const [urunler, setUrunler] = useState<Urun[]>([]);
   const [kategoriler, setKategoriler] = useState<{ id: string; ad: string }[]>([]);
@@ -189,6 +195,10 @@ export function HizliUrunIzgarasi({
   const ekle = (urun: Urun, miktar: Miktar) => {
     onCarpanTuketildi();
     onSepeteEklendi();
+    if (onSepeteAl) {
+      onSepeteAl(eklenecek(urun), miktar);
+      return;
+    }
     sepetDurumu.getState().ekle(eklenecek(urun), miktar);
     bildir.basari(`${urun.ad} sepete eklendi`, `${miktarFormat(miktar, urun.birim_tipi)} · ${paraFormat(urun.satis_fiyati)}`);
   };

@@ -58,6 +58,12 @@ export interface SatisKalemiKaydi {
   satir_toplam: Kurus;
   kampanya_id: string | null;
   sira: number;
+  /**
+   * Paket satırı: miktar PAKET cinsindendir, `paket_carpani` içindeki adet
+   * (stoktan miktar × çarpan düşer). Tekli satırda null.
+   */
+  paket_carpani: number | null;
+  paket_adi: string | null;
   /** Bu kalemden daha önce iade edilmiş toplam miktar (iade ekranı için). */
   iade_edilen?: Miktar;
 }
@@ -152,8 +158,10 @@ export function satisEkle(vt: Vt, satis: SatisYazma, cihazId: string, zaman = si
 
 export function kalemEkle(
   vt: Vt,
-  kalem: Omit<SatisKalemiKaydi, 'id' | 'iade_edilen'> & {
+  kalem: Omit<SatisKalemiKaydi, 'id' | 'iade_edilen' | 'paket_carpani' | 'paket_adi'> & {
     id?: string;
+    paket_carpani?: number | null;
+    paket_adi?: string | null;
     /** İade kaleminde kaynak satış kalemi. */ kaynak_kalem_id?: string | null;
   },
   cihazId: string,
@@ -163,8 +171,8 @@ export function kalemEkle(
   vt.hazirla(
     `INSERT INTO satis_kalemleri (id, satis_id, urun_id, urun_adi, barkod, miktar, birim_tipi, birim_fiyat,
                                   birim_maliyet, iskonto, kdv_orani, kdv_tutar, satir_toplam, kampanya_id,
-                                  sira, created_at, updated_at, cihaz_id, kaynak_kalem_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                  sira, created_at, updated_at, cihaz_id, kaynak_kalem_id, paket_carpani, paket_adi)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).calistir(
     id,
     kalem.satis_id,
@@ -185,6 +193,8 @@ export function kalemEkle(
     zaman,
     cihazId,
     kalem.kaynak_kalem_id ?? null,
+    kalem.paket_carpani ?? null,
+    kalem.paket_adi ?? null,
   );
   return id;
 }
@@ -260,6 +270,7 @@ export function kalemleriGetir(vt: Vt, satisId: string): SatisKalemiKaydi[] {
     .hazirla(
       `SELECT k.id, k.satis_id, k.urun_id, k.urun_adi, k.barkod, k.miktar, k.birim_tipi, k.birim_fiyat,
               k.birim_maliyet, k.iskonto, k.kdv_orani, k.kdv_tutar, k.satir_toplam, k.kampanya_id, k.sira,
+              k.paket_carpani, k.paket_adi,
               COALESCE((
                 SELECT SUM(ik.miktar) FROM satis_kalemleri ik
                 JOIN satislar isa ON isa.id = ik.satis_id
@@ -528,7 +539,8 @@ export function satisAra(vt: Vt, k: SatisAramaKriteri, limit = 50): SatisAramaSa
 /** Bir ürünün son satış fiyatı — hızlı fiyat sorgulama ve iade için. */
 export function sonSatisFiyati(vt: Vt, urunId: string): Kurus | null {
   const satir = vt
-    .hazirla('SELECT birim_fiyat FROM satis_kalemleri WHERE urun_id = ? ORDER BY rowid DESC LIMIT 1')
+    // Paket satırının birim fiyatı paketin fiyatıdır, tek ürünün değil.
+    .hazirla('SELECT birim_fiyat FROM satis_kalemleri WHERE urun_id = ? AND paket_carpani IS NULL ORDER BY rowid DESC LIMIT 1')
     .tek<{ birim_fiyat: number }>(urunId);
   return satir?.birim_fiyat ?? null;
 }

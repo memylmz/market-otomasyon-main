@@ -5,6 +5,7 @@ import { aramaNormalize, AYAR, ozelTemaCoz, tarihSaatFormat } from '@market/shar
 import { Alan, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { EtiketOnizleme, FisOnizleme, type EtiketOnizlemeVerisi, type FisOnizlemeVerisi } from '../bilesen/Onizleme';
 import { bildir, hatayiBildir } from '../durum/bildirim';
+import { onayla } from '../durum/onay';
 import { oturumDurumu, temayiUygula } from '../durum/oturum';
 import { cagir } from '../kopru';
 import { MusteriEkraniSekmesi } from './ayarlar/MusteriEkraniSekmesi';
@@ -1000,7 +1001,12 @@ function IkincilKlasorKarti({
   };
 
   const kaldir = async () => {
-    if (!window.confirm('İkincil klasör kaldırılsın mı? Yedekler yalnız bu bilgisayarda kalır. (Klasördeki dosyalar silinmez.)'))
+    if (
+      !(await onayla('Yedekler yalnız bu bilgisayarda kalır. (Klasördeki dosyalar silinmez.)', {
+        baslik: 'İkincil klasör kaldırılsın mı?',
+        onaylaMetni: 'Kaldır',
+      }))
+    )
       return;
     setMesgul(true);
     try {
@@ -1185,9 +1191,10 @@ function YedekSekmesi({
                   return;
                 }
                 if (
-                  !window.confirm(
+                  !(await onayla(
                     `${s.dosya} geri yüklenecek. Şu anki veriler bu yedekteki hâliyle değişecek (şimdiki veritabanı silinmez, kenara kaldırılır). Devam edilsin mi?`,
-                  )
+                    { baslik: 'Yedekten geri yükle', onaylaMetni: 'Geri yükle', tehlikeli: true },
+                  ))
                 )
                   return;
                 await cagir('yedek.geriYukle', { yol: s.yol });
@@ -1234,9 +1241,10 @@ function YedekSekmesi({
                       className="text-xs text-tehlike hover:underline"
                       onClick={async () => {
                         if (
-                          !window.confirm(
+                          !(await onayla(
                             'Mevcut veritabanı bu yedekle değiştirilecek ve uygulama yeniden başlatılmalıdır. Devam edilsin mi?',
-                          )
+                            { baslik: 'Yedekten geri yükle', onaylaMetni: 'Geri yükle', tehlikeli: true },
+                          ))
                         )
                           return;
                         try {
@@ -1291,9 +1299,10 @@ function YedekSekmesi({
             disabled={calisiyor || !onayTamam}
             onClick={async () => {
               if (
-                !window.confirm(
+                !(await onayla(
                   `"${sifirlamaSozu}" işletmesine ait TÜM veriler silinecek ve uygulama kurulum sihirbazına dönecek. Devam edilsin mi?`,
-                )
+                  { baslik: 'Tüm veriyi sıfırla', onaylaMetni: 'Sıfırla', tehlikeli: true },
+                ))
               )
                 return;
               setCalisiyor(true);

@@ -99,6 +99,9 @@ export function IadeSayfasi() {
     try {
       const d = await cagir<SatisDetay>('satis.detay', { satisId });
       setDetay(d);
+      // Fiş bulundu: arama formu yer kaplamasın, iade paneli tümüyle görünsün.
+      // Form gizlenir (silinmez); "Detaylı Ara" ile ölçütleriyle geri gelir.
+      setDetayliAcik(false);
       setSonuclar(null);
       setSecimler({});
       setHesap(null);
@@ -292,7 +295,9 @@ export function IadeSayfasi() {
         </button>
       </div>
 
-      {detayliAcik && <DetayliArama onAra={(k) => void detayliAra(k)} />}
+      <div className={detayliAcik ? undefined : 'hidden'}>
+        <DetayliArama onAra={(k) => void detayliAra(k)} />
+      </div>
 
       {!detay && sonuclar && sonuclar.length > 0 ? (
         <AramaSonuclari sonuclar={sonuclar} onSec={(id) => void ac(id)} />
@@ -409,7 +414,8 @@ export function IadeSayfasi() {
             </table>
           </section>
 
-          <aside className="w-72 shrink-0">
+          {/* Kendi içinde kayar: iade nedeni ve onay düğmesi küçük ekranda da fareyle erişilir. */}
+          <aside className="w-72 shrink-0 overflow-y-auto">
             <div className="kart space-y-3 p-4">
               <div>
                 <p className="text-sm text-metin-3">İade tutarı</p>
@@ -501,7 +507,7 @@ export function IadeSayfasi() {
               <Alan etiket="İade nedeni" ipucu="İsteğe bağlı. Girilirse fişe ve denetim kaydına yazılır.">
                 <textarea
                   className="alan"
-                  rows={3}
+                  rows={2}
                   value={neden}
                   onChange={(e) => setNeden(e.target.value)}
                   disabled={!iadeEdilebilir}

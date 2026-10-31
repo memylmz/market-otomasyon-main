@@ -143,6 +143,8 @@ export class SenkronIstemcisi {
   async pull(since: number, limit: number, imlec?: string): Promise<PullYaniti> {
     const sorgu =
       `?since=${encodeURIComponent(String(since))}&limit=${encodeURIComponent(String(limit))}&sema_surumu=${SEMA_SURUMU}` +
+      // Bu kasa paket seçeneklerini tanır; sunucu `urun_paketleri` kayıtlarını gönderebilir.
+      '&yetenekler=paket' +
       (imlec ? `&imlec=${encodeURIComponent(imlec)}` : '');
     return this.istek(UCLAR.senkronPull + sorgu, { sema: zPullYaniti });
   }

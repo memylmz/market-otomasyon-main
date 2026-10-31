@@ -5,7 +5,7 @@
  * onaylanınca yazılan tutarla birebir tutmak zorundadırlar.
  */
 import { describe, expect, it } from 'vitest';
-import { faturaToplamlari, kalemTutari, satirOzeti, type TopluGirisSatiri } from '../src/index.js';
+import { faturaSatiriAyir, faturaToplamlari, kalemTutari, satirOzeti, type TopluGirisSatiri } from '../src/index.js';
 
 function satir(yama: Partial<TopluGirisSatiri> = {}): TopluGirisSatiri {
   return { barkod: '', ad: 'Test', miktar: '1', alis: '10,00', satis: '', kdv: '20', ...yama };
@@ -86,5 +86,39 @@ describe('satirOzeti', () => {
 
   it('geçersiz KDV oranı null döner', () => {
     expect(satirOzeti(satir({ kdv: '120' }), null)).toBeNull();
+  });
+});
+
+describe('faturadaki satır tutarı (kuruş farkı)', () => {
+  it('KDV dahil faturada genel toplam faturadaki satıra kuruşu kuruşuna eşittir', () => {
+    // 6 × 55,45 (KDV dahil, %1) = 332,70. Birim KDV hariçe çevrilip yuvarlanınca 332,69 çıkıyordu.
+    const { net, kdv } = faturaSatiriAyir(33270, 1, true);
+    const birimHaric = Math.round(5545 / 1.01);
+    const t = kalemTutari({ miktar: 6000, birim_fiyat: birimHaric, kdv_orani: 1, satir_net: net, satir_kdv: kdv });
+    expect(t.brut).toBe(33270);
+    // Eski hesap (satır tutarı verilmeden) bir kuruş sapıyordu.
+    expect(kalemTutari({ miktar: 6000, birim_fiyat: birimHaric, kdv_orani: 1 }).brut).not.toBe(33270);
+  });
+
+  it('%10 KDV dahil, 332,70 → 332,70 (eskiden 332,71)', () => {
+    const { net, kdv } = faturaSatiriAyir(33270, 10, true);
+    const t = kalemTutari({ miktar: 6000, birim_fiyat: Math.round(5545 / 1.1), kdv_orani: 10, satir_net: net, satir_kdv: kdv });
+    expect(t.brut).toBe(33270);
+  });
+
+  it('KDV hariç faturada yazılan satır tutarı esas alınır (1000 / 3)', () => {
+    const t = kalemTutari({ miktar: 3000, birim_fiyat: 33333, kdv_orani: 20, satir_net: 100000 });
+    expect(t.net).toBe(100000);
+  });
+
+  it('birim fiyatla açıklanamayan satır tutarı yok sayılır', () => {
+    const t = kalemTutari({ miktar: 6000, birim_fiyat: 5545, kdv_orani: 20, satir_net: 50000 });
+    expect(t.net).toBe(33270);
+  });
+
+  it('satirOzeti de satır tutarını kullanır', () => {
+    const { net, kdv } = faturaSatiriAyir(33270, 1, true);
+    const o = satirOzeti(satir({ miktar: '6', alis: '54,90', kdv: '1', satir_net: net, satir_kdv: kdv }), null);
+    expect(o?.brut).toBe(33270);
   });
 });

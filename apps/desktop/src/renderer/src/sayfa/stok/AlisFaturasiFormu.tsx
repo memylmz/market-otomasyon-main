@@ -39,8 +39,10 @@ import {
   paraParse,
   satiriKat,
   satirOzeti,
+  faturaSatiriAyir,
+  satirTutari,
   topluGirisKalemleri,
-  VARSAYILAN_KDV_ORANI,
+  tutardanBirimFiyat,
   type AlisSatiri,
   type Kurus,
   type TopluGirisSatiri,
@@ -48,7 +50,10 @@ import {
 import { Alan, Diyalog, ParaAlani, Rozet } from '../../bilesen/temel';
 import { UrunKartiDiyalogu, type UrunKartiTaslagi, type UrunSatiri } from '../../bilesen/UrunKartiDiyalogu';
 import { UrunSecici, type SecilenUrun } from '../../bilesen/UrunSecici';
+import { PaketSecimDiyalogu, type PaketSecenegiGorunumu } from '../../bilesen/PaketSecimDiyalogu';
 import { bildir, hatayiBildir } from '../../durum/bildirim';
+import { onayla } from '../../durum/onay';
+import { varsayilanKdv } from '../../durum/oturum';
 import { cagir } from '../../kopru';
 
 interface Tedarikci {
@@ -77,12 +82,58 @@ function bosSatir(barkod = ''): Satir {
     miktar: '1',
     alis: 0,
     satis: 0,
-    kdv: String(VARSAYILAN_KDV_ORANI),
+    kdv: String(varsayilanKdv()),
     skt: '',
     lot: '',
     sktZorunlu: false,
   };
 }
+
+/*
+ * TEDARİKÇİ HAFIZASI (bu kasada): bir tedarikçinin son kaydedilen faturasında
+ * seçilen "KDV dahil/hariç" ve ödeme şekli. Aynı toptancının faturası her
+ * seferinde aynı biçimdedir; her mal kabulde yeniden seçmek gereksiz.
+ * Tarayıcı deposunda durur — okunamazsa hiçbir şey hatırlanmaz, akış aynıdır.
+ */
+interface TedarikciHafizasi {
+  kdvDahil?: boolean;
+  odeme?: OdemeDurumu;
+}
+const hafizaAnahtari = (tedarikciId: string) => `malKabul.tedarikci.${tedarikciId}`;
+
+function tedarikciHafizasiOku(tedarikciId: string): TedarikciHafizasi | null {
+  try {
+    const ham = localStorage.getItem(hafizaAnahtari(tedarikciId));
+    const v = ham ? (JSON.parse(ham) as TedarikciHafizasi) : null;
+    if (!v || typeof v !== 'object') return null;
+    return {
+      kdvDahil: typeof v.kdvDahil === 'boolean' ? v.kdvDahil : undefined,
+      odeme: v.odeme === 'NAKIT' || v.odeme === 'HAVALE' || v.odeme === 'BORC' ? v.odeme : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function tedarikciHafizasiYaz(tedarikciId: string, v: TedarikciHafizasi): void {
+  try {
+    localStorage.setItem(hafizaAnahtari(tedarikciId), JSON.stringify(v));
+  } catch {
+    /* depo kapalı: hatırlanmaz */
+  }
+}
+
+/**
+ * Satır güncellemesi. Miktar ya da birim fiyat elle değişirse elle yazılmış
+ * satır tutarı geçersizleşir (artık adet × birim esastır).
+ */
+function satirYamala(s: Satir, yama: Partial<Satir>): Satir {
+  const tutarGecersiz = !('tutar' in yama) && ('miktar' in yama || 'alis' in yama);
+  return { ...s, ...yama, ...(tutarGecersiz ? { tutar: undefined } : {}) };
+}
+
+/** Satırın faturadaki tutarı: elle yazılan, yoksa adet × birim fiyat. */
+const faturadakiTutar = (s: Satir) => s.tutar ?? satirTutari(s.miktar, s.alis);
 
 const kdvSayisi = (s: Satir) => {
   const n = Number(String(s.kdv).replace(',', '.'));
@@ -105,6 +156,10 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   const [odenenTutarElle, setOdenenTutarElle] = useState<Kurus | null>(null);
   /** Faturadaki birim fiyatlar KDV dahil mi? `null` = henüz seçilmedi (1. adımda zorunlu). */
   const [kdvDahil, setKdvDahil] = useState<boolean | null>(null);
+  /** Paketi tanımlı ürün okutuldu: "tekli mi paket mi" cevabı bekleniyor. */
+  const [paketSor, setPaketSor] = useState<{ urun: SecilenUrun; carpan: number; paketler: PaketSecenegiGorunumu[] } | null>(null);
+  /** Seçimler tedarikçinin son faturasından getirildi (kullanıcıya not düşülür). */
+  const [hatirlandi, setHatirlandi] = useState(false);
   const [notlar, setNotlar] = useState('');
   const [kategoriler, setKategoriler] = useState<Kategori[]>([]);
   const [kategoriId, setKategoriId] = useState('');
@@ -134,6 +189,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
     setOdemeDurumu('BORC');
     setOdenenTutarElle(null);
     setKdvDahil(null);
+    setHatirlandi(false);
     setNotlar('');
     setKategoriId('');
     setMarjYuzde('');
@@ -161,7 +217,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   const dahil = kdvDahil === true;
 
   const guncelle = (i: number, yama: Partial<Satir>) =>
-    setSatirlar((liste) => liste.map((x, j) => (j === i ? { ...x, ...yama } : x)));
+    setSatirlar((liste) => liste.map((x, j) => (j === i ? satirYamala(x, yama) : x)));
 
   /** Yeni ürün panelinde odak AD alanına; bilinen üründe barkod alanında kalır. */
   const adaOdaklan = () => requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-ad-alani]')?.focus());
@@ -172,7 +228,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
    * satırdan sonra el okuyucuya döner. Toptancı fiyatları sırayla söyler;
    * kullanıcı "yaz, Enter, yaz, Enter" diye ilerler.
    */
-  const hucreyeGit = (sutun: 'miktar' | 'alis' | 'raf' | 'skt', sira: number) => {
+  const hucreyeGit = (sutun: 'miktar' | 'alis' | 'tutar' | 'raf' | 'skt', sira: number) => {
     if (sira >= satirlar.length) {
       barkodaDon();
       return;
@@ -186,10 +242,31 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
    * fiyatların anlamı değişirdi (150 "dahil" iken 150 "hariç" olurdu). Bu
    * yüzden her satırın KDV hariç değeri korunup yeni yazılışa çevrilir.
    */
+  /** Tedarikçi seçilince son faturasındaki seçimler gelir (kullanıcı henüz seçmediyse). */
+  const tedarikciSec = (id: string) => {
+    setTedarikciId(id);
+    const h = id ? tedarikciHafizasiOku(id) : null;
+    let getirildi = false;
+    if (h?.kdvDahil !== undefined && (kdvDahil === null || hatirlandi)) {
+      kdvDahilDegistir(h.kdvDahil);
+      getirildi = true;
+    }
+    if (h?.odeme && (odemeDurumu === 'BORC' || hatirlandi)) {
+      setOdemeDurumu(h.odeme);
+      getirildi = true;
+    }
+    setHatirlandi(getirildi);
+  };
+
   const kdvDahilDegistir = (yeni: boolean) => {
     if (kdvDahil !== null && kdvDahil !== yeni) {
       setSatirlar((liste) =>
-        liste.map((s) => ({ ...s, alis: alisGosterimi(alisMatrahi(s.alis, kdvSayisi(s), kdvDahil), kdvSayisi(s), yeni) })),
+        // Elle yazılmış satır tutarı eski yazılışa göredir; yeniden adet × birim fiyattan hesaplanır.
+        liste.map((s) => ({
+          ...s,
+          alis: alisGosterimi(alisMatrahi(s.alis, kdvSayisi(s), kdvDahil), kdvSayisi(s), yeni),
+          tutar: undefined,
+        })),
       );
     }
     setKdvDahil(yeni);
@@ -267,10 +344,28 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
     }
 
     try {
-      const sonuc = await cagir<{ bulundu: boolean; urun?: SecilenUrun }>('urun.barkodOku', { barkod });
+      const sonuc = await cagir<{
+        bulundu: boolean;
+        urun?: SecilenUrun;
+        paketler?: PaketSecenegiGorunumu[];
+        paketId?: string;
+      }>('urun.barkodOku', { barkod });
       if (sonuc.bulundu && sonuc.urun) {
-        satirEkleMevcut(sonuc.urun, carpan);
-        barkodaDon();
+        /*
+         * PAKET: koli/paket barkodu okutulduysa içindeki adet kadar eklenir
+         * (stok tek adet üzerinden). Ürünün kendi barkodu okutuldu ve paketi
+         * tanımlıysa "tekli / paket" sorulur.
+         */
+        const paket = sonuc.paketId ? sonuc.paketler?.find((p) => p.id === sonuc.paketId) : undefined;
+        if (paket) {
+          satirEkleMevcut(sonuc.urun, carpan * paket.carpan);
+          barkodaDon();
+        } else if (sonuc.paketler && sonuc.paketler.length > 0) {
+          setPaketSor({ urun: sonuc.urun, carpan, paketler: sonuc.paketler });
+        } else {
+          satirEkleMevcut(sonuc.urun, carpan);
+          barkodaDon();
+        }
       } else {
         const kat = satiriKat(satirlar, bosSatir(barkod), carpan);
         setSatirlar(kat.satirlar);
@@ -314,7 +409,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         // Kart KDV hariç alış bekler.
         alisFiyati: alisMatrahi(s.alis, kdvSayisi(s), dahil),
         satisFiyati: s.satis,
-        kdvOrani: Number(s.kdv) || VARSAYILAN_KDV_ORANI,
+        kdvOrani: Number(s.kdv) || varsayilanKdv(),
         kritikStok: s.kart?.kritik_stok ?? '',
         rafKonumu: s.kart?.raf_konumu ?? '',
         sktTakibi: s.kart?.skt_takibi ?? false,
@@ -390,6 +485,8 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
     () =>
       satirlar.map((s) => {
         const alisHaric = alisMatrahi(s.alis, kdvSayisi(s), dahil);
+        // Faturadaki satır tutarı: genel toplam faturayla kuruşu kuruşuna tutsun.
+        const satir = s.alis > 0 ? faturaSatiriAyir(faturadakiTutar(s), kdvSayisi(s), dahil) : null;
         return {
           barkod: s.barkod,
           ad: s.ad,
@@ -401,6 +498,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
           lot: s.lot,
           urun_id: s.urun_id,
           kart: s.kart,
+          ...(satir ? { satir_net: satir.net, ...(satir.kdv !== undefined ? { satir_kdv: satir.kdv } : {}) } : {}),
           ...(s.urun_id && s.mevcutSatis !== undefined ? { mevcut_satis: paraFormat(s.mevcutSatis, { simge: false }) } : {}),
         };
       }),
@@ -503,6 +601,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
           ? `${sonuc.kalemSayisi} kalem · Toplam ${paraFormat(sonuc.genelToplam)} · Ödenen ${paraFormat(sonuc.odenen)} · Kalan borç ${paraFormat(sonuc.kalanBorc)}${ekler}`
           : `${sonuc.kalemSayisi} kalem · ${paraFormat(sonuc.genelToplam)} tedarikçi borcu kaydedildi${ekler}`,
       );
+      tedarikciHafizasiYaz(tedarikciId, { kdvDahil: dahil, odeme: odemeDurumu });
       onTamam();
     } catch (hata) {
       // Diyalog KAPATILMAZ: toptancının önünde girilen satırlar kaybolmamalı.
@@ -513,8 +612,12 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   };
 
   /** Yarım fatura sorulmadan kapanmasın (ESC ya da Vazgeç). */
-  const kapatIstegi = () => {
-    if (satirlar.length > 0 && !window.confirm('Girilen satırlar kaydedilmeden kapatılsın mı?')) return;
+  const kapatIstegi = async () => {
+    if (
+      satirlar.length > 0 &&
+      !(await onayla('Girilen satırlar kaydedilmeden kapatılsın mı?', { onaylaMetni: 'Kaydetmeden kapat', tehlikeli: true }))
+    )
+      return;
     onKapat();
   };
 
@@ -606,7 +709,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                 <select
                   className={`alan h-11 ${tedarikciId ? '' : 'border-uyari-cizgi'}`}
                   value={tedarikciId}
-                  onChange={(e) => setTedarikciId(e.target.value)}
+                  onChange={(e) => tedarikciSec(e.target.value)}
                   data-odak
                 >
                   <option value="">Seçiniz…</option>
@@ -640,6 +743,11 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                 Faturaya bakın: ürün satırlarındaki fiyatın içinde KDV var mı? Siz faturada ne yazıyorsa onu girin, gerisini
                 program hesaplar.
               </p>
+              {hatirlandi && (
+                <p className="-mt-1 rounded bg-bilgi-yumusak px-2 py-1 text-xs text-bilgi">
+                  Bu tedarikçinin son faturasındaki seçimler getirildi. Faturaya bakıp kontrol edin.
+                </p>
+              )}
               <div className="grid gap-2 sm:grid-cols-2">
                 <SecimKarti
                   secili={kdvDahil === false}
@@ -806,7 +914,12 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                         SKT
                       </th>
                       <th className="w-16 text-right">Kâr</th>
-                      <th className="w-28 text-right">Tutar</th>
+                      <th
+                        className="w-28 text-right"
+                        title="Faturadaki satır tutarı (faturadaki gibi KDV hariç/dahil). Yazarsanız birim alış = tutar ÷ miktar hesaplanır."
+                      >
+                        Satır tutarı
+                      </th>
                       <th className="w-8" />
                     </tr>
                   </thead>
@@ -921,8 +1034,28 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
                           >
                             {marj === null ? '—' : `%${marj.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}`}
                           </td>
-                          <td className="pt-3 text-right font-mono font-medium">
-                            {ozet ? paraFormat(ozet.brut, { simge: false }) : <span className="text-metin-4">—</span>}
+                          <td>
+                            {/*
+                              Faturadaki satır tutarı. İskontolu faturada birim fiyat
+                              yuvarlanmış yazar; tutarı yazmak birimi doğru hesaplatır.
+                            */}
+                            <span data-hucre={`tutar-${i}`}>
+                              <ParaAlani
+                                deger={faturadakiTutar(s)}
+                                etiket={`${s.ad || 'Satır'} satır tutarı`}
+                                sinif="h-9 w-full px-2 text-right font-medium"
+                                onDegisim={(v) => {
+                                  const birim = tutardanBirimFiyat(s.miktar, v);
+                                  if (birim !== null) guncelle(i, { alis: birim, tutar: v });
+                                }}
+                                onEnter={() => hucreyeGit('tutar', i + 1)}
+                              />
+                            </span>
+                            {ozet && !dahil && ozet.kdv > 0 && (
+                              <span className="block pr-1 text-right text-[11px] text-metin-4">
+                                KDV'li {paraFormat(ozet.brut, { simge: false })}
+                              </span>
+                            )}
                           </td>
                           <td className="pt-2.5">
                             <button
@@ -1149,6 +1282,22 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
           taslak={'taslak' in kart ? { baslangic: kart.taslak, onUygula: (t) => taslagiUygula(kart.sira, t) } : undefined}
         />
       )}
+
+      <PaketSecimDiyalogu
+        acik={paketSor !== null}
+        urunAdi={paketSor?.urun.ad ?? ''}
+        paketler={paketSor?.paketler ?? []}
+        onKapat={() => {
+          setPaketSor(null);
+          barkodaDon();
+        }}
+        onSec={(paket) => {
+          const bekleyen = paketSor;
+          setPaketSor(null);
+          if (bekleyen) satirEkleMevcut(bekleyen.urun, bekleyen.carpan * (paket?.carpan ?? 1));
+          barkodaDon();
+        }}
+      />
     </Diyalog>
   );
 }
@@ -1186,7 +1335,7 @@ function SatirPaneli({
   const yeni = !s.urun_id;
   const kdv = kdvSayisi(s);
   const alisHaric = alisMatrahi(s.alis, kdv, dahil);
-  const alisEtiketi = `Birim alış — faturadaki gibi (${dahil ? 'KDV dahil' : 'KDV hariç'})`;
+  const alisEtiketi = `Birim alış (${dahil ? 'KDV dahil' : 'KDV hariç'})`;
   const enterIleBitir = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -1314,11 +1463,23 @@ function SatirPaneli({
         )}
       </div>
 
-      <Alan etiket={alisEtiketi}>
-        <div data-panel-alis-kap>
-          <ParaAlani deger={s.alis} onDegisim={(v) => guncelle({ alis: v })} onEnter={yeni ? undefined : bitti} />
-        </div>
-      </Alan>
+      <div className="grid grid-cols-2 gap-2">
+        <Alan etiket={alisEtiketi}>
+          <div data-panel-alis-kap>
+            <ParaAlani deger={s.alis} onDegisim={(v) => guncelle({ alis: v })} onEnter={yeni ? undefined : bitti} />
+          </div>
+        </Alan>
+        <Alan etiket="Satır tutarı — faturadaki gibi">
+          <ParaAlani
+            deger={faturadakiTutar(s)}
+            onDegisim={(v) => {
+              const birim = tutardanBirimFiyat(s.miktar, v);
+              if (birim !== null) guncelle({ alis: birim, tutar: v });
+            }}
+            onEnter={yeni ? undefined : bitti}
+          />
+        </Alan>
+      </div>
       {dahil && s.alis > 0 && <p className="-mt-2 text-xs text-metin-3">KDV hariç {paraFormat(alisHaric)} olarak kaydedilir.</p>}
       {!yeni && s.mevcutAlis !== undefined && (
         <p className={`-mt-2 text-xs ${alisDegisti ? 'font-medium text-uyari' : 'text-metin-3'}`}>

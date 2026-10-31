@@ -31,9 +31,19 @@ export interface KalemTutari {
  * satır düzeyinde yuvarlanır — önce toplayıp sonra yuvarlamak, elli kalemlik
  * faturada genel toplamı kuruşlarca kaydırırdı.
  */
-export function kalemTutari(kalem: Pick<AlisKalemGirdisi, 'miktar' | 'birim_fiyat' | 'kdv_orani'>): KalemTutari {
-  const net = yuvarla((kalem.miktar * kalem.birim_fiyat) / 1000);
-  const { kdv } = kdvAyir(net + yuvarla((net * kalem.kdv_orani) / 100), kalem.kdv_orani);
+export function kalemTutari(
+  kalem: Pick<AlisKalemGirdisi, 'miktar' | 'birim_fiyat' | 'kdv_orani'> & { satir_net?: Kurus; satir_kdv?: Kurus },
+): KalemTutari {
+  const hesaplanan = yuvarla((kalem.miktar * kalem.birim_fiyat) / 1000);
+  /*
+   * Faturadaki satır tutarı verildiyse o esastır — ama yalnız birim fiyatın
+   * kuruş yuvarlamasıyla açıklanabilecek kadar saparsa (adet başına yarım
+   * kuruş). Daha büyük sapma veri hatasıdır; birim fiyattan hesaplanır.
+   */
+  const pay = Math.ceil(kalem.miktar / 2000) + 1;
+  const net = kalem.satir_net !== undefined && Math.abs(kalem.satir_net - hesaplanan) <= pay ? kalem.satir_net : hesaplanan;
+  const { kdv: kdvHesap } = kdvAyir(net + yuvarla((net * kalem.kdv_orani) / 100), kalem.kdv_orani);
+  const kdv = kalem.satir_kdv !== undefined && Math.abs(kalem.satir_kdv - kdvHesap) <= 2 ? kalem.satir_kdv : kdvHesap;
   return { net, kdv, brut: net + kdv };
 }
 
@@ -83,7 +93,13 @@ export function satirOzeti(satir: TopluGirisSatiri, marjYuzde: number | null | u
   if (miktar === null || miktar <= 0 || alis === null) return null;
   if (!Number.isFinite(kdvSayi) || kdvSayi < 0 || kdvSayi > 100) return null;
 
-  const tutar = kalemTutari({ miktar, birim_fiyat: alis, kdv_orani: kdvSayi });
+  const tutar = kalemTutari({
+    miktar,
+    birim_fiyat: alis,
+    kdv_orani: kdvSayi,
+    satir_net: satir.satir_net,
+    satir_kdv: satir.satir_kdv,
+  });
   const satisFiyati = satirSatisFiyati(satir, marjYuzde);
 
   let marj: number | null = null;

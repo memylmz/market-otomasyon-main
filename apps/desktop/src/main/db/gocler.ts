@@ -1126,6 +1126,50 @@ export const GOCLER: readonly Goc[] = [
       END;
     `,
   },
+  {
+    surum: 22,
+    ad: 'urun_paketleri',
+    /*
+     * PAKET SEÇENEKLERİ (bkz. shared/paket.ts): 12'li kibrit, 6'lı su.
+     * Stok tek adet üzerinden kalır; paket satırında miktar PAKET cinsindendir
+     * ve `paket_carpani` içindeki adettir — stoktan miktar × çarpan düşer.
+     *
+     * Paket barkodu ürün barkodlarıyla aynı uzayı paylaşır; benzersizlik
+     * katalog servisinde iki tablo birlikte denetlenir.
+     *
+     * Pull imleci sıfırlanır: yeni sürüme geçmeden önce sunucu bu kasaya paket
+     * kayıtlarını göndermiyordu (eski kasa onları tanımıyordu); imleç onların
+     * ötesindeyse bir daha hiç inmezlerdi. Tam pull güvenlidir (bkz. sürüm 17).
+     */
+    yukari: `
+      CREATE TABLE urun_paketleri (
+        id               TEXT PRIMARY KEY,
+        urun_id          TEXT NOT NULL REFERENCES urunler(id),
+        ad               TEXT NOT NULL,
+        carpan           INTEGER NOT NULL CHECK (carpan >= 2),
+        fiyat            INTEGER,
+        barkod           TEXT,
+        aktif_mi         INTEGER NOT NULL DEFAULT 1 CHECK (aktif_mi IN (0,1)),
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        cihaz_id         TEXT,
+        sunucu_versiyonu INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX ix_urun_paketleri_urun ON urun_paketleri(urun_id);
+      CREATE UNIQUE INDEX ux_urun_paketleri_barkod ON urun_paketleri(barkod)
+        WHERE barkod IS NOT NULL AND aktif_mi = 1;
+
+      ALTER TABLE satis_kalemleri ADD COLUMN paket_carpani INTEGER;
+      ALTER TABLE satis_kalemleri ADD COLUMN paket_adi TEXT;
+
+      UPDATE sync_state SET last_pull_version = 0;
+    `,
+    asagi: `
+      ALTER TABLE satis_kalemleri DROP COLUMN paket_adi;
+      ALTER TABLE satis_kalemleri DROP COLUMN paket_carpani;
+      DROP TABLE IF EXISTS urun_paketleri;
+    `,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

@@ -21,8 +21,9 @@ import {
   type Miktar,
 } from '@market/shared';
 import { Alan, Diyalog, OnayDiyalogu, ParaAlani } from './temel';
+import { paketHatasi, PaketSecenekleriDiyalogu, type PaketTaslagi } from './PaketSecenekleriDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
-import { useYetki } from '../durum/oturum';
+import { useYetki, varsayilanKdv } from '../durum/oturum';
 import { cagir } from '../kopru';
 
 export interface UrunSatiri {
@@ -114,7 +115,7 @@ export function UrunKartiDiyalogu({
     birimTipi: 'ADET' as BirimTipi,
     alisFiyati: 0 as Kurus,
     satisFiyati: 0 as Kurus,
-    kdvOrani: 20,
+    kdvOrani: varsayilanKdv(),
     kritikStok: '',
     rafKonumu: '',
     barkod: '',
@@ -149,6 +150,10 @@ export function UrunKartiDiyalogu({
   const [zararOnayi, setZararOnayi] = useState(false);
   /** Rafta kalan eski mallarla birlikte ortalama maliyet — kâr raporu bunu kullanır. */
   const [ortalamaMaliyet, setOrtalamaMaliyet] = useState<Kurus | null>(null);
+  /** Paket seçenekleri (12'li kibrit); "Kaydet"le ürünle birlikte yazılır. */
+  const [paketler, setPaketler] = useState<PaketTaslagi[]>([]);
+  const [paketlerDegisti, setPaketlerDegisti] = useState(false);
+  const [paketPenceresi, setPaketPenceresi] = useState(false);
 
   const mevcutId = urun && urun !== 'yeni' ? urun.id : null;
   useEffect(() => {
@@ -157,6 +162,21 @@ export function UrunKartiDiyalogu({
     cagir<{ ortalama: Kurus | null }>('urun.maliyet', { urunId: mevcutId })
       .then((v) => setOrtalamaMaliyet(v.ortalama))
       .catch(() => setOrtalamaMaliyet(null));
+  }, [mevcutId]);
+
+  useEffect(() => {
+    setPaketler([]);
+    setPaketlerDegisti(false);
+    if (!mevcutId) return;
+    cagir<{ id: string; ad: string; carpan: number; fiyat: Kurus | null; barkod: string | null }[]>('urun.paketler', {
+      urunId: mevcutId,
+    })
+      .then((liste) =>
+        setPaketler(
+          liste.map((p) => ({ id: p.id, ad: p.ad, carpan: String(p.carpan), fiyat: p.fiyat ?? 0, barkod: p.barkod ?? '' })),
+        ),
+      )
+      .catch(() => setPaketler([]));
   }, [mevcutId]);
 
   useEffect(() => {
@@ -207,7 +227,7 @@ export function UrunKartiDiyalogu({
         birimTipi: 'ADET',
         alisFiyati: 0,
         satisFiyati: 0,
-        kdvOrani: 20,
+        kdvOrani: varsayilanKdv(),
         kritikStok: '',
         rafKonumu: '',
         barkod: '',
@@ -265,6 +285,12 @@ export function UrunKartiDiyalogu({
       });
       return;
     }
+    const paketSorunu = paketlerDegisti ? (paketler.map(paketHatasi).find(Boolean) ?? null) : null;
+    if (paketSorunu) {
+      bildir.uyari('Paket seçeneklerini düzeltin', paketSorunu);
+      setPaketPenceresi(true);
+      return;
+    }
     setGonderiliyor(true);
     try {
       /*
@@ -276,7 +302,7 @@ export function UrunKartiDiyalogu({
         ...(form.barkod.trim() ? [form.barkod.trim()] : []),
         ...(kisaKod.trim() ? [kisaKod.trim()] : []),
       ];
-      await cagir('urun.kaydet', {
+      const { id: kaydedilenId } = await cagir<{ id: string }>('urun.kaydet', {
         id: mevcut?.id,
         ad: form.ad.trim(),
         marka: form.marka.trim() || null,
@@ -311,6 +337,29 @@ export function UrunKartiDiyalogu({
             yeniMiktar: hedef,
             neden: 'Ürün kartından stok düzeltmesi',
           });
+        }
+      }
+
+      /*
+       * Paketler ürünle aynı "Kaydet"te yazılır (yeni üründe kimlik ancak şimdi
+       * belli olur). Paket barkodu çakışırsa ürün yine kaydedilmiştir; kasiyer
+       * paketi düzeltip tekrar kaydeder.
+       */
+      if (paketlerDegisti && form.birimTipi === 'ADET') {
+        try {
+          await cagir('urun.paketleriKaydet', {
+            urun_id: kaydedilenId,
+            paketler: paketler.map((p) => ({
+              ...(p.id ? { id: p.id } : {}),
+              ad: p.ad.trim(),
+              carpan: Number(p.carpan),
+              fiyat: p.fiyat > 0 ? p.fiyat : null,
+              barkod: p.barkod.trim() || null,
+            })),
+          });
+        } catch (hata) {
+          hatayiBildir(hata, 'Ürün kaydedildi ama paketler kaydedilemedi');
+          return;
         }
       }
 
@@ -628,6 +677,30 @@ export function UrunKartiDiyalogu({
           </Alan>
         )}
 
+        {/* Paket seçenekleri — mal kabul taslağında yok (ürün henüz açılmadı). */}
+        {!taslak && form.birimTipi === 'ADET' && (
+          <div className="md:col-span-2">
+            <span className="etiket">Paket seçenekleri</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {paketler.map((p) => (
+                <span key={p.id ?? p.ad} className="rounded border border-cizgi bg-yuzey-2 px-2 py-1 text-sm">
+                  {p.ad} · {p.carpan} adet · {paraFormat(p.fiyat > 0 ? p.fiyat : Number(p.carpan) * form.satisFiyati)}
+                  {p.barkod && <span className="ml-1 font-mono text-xs text-metin-3">{p.barkod}</span>}
+                </span>
+              ))}
+              <button type="button" className="tus-ikincil text-sm" onClick={() => setPaketPenceresi(true)}>
+                {paketler.length > 0 ? 'Düzenle' : '+ Paket seçeneği ekle'}
+              </button>
+              {paketlerDegisti && <span className="text-xs text-uyari">Kaydet'e basınca yazılır</span>}
+            </div>
+            {paketler.length === 0 && (
+              <p className="mt-1 text-xs text-metin-4">
+                Hem tek hem paket hâlinde satılan ürünler için (12&apos;li kibrit, 6&apos;lı su). Stok tek adet üzerinden tutulur.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="md:col-span-2">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={form.sktTakibi} onChange={(e) => setForm({ ...form, sktTakibi: e.target.checked })} />
@@ -705,6 +778,18 @@ export function UrunKartiDiyalogu({
           />
         </Alan>
       </Diyalog>
+      <PaketSecenekleriDiyalogu
+        acik={paketPenceresi}
+        urunAdi={form.ad || 'Ürün'}
+        tekFiyat={form.satisFiyati}
+        paketler={paketler}
+        onKapat={() => setPaketPenceresi(false)}
+        onUygula={(liste) => {
+          setPaketler(liste);
+          setPaketlerDegisti(true);
+          setPaketPenceresi(false);
+        }}
+      />
       <OnayDiyalogu
         acik={zararOnayi}
         baslik="Bu fiyatla ZARARINA satarsınız"

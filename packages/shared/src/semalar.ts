@@ -196,6 +196,9 @@ export const zSatisKalemi = zOrtakAlanlar.extend({
   satir_toplam: zKurus,
   kampanya_id: zUuid.nullable().default(null),
   sira: z.number().int().default(0),
+  /** Paket satırı: miktar PAKET cinsindendir, stoktan miktar × çarpan düşer (bkz. paket.ts). */
+  paket_carpani: z.number().int().positive().nullable().default(null),
+  paket_adi: zMetin(40).nullable().default(null),
 });
 export type SatisKalemi = z.infer<typeof zSatisKalemi>;
 
@@ -249,6 +252,8 @@ export const zSatisGirdi = z.object({
         iskonto_yuzde: zYuzde.optional(),
         iskonto_tutar: zKurus.optional(),
         kampanya_id: zUuid.nullable().optional(),
+        /** Paket olarak satılıyor: miktar paket sayısıdır, fiyat paketin fiyatıdır. */
+        paket_id: zUuid.optional(),
       }),
     )
     .min(1, 'Sepet boş olamaz'),
@@ -471,6 +476,16 @@ export const zAlisGirdi = z.object({
           lot_no: zMetin(60).nullable().optional(),
           /** Doluysa MEVCUT ürünün satış fiyatı da güncellenir. */
           yeni_satis_fiyati: zKurusPozitif.optional(),
+          /*
+           * FATURADAKİ satırın KDV hariç tutarı ve (KDV dahil faturada) KDV'si.
+           *
+           * Birim fiyat kuruşa yuvarlanır; adet × yuvarlanmış birim faturadaki
+           * satırdan birkaç kuruş sapabilir (KDV dahil faturada 332,70 yerine
+           * 332,71). Verilirse genel toplam ve tedarikçi borcu bundan hesaplanır;
+           * birim fiyattan yuvarlama payından fazla saparsa yok sayılır.
+           */
+          satir_net: zKurusPozitif.optional(),
+          satir_kdv: zKurusPozitif.optional(),
           /*
            * MEVCUT ürüne bu faturada kaydedilecek barkod.
            *

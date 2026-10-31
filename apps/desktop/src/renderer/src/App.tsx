@@ -7,13 +7,14 @@
 
 import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { BildirimKatmani, Yukleniyor } from './bilesen/temel';
+import { BildirimKatmani, OnayKatmani, Yukleniyor } from './bilesen/temel';
 import { EkranTusTakimi } from './bilesen/EkranTusTakimi';
 import { HataSiniri } from './bilesen/HataSiniri';
 import { Kabuk } from './bilesen/Kabuk';
 import { bildir } from './durum/bildirim';
 import { oturumDurumu } from './durum/oturum';
 import { useMusteriEkraniYayini } from './kanca/useMusteriEkraniYayini';
+import { useOdakOnarici } from './kanca/useOdakOnarici';
 import { olayDinle } from './kopru';
 import { AyarlarSayfasi } from './sayfa/Ayarlar';
 import { CariSayfasi } from './sayfa/Cari';
@@ -37,6 +38,7 @@ export function App() {
   const [yenidenBasliyor, setYenidenBasliyor] = useState<string | null>(null);
   // Müşteri ekranı sepeti her sayfada görür (bkz. kanca).
   useMusteriEkraniYayini();
+  useOdakOnarici();
 
   useEffect(() => {
     tazele().catch((hata) => setBaslatmaHatasi(hata instanceof Error ? hata.message : String(hata)));
@@ -136,6 +138,7 @@ export function App() {
         )}
       </Routes>
       <BildirimKatmani />
+      <OnayKatmani />
       <EkranTusTakimi />
     </>
   );

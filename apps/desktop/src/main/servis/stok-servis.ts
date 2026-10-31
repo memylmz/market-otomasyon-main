@@ -10,6 +10,7 @@ import {
   gunAnahtari,
   hatalar,
   HATA_KODU,
+  kalemTutari,
   kdvAyir,
   simdi,
   UygulamaHatasi,
@@ -293,8 +294,8 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
   let araToplam = 0;
   let kdvToplam = 0;
   const hesaplananlar = girdi.kalemler.map((kalem) => {
-    const net = Math.round((kalem.miktar * kalem.birim_fiyat) / 1000);
-    const { kdv } = kdvAyir(net + Math.round((net * kalem.kdv_orani) / 100), kalem.kdv_orani);
+    // Faturadaki satır tutarı geldiyse o esastır (bkz. kalemTutari) — kuruş farkı olmasın.
+    const { net, kdv } = kalemTutari(kalem);
     araToplam += net;
     kdvToplam += kdv;
     return { ...kalem, net, kdv };

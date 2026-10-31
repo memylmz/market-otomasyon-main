@@ -51,6 +51,17 @@ export interface SepetSatiri {
    * edici tek bilgi budur (§10.3).
    */
   ozelAd?: string;
+  /**
+   * Paket satırı (12'li kibrit): miktar PAKET sayısıdır, fiyat paketin
+   * fiyatıdır; stoktan miktar × çarpan düşer (bkz. shared/paket.ts).
+   */
+  paket?: SepetPaketi;
+}
+
+export interface SepetPaketi {
+  id: string;
+  carpan: number;
+  ad: string;
 }
 
 export interface EklenecekUrun {
@@ -68,6 +79,7 @@ export interface EklenecekUrun {
   /** KDV hariç alış — zarar uyarısı için (bkz. SepetSatiri). */
   alisFiyati?: Kurus;
   ozelAd?: string;
+  paket?: SepetPaketi;
 }
 
 /**
@@ -159,8 +171,9 @@ function satirGirdileri(satirlar: SepetSatiri[], kampanyalar: KampanyaTanimi[] =
   const zaman = simdi();
   return satirlar.map((s) => {
     const elle = Boolean(s.iskontoYuzde) || Boolean(s.iskontoTutar);
+    // Paket satırına miktar kampanyası uygulanmaz ("3 al 2 öde" tek ürün içindir).
     const kampanya =
-      elle || kampanyalar.length === 0
+      elle || kampanyalar.length === 0 || s.paket
         ? 0
         : miktarKampanyasiIskontosu(
             s.birimFiyat,
@@ -239,6 +252,8 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
           // Muhtelif satırlarda ad da eşleşmeli: "Pil 25₺" ile "Gazete 25₺"
           // aynı ürün kaydına bağlı olsa da tek satırda toplanmamalı.
           x.ozelAd === urun.ozelAd &&
+          // Tekli ile paket aynı satırda toplanmaz (fiyatları ve stok karşılıkları farklı).
+          x.paket?.id === urun.paket?.id &&
           !x.iskontoYuzde &&
           !x.iskontoTutar,
       );
@@ -265,6 +280,7 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
         stok: urun.stok,
         alisFiyati: urun.alisFiyati,
         ozelAd: urun.ozelAd,
+        ...(urun.paket ? { paket: urun.paket } : {}),
       };
       return { satirlar: [...s.satirlar, yeni], seciliAnahtar: anahtar };
     });
@@ -448,6 +464,7 @@ export function satisGirdisiOlustur(
       iskonto_yuzde: x.iskontoYuzde,
       iskonto_tutar: x.iskontoTutar,
       kampanya_id: x.kampanyaId,
+      ...(x.paket ? { paket_id: x.paket.id } : {}),
     })),
     // POS onay bilgisi de taşınır: atılırsa kart çekiminin kanıtı kayda ve fişe ulaşmaz.
     odemeler: odemeler.map((o) => ({

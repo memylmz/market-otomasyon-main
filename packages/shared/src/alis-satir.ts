@@ -8,6 +8,7 @@
  * fonksiyona çıkarıldı ve testle kilitlendi; `.tsx` yalnız çizim yapar.
  */
 
+import { miktarParse } from './miktar.js';
 import { kdvAyir, kdvEkle } from './para.js';
 import type { Kurus } from './para.js';
 import type { YeniUrunKarti } from './toplu-urun.js';
@@ -17,6 +18,11 @@ export interface AlisSatiri {
   barkod: string;
   ad: string;
   miktar: string;
+  /**
+   * Faturadaki satır tutarı, kullanıcı ELLE yazdıysa (faturadaki yazılışla).
+   * Miktar ya da birim fiyat değişince silinir; yoksa adet × birim fiyattır.
+   */
+  tutar?: Kurus;
   /** KDV hariç birim alış fiyatı. */
   alis: number;
   /** KDV dahil raf fiyatı; 0 = boş bırakılmış (marjdan hesaplanır). */
@@ -48,6 +54,40 @@ export interface AlisSatiri {
  */
 export function alisMatrahi(girilen: Kurus, kdvOrani: number, kdvDahil: boolean): Kurus {
   return kdvDahil ? kdvAyir(girilen, kdvOrani).matrah : girilen;
+}
+
+/**
+ * Satırın faturadaki tutarı: miktar × birim fiyat, faturadaki yazılışla
+ * (KDV dahil girildiyse dahil). Toptancının kâğıdındaki satırla birebir
+ * karşılaştırılsın diye. Miktar okunamazsa 0.
+ */
+export function satirTutari(miktarMetni: string, birimFiyat: Kurus): Kurus {
+  const miktar = miktarParse(miktarMetni);
+  if (miktar === null || miktar <= 0) return 0;
+  return Math.round((miktar * birimFiyat) / 1000);
+}
+
+/**
+ * Faturadaki satır tutarını (faturadaki yazılışla) KDV hariç tutara ve
+ * KDV'ye ayırır. KDV hariç faturada tutarın kendisi KDV hariçtir, KDV
+ * sonra hesaplanır (`kdv` yok). KDV dahil faturada tutar KDV'yi içerir:
+ * net + kdv tam olarak faturadaki tutara eşittir — kuruş kaybı olmaz.
+ */
+export function faturaSatiriAyir(faturadaki: Kurus, kdvOrani: number, kdvDahil: boolean): { net: Kurus; kdv?: Kurus } {
+  if (!kdvDahil) return { net: faturadaki };
+  const { matrah } = kdvAyir(faturadaki, kdvOrani);
+  return { net: matrah, kdv: faturadaki - matrah };
+}
+
+/**
+ * Faturadaki SATIR TUTARINDAN birim fiyat: iskontolu faturada birim fiyat
+ * yazmaz ya da yuvarlanmış yazar; tutar ÷ adet hesabı elle yapılmasın.
+ * Birim fiyat kuruşa yuvarlanır; miktar okunamazsa null (birim değişmez).
+ */
+export function tutardanBirimFiyat(miktarMetni: string, tutar: Kurus): Kurus | null {
+  const miktar = miktarParse(miktarMetni);
+  if (miktar === null || miktar <= 0) return null;
+  return Math.round((tutar * 1000) / miktar);
 }
 
 /** `alisMatrahi`nın tersi: KDV hariç alışı faturadaki yazılışa çevirir (ön doldurma için). */
@@ -122,7 +162,8 @@ export function satiriKat(mevcut: readonly AlisSatiri[], yeni: AlisSatiri, adet 
     const taban = Number.isFinite(oncekiMiktar) ? oncekiMiktar : 0;
     const yeniMiktar = taban + adet;
     const satirlar = mevcut.map((s, i) =>
-      i === sira ? { ...s, miktar: String(Number(yeniMiktar.toFixed(3))).replace('.', ',') } : s,
+      // Miktar değişti: elle yazılmış satır tutarı artık geçersiz (adet × birim esas).
+      i === sira ? { ...s, miktar: String(Number(yeniMiktar.toFixed(3))).replace('.', ','), tutar: undefined } : s,
     );
     return { satirlar, vurgulanan: sira, birlesti: true };
   }

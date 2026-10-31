@@ -25,6 +25,10 @@ import {
   HATA_KODU,
   kampanyaFiyatiBul,
   miktarKampanyasiIskontosu,
+  paketFiyati,
+  paketKampanyaFiyati,
+  paketliAd,
+  tekAdet,
   limitAsimi,
   odemeDogrula,
   sepetHesapla,
@@ -46,7 +50,7 @@ import {
 import type { Vt } from '../db/surucu.js';
 import { ayarMetin } from '../depo/ayar.js';
 import { cariBul, cariHareketEkle } from '../depo/cari.js';
-import { etkinKampanyalar, urunleriBul, type UrunKaydi } from '../depo/katalog.js';
+import { etkinKampanyalar, paketBul, urunleriBul, type UrunKaydi } from '../depo/katalog.js';
 import { kasaHareketEkle } from '../depo/kasa.js';
 import { denetimYaz, gunlukOzetEkle, urunOzetEkle } from '../depo/ozet.js';
 import { sonrakiSayac } from '../depo/ortak.js';
@@ -88,10 +92,14 @@ interface CozulmusKalem {
    * alış). Raftaki eski ucuz mal yeni zamlı fiyattan maliyetlenmesin diye.
    */
   birimMaliyet: Kurus;
+  /** TEK adedin maliyeti — stok hareketine yazılır (paket satırında birimMaliyet / çarpan). */
+  tekMaliyet: Kurus;
   barkod: string | null;
   kampanyaId: string | null;
   iskontoYuzde?: number;
   iskontoTutar?: Kurus;
+  /** Paket satırı: miktar paket sayısıdır (bkz. shared/paket.ts). */
+  paket: { carpan: number; ad: string } | null;
 }
 
 function urunleriCoz(baglam: Baglam, aktor: Aktor, girdi: SatisGirdi, zaman: string): CozulmusKalem[] {
@@ -122,14 +130,25 @@ function urunleriCoz(baglam: Baglam, aktor: Aktor, girdi: SatisGirdi, zaman: str
       });
     }
 
+    /*
+     * PAKET SATIRI: miktar paket sayısıdır, fiyat paketin fiyatıdır. Paket
+     * silinmiş ya da başka ürüne aitse satış durur — yanlış çarpanla stok
+     * düşmektense kasiyer ürünü yeniden okutur.
+     */
+    const paket = kalem.paket_id ? paketBul(baglam.vt, kalem.paket_id) : null;
+    if (kalem.paket_id && (!paket || paket.urun_id !== urun.id || !paket.aktif_mi)) {
+      throw hatalar.dogrulama(`"${urun.ad}" için seçilen paket artık tanımlı değil. Ürünü yeniden okutun.`);
+    }
+    if (paket && kalem.miktar % 1000 !== 0) {
+      throw hatalar.dogrulama(`"${urun.ad}" paket olarak satılıyor; miktar tam paket olmalıdır.`);
+    }
+
     // İstemciden gelen fiyata körü körüne güvenilmez: beklenen fiyat sunucu
     // tarafında yeniden hesaplanır; sapma varsa yetki aranır (§15.4).
-    const { fiyat: beklenen, kampanyaId } = kampanyaFiyatiBul(
-      urun.satis_fiyati,
-      { urunId: urun.id, kategoriId: urun.kategori_id },
-      kampanyalar,
-      zaman,
-    );
+    const hedef = { urunId: urun.id, kategoriId: urun.kategori_id };
+    const { fiyat: beklenen, kampanyaId } = paket
+      ? paketKampanyaFiyati(paketFiyati(paket, urun.satis_fiyati), hedef, kampanyalar, zaman)
+      : kampanyaFiyatiBul(urun.satis_fiyati, hedef, kampanyalar, zaman);
 
     // Muhtelif kaleminde fiyat sapması denetimi UYGULANMAZ: kartın fiyatı
     // tanım gereği 0'dır, denetim uygulansaydı `satis.fiyat_degistir` yetkisi
@@ -160,23 +179,29 @@ function urunleriCoz(baglam: Baglam, aktor: Aktor, girdi: SatisGirdi, zaman: str
      * kampanya devreye girmez, iki indirim üst üste binmez.
      */
     const elleIskonto = Boolean(kalem.iskonto_yuzde) || Boolean(kalem.iskonto_tutar);
-    const miktarKampanyasi = elleIskonto
-      ? { iskonto: 0, kampanyaId: null }
-      : miktarKampanyasiIskontosu(
-          birimFiyat,
-          kalem.miktar,
-          urun.birim_tipi,
-          { urunId: urun.id, kategoriId: urun.kategori_id },
-          kampanyalar,
-          zaman,
-        );
+    // Paket satırına miktar kampanyası uygulanmaz ("3 al 2 öde" tek ürün içindir).
+    const miktarKampanyasi =
+      elleIskonto || paket
+        ? { iskonto: 0, kampanyaId: null }
+        : miktarKampanyasiIskontosu(
+            birimFiyat,
+            kalem.miktar,
+            urun.birim_tipi,
+            { urunId: urun.id, kategoriId: urun.kategori_id },
+            kampanyalar,
+            zaman,
+          );
 
+    const tekMaliyet = maliyetler.get(urun.id) ?? urun.alis_fiyati;
     return {
       urun,
-      ad: kalem.urun_adi?.trim() || urun.ad,
+      ad: paket ? paketliAd(urun.ad, paket.ad) : kalem.urun_adi?.trim() || urun.ad,
       miktar: kalem.miktar,
       birimFiyat,
-      birimMaliyet: maliyetler.get(urun.id) ?? urun.alis_fiyati,
+      // Paketin maliyeti: içindeki adet × tek maliyet (kâr = satır − miktar × birim maliyet tutsun).
+      birimMaliyet: paket ? tekMaliyet * paket.carpan : tekMaliyet,
+      tekMaliyet,
+      paket: paket ? { carpan: paket.carpan, ad: paket.ad } : null,
       barkod: kalem.barkod ?? null,
       kampanyaId: miktarKampanyasi.kampanyaId ?? kampanyaId ?? kalem.kampanya_id ?? null,
       iskontoYuzde: kalem.iskonto_yuzde,
@@ -277,11 +302,12 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
   );
   for (const kalem of kalemler) {
     const mevcut = stoklar.get(kalem.urun.id) ?? 0;
-    const sonrasi = mevcut - kalem.miktar;
+    const istenen = tekAdet(kalem.miktar, kalem.paket?.carpan);
+    const sonrasi = mevcut - istenen;
     if (sonrasi < 0) {
       if (!ayarlar.negatifStokIzni && !girdi.negatif_stok_onaylandi) {
         throw new UygulamaHatasi(HATA_KODU.STOK_YETERSIZ, `"${kalem.urun.ad}" için stok yetersiz.`, {
-          detay: { urun_id: kalem.urun.id, mevcut, istenen: kalem.miktar },
+          detay: { urun_id: kalem.urun.id, mevcut, istenen },
         });
       }
       uyarilar.push(`"${kalem.urun.ad}" stoğu eksiye düştü.`);
@@ -342,19 +368,21 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
           satir_toplam: satir.satirToplam,
           kampanya_id: kalem.kampanyaId,
           sira: i,
+          paket_carpani: kalem.paket?.carpan ?? null,
+          paket_adi: kalem.paket?.ad ?? null,
         },
         cihazId,
         zaman,
       );
 
-      // Stok çıkışı — miktar negatif yazılır (append-only, §8.1).
+      // Stok çıkışı — miktar negatif yazılır (append-only, §8.1). Paket satırında içindeki adet kadar.
       hareketEkle(
         vt,
         {
           urun_id: kalem.urun.id,
           hareket_tipi: 'SATIS',
-          miktar: -kalem.miktar,
-          birim_maliyet: kalem.birimMaliyet,
+          miktar: -tekAdet(kalem.miktar, kalem.paket?.carpan),
+          birim_maliyet: kalem.tekMaliyet,
           belge_id: satisId,
           belge_tipi: 'SATIS',
           kullanici_id: aktor.kullaniciId,
@@ -366,7 +394,14 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
       const maliyet = Math.round((kalem.miktar * kalem.birimMaliyet) / 1000);
       const satirKar = satir.matrah - maliyet;
       brutKar += satirKar;
-      urunOzetEkle(vt, kalem.urun.id, gun, cihazId, { adet: kalem.miktar, ciro: satir.satirToplam, kar: satirKar }, zaman);
+      urunOzetEkle(
+        vt,
+        kalem.urun.id,
+        gun,
+        cihazId,
+        { adet: tekAdet(kalem.miktar, kalem.paket?.carpan), ciro: satir.satirToplam, kar: satirKar },
+        zaman,
+      );
     });
 
     let nakit = 0;
@@ -489,6 +524,8 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
             kdv_orani: satir.kdvOrani,
             kdv_tutar: satir.kdvTutar,
             satir_toplam: satir.satirToplam,
+            paket_carpani: kalemler[i]?.paket?.carpan ?? null,
+            paket_adi: kalemler[i]?.paket?.ad ?? null,
           })),
           // Alınan / para üstü panelde fişin aynısını göstermek için gider.
           odemeler: odemeler.map((o, i) => ({
@@ -537,6 +574,13 @@ export function satisKesinlestir(baglam: Baglam, aktor: Aktor, hamGirdi: unknown
     detay,
     uyarilar,
   };
+}
+
+/** Kalemin TEK adedinin maliyeti: paket satırında paketin maliyeti / içindeki adet. */
+function tekBirimMaliyet(kalem: { birim_maliyet: Kurus; paket_carpani: number | null }): Kurus {
+  return kalem.paket_carpani && kalem.paket_carpani > 1
+    ? Math.round(kalem.birim_maliyet / kalem.paket_carpani)
+    : kalem.birim_maliyet;
 }
 
 function vadeTarihiHesapla(baglam: Baglam, cariId: string, zaman: string): string | null {
@@ -625,8 +669,8 @@ export function satisIptal(
         {
           urun_id: kalem.urun_id,
           hareket_tipi: 'DUZELTME',
-          miktar: kalem.miktar,
-          birim_maliyet: kalem.birim_maliyet,
+          miktar: tekAdet(kalem.miktar, kalem.paket_carpani),
+          birim_maliyet: tekBirimMaliyet(kalem),
           belge_id: satisId,
           belge_tipi: 'SATIS_IPTAL',
           aciklama: `Satış iptali: ${neden}`,
@@ -638,7 +682,14 @@ export function satisIptal(
       const maliyet = Math.round((kalem.miktar * kalem.birim_maliyet) / 1000);
       const satirKar = kalem.satir_toplam - kalem.kdv_tutar - maliyet;
       brutKar += satirKar;
-      urunOzetEkle(vt, kalem.urun_id, gun, cihazId, { adet: -kalem.miktar, ciro: -kalem.satir_toplam, kar: -satirKar }, zaman);
+      urunOzetEkle(
+        vt,
+        kalem.urun_id,
+        gun,
+        cihazId,
+        { adet: -tekAdet(kalem.miktar, kalem.paket_carpani), ciro: -kalem.satir_toplam, kar: -satirKar },
+        zaman,
+      );
     }
 
     if (kasaOturumId && nakitIade > 0) {
@@ -860,6 +911,9 @@ export function iadeYap(
     const kaynakKalem = kalemHaritasi.get(istek.satis_kalemi_id);
     if (!kaynakKalem) throw hatalar.bulunamadi('Satış kalemi');
     const dahaOnce = kaynakKalem.iade_edilen ?? 0;
+    if (kaynakKalem.paket_carpani && istek.miktar % 1000 !== 0) {
+      throw hatalar.dogrulama(`"${kaynakKalem.urun_adi}" paket olarak satıldı; tam paket iade edilebilir.`);
+    }
     // `iade_edilen` negatif tutulur (iade kalemleri negatif miktarlıdır).
     const kalanIadeEdilebilir = kaynakKalem.miktar + dahaOnce;
     if (istek.miktar > kalanIadeEdilebilir) {
@@ -957,6 +1011,8 @@ export function iadeYap(
           kampanya_id: satir.kaynak.kampanya_id,
           sira: i,
           kaynak_kalem_id: satir.kaynak.id,
+          paket_carpani: satir.kaynak.paket_carpani,
+          paket_adi: satir.kaynak.paket_adi,
         },
         cihazId,
         zaman,
@@ -968,8 +1024,8 @@ export function iadeYap(
         {
           urun_id: satir.kaynak.urun_id,
           hareket_tipi: 'IADE',
-          miktar: satir.miktar,
-          birim_maliyet: satir.kaynak.birim_maliyet,
+          miktar: tekAdet(satir.miktar, satir.kaynak.paket_carpani),
+          birim_maliyet: tekBirimMaliyet(satir.kaynak),
           belge_id: satisId,
           belge_tipi: 'IADE',
           aciklama: girdi.neden,
@@ -982,7 +1038,14 @@ export function iadeYap(
       const maliyet = Math.round((satir.miktar * satir.kaynak.birim_maliyet) / 1000);
       const satirKar = satir.matrah - maliyet;
       brutKar -= satirKar;
-      urunOzetEkle(vt, satir.kaynak.urun_id, gun, cihazId, { adet: -satir.miktar, ciro: -satir.tutar, kar: -satirKar }, zaman);
+      urunOzetEkle(
+        vt,
+        satir.kaynak.urun_id,
+        gun,
+        cihazId,
+        { adet: -tekAdet(satir.miktar, satir.kaynak.paket_carpani), ciro: -satir.tutar, kar: -satirKar },
+        zaman,
+      );
     });
 
     odemeEkle(
@@ -1096,6 +1159,8 @@ export function iadeYap(
             kdv_orani: s.kaynak.kdv_orani,
             kdv_tutar: -s.kdv,
             satir_toplam: -s.tutar,
+            paket_carpani: s.kaynak.paket_carpani,
+            paket_adi: s.kaynak.paket_adi,
           })),
           odemeler: [
             {

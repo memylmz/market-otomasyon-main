@@ -298,6 +298,9 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         const urunId = metin(kalem.urun_id);
         if (!urunId) continue;
         const miktar = sayi(kalem.miktar);
+        // Paket satırı: miktar paket sayısıdır; stok ve satılan adet içindeki adet kadar (eski kasalar göndermez).
+        const paketCarpani = sayi(kalem.paket_carpani) > 1 ? sayi(kalem.paket_carpani) : null;
+        const tekMiktar = paketCarpani ? miktar * paketCarpani : miktar;
         const satirToplam = sayi(kalem.satir_toplam);
         const kdvTutar = sayi(kalem.kdv_tutar);
         const birimMaliyet = sayi(kalem.birim_maliyet);
@@ -328,8 +331,8 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         await islem.calistir(
           `INSERT INTO satis_kalemleri (id, isletme_id, satis_id, urun_id, urun_adi, barkod, miktar,
                                         birim_fiyat, birim_maliyet, iskonto, kdv_orani, kdv_tutar, satir_toplam,
-                                        kaynak_kalem_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        kaynak_kalem_id, paket_carpani, paket_adi)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(isletme_id, id) DO NOTHING`,
           [
             // Kasadaki kalem kimliği (panelin kısmi iadesi bunu gönderir); eski kasalar göndermez.
@@ -347,9 +350,11 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
             kdvTutar,
             satirToplam,
             kaynakKalemId,
+            paketCarpani,
+            paketCarpani ? metin(kalem.paket_adi) || null : null,
           ],
         );
-        await urunOzetEkle(islem, baglam, urunId, gun, { adet: miktar, ciro: satirToplam, kar });
+        await urunOzetEkle(islem, baglam, urunId, gun, { adet: tekMiktar, ciro: satirToplam, kar });
 
         /**
          * Stok özeti satış olayından düşülür.
@@ -366,7 +371,7 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
          * düşürür, iadede negatif miktar geri ekler. Burada ayrıca iadeyi
          * ayırmak işareti ters çevirir ve iade stoğu ARTIRACAĞINA azaltırdı.
          */
-        await stokOzetEkle(islem, baglam, urunId, -miktar);
+        await stokOzetEkle(islem, baglam, urunId, -tekMiktar);
       }
 
       /**
@@ -453,7 +458,8 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
         // `iptal_mi = 0` koşulu içinde olduğumuz için bu blok satış başına
         // yalnız bir kez çalışır; iki kez iptal gelse stok iki kez artmaz.
         const kalemler = await islem.tumu<{ urun_id: string; miktar: number }>(
-          'SELECT urun_id, miktar FROM satis_kalemleri WHERE isletme_id = ? AND satis_id = ?',
+          // Paket satırında stok içindeki adet kadar geri döner.
+          'SELECT urun_id, miktar * COALESCE(paket_carpani, 1) AS miktar FROM satis_kalemleri WHERE isletme_id = ? AND satis_id = ?',
           [isletmeId, satisId],
         );
         for (const kalem of kalemler) {
@@ -716,6 +722,31 @@ async function isle(islem: Islem, baglam: IslemeBaglami, tip: OlayTipi, veri: Re
           metin(veri.urun_id),
           metin(veri.barkod),
           veri.ambalaj_aciklamasi ?? null,
+          veri.aktif_mi === false ? 0 : 1,
+          metin(veri.created_at, baglam.zaman),
+          metin(veri.updated_at, baglam.zaman),
+          baglam.cihazId,
+        ],
+        metin(veri.id),
+        metin(veri.updated_at, baglam.zaman),
+      );
+      return;
+    }
+
+    case 'URUN_PAKETI_KAYDEDILDI': {
+      const carpan = sayi(veri.carpan);
+      if (!metin(veri.id) || !metin(veri.urun_id) || carpan < 2) return;
+      await lwwUpsert(
+        islem,
+        baglam,
+        'urun_paketleri',
+        ['urun_id', 'ad', 'carpan', 'fiyat', 'barkod', 'aktif_mi', 'created_at', 'updated_at', 'cihaz_id'],
+        [
+          metin(veri.urun_id),
+          metin(veri.ad, 'Paket'),
+          carpan,
+          veri.fiyat === null || veri.fiyat === undefined ? null : sayi(veri.fiyat),
+          metin(veri.barkod) || null,
           veri.aktif_mi === false ? 0 : 1,
           metin(veri.created_at, baglam.zaman),
           metin(veri.updated_at, baglam.zaman),

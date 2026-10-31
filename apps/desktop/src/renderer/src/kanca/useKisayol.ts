@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { onayAcikMi } from '../durum/onay';
 
 export interface KisayolTanimi {
   /** 'F2', 'F12', 'Escape', 'Enter', 'ctrl+p' gibi. Birden çok alternatif için dizi. */
@@ -59,6 +60,8 @@ export function useKisayol(kisayollar: KisayolTanimi[], bagimlilik: unknown[] = 
 
   useEffect(() => {
     const dinleyici = (olay: KeyboardEvent) => {
+      // Onay sorusu açıkken Enter/ESC sorunun düğmelerine aittir.
+      if (onayAcikMi()) return;
       for (const kisayol of referans.current) {
         if (kisayol.aktif === false) continue;
         if (!tusEslesiyorMu(olay, kisayol.tus, kisayol.shiftYokSay)) continue;
@@ -122,7 +125,7 @@ export function useBarkodOdakYakalayici(secenekler: {
   useEffect(() => {
     const dinleyici = (olay: KeyboardEvent) => {
       const { aktif, onKarakter, odakla } = referans.current;
-      if (!aktif) return;
+      if (!aktif || onayAcikMi()) return;
       if (olay.ctrlKey || olay.altKey || olay.metaKey) return;
       // Yalnız tek karakterlik basılabilir tuşlar; Enter/F2/Ok tuşları kısayollara ait.
       if (olay.key.length !== 1) return;

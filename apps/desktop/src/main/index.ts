@@ -8,8 +8,10 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
 import { hataNormalize } from '@market/shared';
+import { yazdirmaKuyrugunuIsit, yazdirmaKuyrugunuKapat } from './donanim/yazici.js';
 import { ipcKaydet, olaylariBagla } from './ipc/index.js';
 import { medyaSemasiniKaydet, MusteriEkraniYoneticisi } from './musteri-ekrani/pencere.js';
+import { yaziciAyariniOku } from './servis/yazdirma-servis.js';
 import { Uygulama } from './uygulama.js';
 
 // Uygulama adı `app.getPath('userData')` yolunu belirler. Ayarlanmazsa paket adı
@@ -69,6 +71,15 @@ function pencereOlustur(): BrowserWindow {
   });
 
   pencere.once('ready-to-show', () => pencere.show());
+  /*
+   * Windows'ta pencere etkinleştiğinde klavye odağı her zaman sayfaya
+   * geçmiyor (onay/dosya penceresi kapanınca, başka programdan dönünce):
+   * pencere önde görünür ama kutulara yazı yazılmaz. Odak her seferinde
+   * sayfaya da verilir.
+   */
+  pencere.on('focus', () => {
+    if (!pencere.isDestroyed()) pencere.webContents.focus();
+  });
 
   // Dış bağlantılar uygulamanın içinde değil, işletim sisteminin varsayılan
   // uygulamasında açılır. Beyaz liste dar tutulur: `https` (WhatsApp bağlantısı),
@@ -153,6 +164,13 @@ async function baslat(): Promise<void> {
   if (!GELISTIRME) Menu.setApplicationMenu(null);
 
   anaPencere = pencereOlustur();
+  // USB fiş yazıcısının yazdırma süreci şimdi hazırlanır: ilk fiş beklemesin.
+  try {
+    const yazici = yaziciAyariniOku(uygulama.baglam);
+    if ((yazici.tip === 'USB' || yazici.tip === 'OTOMATIK') && yazici.usbAdi?.trim()) yazdirmaKuyrugunuIsit();
+  } catch {
+    /* kurulum öncesi: ayar yok */
+  }
   // Kasa penceresinden SONRA: otomatik seçim "kasanın olmadığı ekran"dır.
   musteriEkrani.baslat();
 }
@@ -191,6 +209,7 @@ app.on('before-quit', (olay) => {
   ipcTemizle?.();
   olayTemizle?.();
   musteriEkrani?.durdur();
+  yazdirmaKuyrugunuKapat();
   uygulama
     .kapat()
     .catch(() => undefined)

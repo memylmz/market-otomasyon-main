@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { paraFormat, paraParse, tarihFormat, type KampanyaKapsami, type KampanyaTipi, type Kurus } from '@market/shared';
 import { Alan, BosDurum, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { bildir, hatayiBildir } from '../durum/bildirim';
+import { onayla } from '../durum/onay';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
 
@@ -373,7 +374,11 @@ function KampanyaFormu({
     }
     if (
       zarar.adet > 0 &&
-      !window.confirm(`Bu kampanyayla ${zarar.adet} ürün maliyetinin altında, ZARARINA satılacak. Yine de kaydedilsin mi?`)
+      !(await onayla(`Bu kampanyayla ${zarar.adet} ürün maliyetinin altında, ZARARINA satılacak. Yine de kaydedilsin mi?`, {
+        baslik: 'Zararına satış',
+        onaylaMetni: 'Yine de kaydet',
+        tehlikeli: true,
+      }))
     ) {
       return;
     }

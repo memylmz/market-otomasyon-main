@@ -37,6 +37,9 @@ export interface TopluGirisSatiri {
    * Verilmezse mevcut üründe `satis` yok sayılır (eski davranış).
    */
   mevcut_satis?: string;
+  /** Faturadaki satırın KDV hariç tutarı ve KDV'si (bkz. zAlisGirdi `satir_net`). */
+  satir_net?: number;
+  satir_kdv?: number;
 }
 
 /**
@@ -144,7 +147,12 @@ export function topluGirisKalemleri(
     // SKT/lot mevcut VE yeni ürün satırında ortaktır; doluysa taşınır, boşsa şemadaki opsiyonel alan hiç konmaz.
     const skt = satir.skt?.trim();
     const lot = satir.lot?.trim();
-    const sktLotAlanlari = { ...(skt ? { skt } : {}), ...(lot ? { lot_no: lot } : {}) };
+    const sktLotAlanlari = {
+      ...(skt ? { skt } : {}),
+      ...(lot ? { lot_no: lot } : {}),
+      ...(satir.satir_net !== undefined ? { satir_net: satir.satir_net } : {}),
+      ...(satir.satir_kdv !== undefined ? { satir_kdv: satir.satir_kdv } : {}),
+    };
 
     if (satir.urun_id) {
       /*

@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { carpanCoz, satiriKat, sktSutunuGerekli, type AlisSatiri } from '../src/alis-satir.js';
-import { alisGosterimi, alisMatrahi, ayniKarOraniylaRafFiyati } from '../src/alis-satir.js';
+import { alisGosterimi, alisMatrahi, ayniKarOraniylaRafFiyati, satirTutari, tutardanBirimFiyat } from '../src/alis-satir.js';
 import { barkodUyarisi } from '../src/id.js';
 
 const satir = (ek: Partial<AlisSatiri> = {}): AlisSatiri => ({
@@ -144,5 +144,33 @@ describe('barkodUyarisi', () => {
     expect(barkodUyarisi('8691234567905')).toMatch(/kontrol hanesi/);
     expect(barkodUyarisi('110152388694740')).toMatch(/15 haneli/);
     expect(barkodUyarisi('123456789')).toMatch(/9 haneli/);
+  });
+});
+
+describe('satır tutarı ↔ birim fiyat', () => {
+  it('satır tutarı miktar × birim fiyattır', () => {
+    expect(satirTutari('6', 5545)).toBe(33270);
+    expect(satirTutari('2,5', 1000)).toBe(2500);
+    expect(satirTutari('', 1000)).toBe(0);
+  });
+
+  it('çuval örneği: 1.000 TL / 25 paket = 40 TL', () => {
+    expect(tutardanBirimFiyat('25', 100000)).toBe(4000);
+  });
+
+  it('iskontolu satır: 332,70 / 6 = 55,45 ve geri 332,70', () => {
+    const birim = tutardanBirimFiyat('6', 33270)!;
+    expect(birim).toBe(5545);
+    expect(satirTutari('6', birim)).toBe(33270);
+  });
+
+  it('bölünmeyen tutar kuruşa yuvarlanır, fark en fazla miktar × yarım kuruş', () => {
+    expect(tutardanBirimFiyat('3', 100000)).toBe(33333);
+    expect(satirTutari('3', 33333)).toBe(99999);
+  });
+
+  it('miktar yoksa birim fiyat hesaplanmaz', () => {
+    expect(tutardanBirimFiyat('', 5000)).toBeNull();
+    expect(tutardanBirimFiyat('0', 5000)).toBeNull();
   });
 });

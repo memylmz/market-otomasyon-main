@@ -101,6 +101,9 @@ import {
   kisaKodOner,
   topluFiyatIslemi,
   urunArama,
+  urunPaketleriniKaydet,
+  urunPaketleriniOku,
+  urunPaketSecenekleri,
   urunDetayi,
   urunleriDisaAktar,
   urunleriIceAktar,
@@ -372,6 +375,11 @@ export function kanallariOlustur(
     // Muhtelif kalem satış yetkisiyle kullanılır; katalog düzenleme yetkisi istemez.
     'urun.muhtelif': () => (a(), muhtelifUrunu(b())),
     'urun.kaydet': (girdi: Record<string, unknown>) => ({ id: urunuKaydet(b(), a(), girdi) }),
+    /** Satış ekranı: seçilen ürünün paketleri, kampanyalı fiyatlarıyla ("tekli / 12'li" sorusu). */
+    'urun.paketSecenekleri': (girdi: { urunId: string }) => (a(), urunPaketSecenekleri(b(), girdi.urunId)),
+    /** Ürün kartı: tanımlı paketler. */
+    'urun.paketler': (girdi: { urunId: string }) => (a(), urunPaketleriniOku(b(), girdi.urunId)),
+    'urun.paketleriKaydet': (girdi: Record<string, unknown>) => urunPaketleriniKaydet(b(), a(), girdi),
     'urun.pasiflestir': (girdi: { urunId: string; pasif: boolean }) => {
       urunuPasiflestir(b(), a(), girdi.urunId, girdi.pasif);
       return { basarili: true };
@@ -1086,6 +1094,8 @@ export function kanallariOlustur(
         properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[],
       };
       const sonuc = pencere ? await dialog.showOpenDialog(pencere, secenek) : await dialog.showOpenDialog(secenek);
+      // Seçim penceresi kapanınca klavye odağı sayfaya kendiliğinden dönmeyebiliyor.
+      if (pencere && !pencere.isDestroyed()) pencere.webContents.focus();
       return { yol: sonuc.canceled ? null : (sonuc.filePaths[0] ?? null) };
     },
     'yedek.ikincilDurum': () => (a(), ikincilKlasorDurumu(b().vt)),
@@ -1121,10 +1131,28 @@ export function kanallariOlustur(
         ],
       };
       const sonuc = pencere ? await dialog.showOpenDialog(pencere, secenek) : await dialog.showOpenDialog(secenek);
+      // Seçim penceresi kapanınca klavye odağı sayfaya kendiliğinden dönmeyebiliyor.
+      if (pencere && !pencere.isDestroyed()) pencere.webContents.focus();
       const yol = sonuc.canceled ? null : (sonuc.filePaths[0] ?? null);
       if (!yol) return { yol: null };
       const dogrulama = await yedegiDogrula(yol);
       return { yol, dosya: basename(yol), saglam: dogrulama.saglam, detay: dogrulama.detay };
+    },
+    /**
+     * Klavye odağı onarımı. Arayüz, bir yazı kutusuna tıklandığı hâlde sayfanın
+     * odağı olmadığını görünce çağırır (Windows'ta pencere önde görünür ama
+     * tuşlar sayfaya gitmez). Pencereyi bırakıp yeniden etkinleştirmek, odağı
+     * sayfaya geri veren bilinen tek güvenilir yoldur. Oturum gerektirmez:
+     * giriş ekranında da gerekebilir.
+     */
+    'pencere.odakOnar': () => {
+      const pencere = pencereGetir?.();
+      if (!pencere || pencere.isDestroyed()) return { onarildi: false };
+      if (pencere.isMinimized()) pencere.restore();
+      pencere.blur();
+      pencere.focus();
+      pencere.webContents.focus();
+      return { onarildi: true };
     },
     'veri.sifirla': async (girdi: { onay: string }) => {
       const sonuc = await veriyiSifirla(b(), a(), girdi.onay);

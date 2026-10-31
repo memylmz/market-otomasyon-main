@@ -33,6 +33,9 @@ function pencereAl(enNokta: number): BrowserWindow {
     height: 200,
     show: false,
     frame: false,
+    // Hiç görünmeyen çizim penceresi kasa penceresinin klavye odağını asla almamalı.
+    focusable: false,
+    skipTaskbar: true,
     webPreferences: {
       // Ekrana çizilmeden bellekte çizim: pencere kullanıcıya hiç görünmez.
       offscreen: true,

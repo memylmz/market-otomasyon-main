@@ -119,6 +119,7 @@ export function OdemeDiyalogu({
    * tutarın tamamı veresiyeye geçiyordu — parçalı ödeme yapılamıyordu.
    */
   const yontemAlanlari = useRef<HTMLDivElement>(null);
+  const kokRef = useRef<HTMLDivElement>(null);
   const baslangicRef = useRef(baslangicTipi);
   baslangicRef.current = baslangicTipi;
   useEffect(() => {
@@ -135,7 +136,14 @@ export function OdemeDiyalogu({
      * "fazla girilen") — parçalı ödeme bu yüzden yapılamıyordu.
      */
     const zamanlayici = setTimeout(() => {
-      const alan = yontemAlanlari.current?.querySelector<HTMLInputElement>(`[data-yontem="${tip}"] input`);
+      /*
+       * Nakit satışta imleç MÜŞTERİDEN ALINAN NAKİT kutusundadır: kasiyer
+       * verilen parayı yazar ("200"), para üstünü görür, Enter'la bitirir.
+       * Verilen tutar toplamdan azsa nakit o tutara iner, kalan görünür.
+       */
+      const alan =
+        (tip === 'NAKIT' ? kokRef.current?.querySelector<HTMLInputElement>('[data-alinan-nakit] input') : null) ??
+        yontemAlanlari.current?.querySelector<HTMLInputElement>(`[data-yontem="${tip}"] input`);
       alan?.focus();
       alan?.select();
     }, 40);
@@ -279,6 +287,7 @@ export function OdemeDiyalogu({
       }
     >
       <div
+        ref={kokRef}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && gonderilebilir) {
             e.preventDefault();
@@ -300,6 +309,49 @@ export function OdemeDiyalogu({
             </button>
           </div>
         </div>
+
+        {/*
+          Müşteriden alınan nakit EN ÜSTTE: kasiyerin her nakit satışta
+          dokunduğu alan. Eskiden yöntem satırlarının altında kalıyor, küçük
+          ekranda aşağı kaydırmadan görünmüyordu.
+        */}
+        {tutarlar.NAKIT > 0 && (
+          <div className="mb-3 space-y-2 rounded-lg border border-cizgi p-3">
+            <div className="flex items-end gap-3">
+              <label className="flex-1" data-alinan-nakit>
+                <span className="etiket">Müşteriden alınan nakit</span>
+                <ParaAlani
+                  deger={alinanNakit}
+                  onDegisim={alinanDegisti}
+                  etiket="Müşteriden alınan nakit"
+                  sinif="py-3 text-2xl font-semibold"
+                />
+              </label>
+              <div className="flex-1 text-right">
+                <p className="text-xs text-metin-3">Para üstü</p>
+                <p className="font-mono text-3xl font-bold text-uyari">{paraFormat(paraUstu)}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {nakitOnerileri(nakitHedef ?? tutarlar.NAKIT).map((oneri) => (
+                <button
+                  key={oneri}
+                  type="button"
+                  className="tus-ikincil px-4 py-2 text-base"
+                  onClick={() => alinanDegisti(oneri)}
+                >
+                  {paraFormat(oneri, { simge: false })}
+                </button>
+              ))}
+            </div>
+            {nakitHedef !== null && tutarlar.NAKIT < nakitHedef && (
+              <p className="text-sm text-uyari">
+                Müşteri {paraFormat(tutarlar.NAKIT)} verdi; {paraFormat(nakitHedef - tutarlar.NAKIT)} eksik. Eksiği aşağıdaki sarı
+                düğmeyle borca yazın ya da “Kart” satırında “Kalanı”na basın.
+              </p>
+            )}
+          </div>
+        )}
 
         {faturaGerekli && faturaSiniri && (
           <div className="mb-3 rounded-lg border border-tehlike-cizgi bg-tehlike-yumusak p-3 text-sm">
@@ -376,7 +428,7 @@ export function OdemeDiyalogu({
         )}
 
         <div className="space-y-2" ref={yontemAlanlari}>
-          {YONTEMLER.map((y, i) => (
+          {YONTEMLER.map((y) => (
             <div key={y.tip} className="flex items-center gap-2" data-yontem={y.tip}>
               <button
                 type="button"
@@ -391,7 +443,6 @@ export function OdemeDiyalogu({
                 onDegisim={(v) => tutarAyarla(y.tip, v)}
                 sinif="py-2.5"
                 etiket={`${y.etiket} tutarı`}
-                otomatikOdak={i === 0}
               />
               <button
                 type="button"
@@ -431,34 +482,6 @@ export function OdemeDiyalogu({
             {paraFormat(Math.abs(kalan))}
           </span>
         </div>
-
-        {tutarlar.NAKIT > 0 && (
-          <div className="mt-3 space-y-2 rounded border border-cizgi p-3">
-            <div className="flex items-end gap-3">
-              <label className="flex-1">
-                <span className="etiket">Müşteriden alınan nakit</span>
-                <ParaAlani deger={alinanNakit} onDegisim={alinanDegisti} etiket="Müşteriden alınan nakit" />
-              </label>
-              <div className="flex-1 text-right">
-                <p className="text-xs text-metin-3">Para üstü</p>
-                <p className="font-mono text-2xl font-bold text-uyari">{paraFormat(paraUstu)}</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {nakitOnerileri(nakitHedef ?? tutarlar.NAKIT).map((oneri) => (
-                <button key={oneri} type="button" className="tus-ikincil px-3 py-1 text-sm" onClick={() => alinanDegisti(oneri)}>
-                  {paraFormat(oneri, { simge: false })}
-                </button>
-              ))}
-            </div>
-            {nakitHedef !== null && tutarlar.NAKIT < nakitHedef && (
-              <p className="text-sm text-uyari">
-                Müşteri {paraFormat(tutarlar.NAKIT)} verdi; {paraFormat(nakitHedef - tutarlar.NAKIT)} eksik. Eksiği yukarıdaki
-                sarı düğmeyle borca yazın ya da “Kart” satırında “Kalanı”na basın.
-              </p>
-            )}
-          </div>
-        )}
 
         {tutarlar.KART > 0 && (
           <div className="mt-3 rounded border border-bilgi-cizgi bg-bilgi-yumusak p-3 text-sm text-bilgi">

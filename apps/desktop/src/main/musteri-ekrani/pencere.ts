@@ -37,6 +37,12 @@ export const MUSTERI_HAZIR_KANALI = 'musteri:hazir';
 
 /** Kampanya başlangıç/bitiş saatleri ve fiyat değişiklikleri bu aralıkla ekrana yansır. */
 const YENILEME_MS = 60_000;
+/**
+ * Müşteri penceresi bu aralıkla görev çubuğunun ÜSTÜNE yeniden alınır.
+ * Windows görev çubuğunu kendi başına öne çekebilir (yeniden çizim,
+ * bildirim, o ekrana dokunma); pencere bir sonraki turda geri gelir.
+ */
+const USTTE_TUTMA_MS = 5_000;
 
 /**
  * Medya şemasını ayrıcalıklı kaydeder. Electron bunu `app.whenReady`'den ÖNCE
@@ -57,6 +63,7 @@ export class MusteriEkraniYoneticisi implements MusteriEkraniDenetcisi {
   private sonYapilandirma = '';
   private uykuEngeli: number | null = null;
   private zamanlayici: ReturnType<typeof setInterval> | null = null;
+  private ustteZamanlayici: ReturnType<typeof setInterval> | null = null;
   private degerlendirmeZamani: ReturnType<typeof setTimeout> | null = null;
   private temizleyiciler: (() => void)[] = [];
   private durduruldu = false;
@@ -103,6 +110,7 @@ export class MusteriEkraniYoneticisi implements MusteriEkraniDenetcisi {
     );
 
     this.zamanlayici = setInterval(() => this.yapilandirmaGonder(), YENILEME_MS);
+    this.ustteZamanlayici = setInterval(() => this.ekraniKapla(), USTTE_TUTMA_MS);
     this.degerlendir();
   }
 
@@ -110,6 +118,7 @@ export class MusteriEkraniYoneticisi implements MusteriEkraniDenetcisi {
   durdur(): void {
     this.durduruldu = true;
     if (this.zamanlayici) clearInterval(this.zamanlayici);
+    if (this.ustteZamanlayici) clearInterval(this.ustteZamanlayici);
     if (this.degerlendirmeZamani) clearTimeout(this.degerlendirmeZamani);
     for (const temizle of this.temizleyiciler.splice(0)) {
       try {
@@ -215,7 +224,37 @@ export class MusteriEkraniYoneticisi implements MusteriEkraniDenetcisi {
     // odaklanabilirlik ve görev çubuğu oluşturulduktan sonra değiştirilemiyor.
     if (this.pencere && this.pencereKipi !== hedef.tur) this.kapat();
     if (!this.pencere) this.olustur(hedef);
-    else if (hedef.tur === 'EKRAN') this.pencere.setBounds(hedef.ekran.bounds);
+    else if (hedef.tur === 'EKRAN') {
+      this.pencere.setBounds(hedef.ekran.bounds);
+      this.ekraniKapla();
+    }
+  }
+
+  /**
+   * GÖREV ÇUBUĞU (Windows): müşteri penceresi ekranın TAMAMINI kaplar.
+   *
+   * Sınırları tam ekran yapmak yetmiyordu: görev çubuğu "her zaman üstte"
+   * bir penceredir ve müşteri penceresi hiç odak almadığı için Windows onu
+   * tam ekran uygulama saymaz; çubuk bazen pencerenin üstünde kalıyordu.
+   * Pencere de "her zaman üstte" yapılır ve periyodik olarak en öne alınır
+   * (odak ALMADAN: pencere odaklanamaz, kasanın klavyesi etkilenmez).
+   *
+   * KASA EKRANINDA ASLA: seçim yanlışlıkla kasanın monitörüne denk gelirse
+   * üstte duran tam ekran pencere kasayı kapatırdı. O durumda normal kalır.
+   */
+  private ekraniKapla(): void {
+    const p = this.pencere;
+    if (!p || p.isDestroyed() || this.pencereKipi !== 'EKRAN') return;
+    const ekran = screen.getDisplayMatching(p.getBounds());
+    if (ekran.id === this.kasaEkrani().id) {
+      if (p.isAlwaysOnTop()) p.setAlwaysOnTop(false);
+      return;
+    }
+    const b = p.getBounds();
+    const e = ekran.bounds;
+    if (b.x !== e.x || b.y !== e.y || b.width !== e.width || b.height !== e.height) p.setBounds(e);
+    if (!p.isAlwaysOnTop()) p.setAlwaysOnTop(true, 'screen-saver');
+    p.moveTop();
   }
 
   /** Kasa penceresi kapanınca da çağrılır: açık müşteri penceresi uygulamanın kapanmasını engellemesin. */
@@ -270,6 +309,7 @@ export class MusteriEkraniYoneticisi implements MusteriEkraniDenetcisi {
       const yerles = () => {
         if (hedef.tur === 'EKRAN' && !p.isDestroyed() && this.pencere === p) {
           p.setBounds(screen.getDisplayMatching(hedef.ekran.bounds).bounds);
+          this.ekraniKapla();
         }
       };
       yerles();

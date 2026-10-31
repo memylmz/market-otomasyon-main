@@ -5,6 +5,7 @@ import { goreliZaman, miktarFormat, miktarParse, paraFormat, type Kurus } from '
 import { Alan, BosDurum, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { EtiketOnizleme, type EtiketOnizlemeVerisi } from '../bilesen/Onizleme';
 import { bildir, hatayiBildir } from '../durum/bildirim';
+import { onayla } from '../durum/onay';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
 import { UrunKartiDiyalogu, type UrunSatiri } from '../bilesen/UrunKartiDiyalogu';
@@ -490,8 +491,9 @@ function KategoriDiyalogu({
   };
 
   const sil = async (k: Kategori) => {
-    const onay = window.confirm(
+    const onay = await onayla(
       `"${k.ad}" kategorisi silinsin mi?\n\nİçinde ürün ya da alt kategori varsa silinemez — bunun yerine listeden gizlenir.`,
+      { onaylaMetni: 'Sil', tehlikeli: true },
     );
     if (!onay) return;
     setCalisiyor(true);
@@ -1121,7 +1123,11 @@ function EtiketBekleyenlerDiyalogu({
 
   const cikar = async () => {
     if (secilenler.length === 0) return;
-    if (!window.confirm(`${secilenler.length} ürün etiketi BASILMADAN listeden çıkarılsın mı? (Etiketi elle yazdıysanız.)`))
+    if (
+      !(await onayla(`${secilenler.length} ürün etiketi BASILMADAN listeden çıkarılsın mı? (Etiketi elle yazdıysanız.)`, {
+        onaylaMetni: 'Çıkar',
+      }))
+    )
       return;
     try {
       await cagir('etiket.bekleyenCikar', { urunIdler: secilenler.map((k) => k.urun_id) });

@@ -966,3 +966,105 @@ describe('veresiye satışın cariye etkisi (§7.3)', () => {
     expect(await bakiye()).toBe(0);
   });
 });
+
+describe("paket seçenekleri (12'li kibrit)", () => {
+  const URUN = '44444444-4444-4444-8444-444444444444';
+  const PAKET = '55555555-5555-4555-8555-555555555555';
+  const paketOlayi = (ek: Record<string, unknown> = {}) => ({
+    uuid: uuid(),
+    tip: 'URUN_PAKETI_KAYDEDILDI' as const,
+    entity: 'urun_paketi',
+    entity_id: PAKET,
+    olusturma_zamani: simdi(),
+    veri: {
+      id: PAKET,
+      urun_id: URUN,
+      ad: "12'li paket",
+      carpan: 12,
+      fiyat: 2000,
+      barkod: '8690000000024',
+      aktif_mi: true,
+      created_at: simdi(),
+      updated_at: simdi(),
+      ...ek,
+    },
+  });
+  const pull = (yetenek: boolean) =>
+    uygulama
+      .inject({
+        method: 'GET',
+        url: `${UCLAR.senkronPull}?since=0&limit=500${yetenek ? '&yetenekler=paket' : ''}`,
+        headers: { 'x-device-token': CIHAZ_TOKEN },
+      })
+      .then((y) => zPullYaniti.parse(y.json()));
+
+  it('paket olayı buluta yazılır; yalnız paketi tanıyan kasaya iner', async () => {
+    const yanit = await push([paketOlayi()]);
+    expect(zPushYaniti.parse(yanit.json()).kabul_edilen).toHaveLength(1);
+    const yeni = (await pull(true)).kayitlar.filter((k) => k.varlik === 'urun_paketleri');
+    expect(yeni).toHaveLength(1);
+    expect(yeni[0]?.veri).toMatchObject({ urun_id: URUN, carpan: 12, fiyat: 2000, barkod: '8690000000024' });
+    // Eski kasa yanıtı sabit varlık listesiyle doğrular; bilmediği varlık bütün pull'u düşürürdü.
+    expect((await pull(false)).kayitlar.some((k) => k.varlik === 'urun_paketleri')).toBe(false);
+  });
+
+  it('paketli satış: bulut stoğundan ve satış özetinden 12 adet düşer; iptal geri koyar', async () => {
+    const id = uuid();
+    const olay = satisOlayi(id, 2000);
+    olay.veri.kalemler = [
+      {
+        urun_id: URUN,
+        urun_adi: "Kibrit (12'li paket)",
+        miktar: 1000,
+        birim_fiyat: 2000,
+        birim_maliyet: 1440,
+        kdv_orani: 20,
+        kdv_tutar: 333,
+        satir_toplam: 2000,
+        paket_carpani: 12,
+        paket_adi: "12'li paket",
+      } as (typeof olay.veri.kalemler)[number],
+    ];
+    await push([olay]);
+    const stok = await vt.tek<{ miktar: number }>('SELECT miktar FROM stok_ozet WHERE isletme_id = ? AND urun_id = ?', [
+      ISLETME_ID,
+      URUN,
+    ]);
+    expect(Number(stok?.miktar)).toBe(-12_000);
+    const ozet = await vt.tek<{ adet: number }>(
+      'SELECT SUM(adet) adet FROM urun_satis_ozet WHERE isletme_id = ? AND urun_id = ?',
+      [ISLETME_ID, URUN],
+    );
+    expect(Number(ozet?.adet)).toBe(12_000);
+    const kalem = await vt.tek<{ paket_carpani: number; paket_adi: string }>(
+      'SELECT paket_carpani, paket_adi FROM satis_kalemleri WHERE isletme_id = ? AND satis_id = ?',
+      [ISLETME_ID, id],
+    );
+    expect(Number(kalem?.paket_carpani)).toBe(12);
+
+    await push([
+      {
+        uuid: uuid(),
+        tip: 'SATIS_IPTAL_EDILDI',
+        entity: 'satis',
+        entity_id: id,
+        olusturma_zamani: simdi(),
+        veri: { id, neden: 'deneme', iptal_zamani: simdi() },
+      },
+    ]);
+    const sonra = await vt.tek<{ miktar: number }>('SELECT miktar FROM stok_ozet WHERE isletme_id = ? AND urun_id = ?', [
+      ISLETME_ID,
+      URUN,
+    ]);
+    expect(Number(sonra?.miktar)).toBe(0);
+  });
+
+  it('eski kasanın satışı (çarpansız) eskisi gibi işlenir', async () => {
+    await push([satisOlayi()]);
+    const stok = await vt.tek<{ miktar: number }>('SELECT miktar FROM stok_ozet WHERE isletme_id = ? AND urun_id = ?', [
+      ISLETME_ID,
+      '22222222-2222-4222-8222-222222222222',
+    ]);
+    expect(Number(stok?.miktar)).toBe(-2000);
+  });
+});

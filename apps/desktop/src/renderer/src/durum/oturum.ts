@@ -1,7 +1,7 @@
 /** Oturum, sistem durumu ve yetki bilgisi (global). */
 
 import { create } from 'zustand';
-import { ozelTemaCoz, ozelTemaDegiskenleri, YAZI_TIPLERI, type Rol, type Yetki } from '@market/shared';
+import { ozelTemaCoz, ozelTemaDegiskenleri, VARSAYILAN_KDV_ORANI, YAZI_TIPLERI, type Rol, type Yetki } from '@market/shared';
 import { cagir } from '../kopru';
 
 export interface SenkronRozeti {
@@ -130,6 +130,15 @@ export const oturumDurumu = create<OturumDurumu>((set, get) => ({
 }));
 
 /** Bileşenlerde yetki kontrolü. Arayüz gizlemesi UX içindir; asıl denetim ana süreçtedir. */
+/**
+ * Ayarlar → "Yeni üründe varsayılan KDV". Mal kabulün boş satırı ve yeni ürün
+ * kartı bununla açılır; ayar okunamazsa yasal genel oran (%20).
+ */
+export function varsayilanKdv(): number {
+  const n = Number((oturumDurumu.getState().sistem?.ayarlar as { varsayilanKdv?: unknown } | undefined)?.varsayilanKdv);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : VARSAYILAN_KDV_ORANI;
+}
+
 export function yetkisiVar(yetki: Yetki): boolean {
   return oturumDurumu.getState().yetkiler.has(yetki);
 }

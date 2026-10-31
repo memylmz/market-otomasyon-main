@@ -260,6 +260,17 @@ CREATE TABLE IF NOT EXISTS barkodlar (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_barkod ON barkodlar(isletme_id, barkod);
 CREATE INDEX IF NOT EXISTS ix_barkod_versiyon ON barkodlar(isletme_id, versiyon);
 
+-- Ürünün paket seçenekleri (12'li kibrit). Stok tek adet üzerinden; paket
+-- satırında satis_kalemleri.miktar paket sayısı, paket_carpani içindeki adettir.
+CREATE TABLE IF NOT EXISTS urun_paketleri (
+  id TEXT NOT NULL, isletme_id TEXT NOT NULL, urun_id TEXT NOT NULL, ad TEXT NOT NULL,
+  carpan INTEGER NOT NULL, fiyat INTEGER, barkod TEXT, aktif_mi INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cihaz_id TEXT,
+  versiyon INTEGER NOT NULL, silindi_mi INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (isletme_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_urun_paketleri_versiyon ON urun_paketleri(isletme_id, versiyon);
+
 CREATE TABLE IF NOT EXISTS kategoriler (
   id TEXT NOT NULL, isletme_id TEXT NOT NULL, ad TEXT NOT NULL, ust_kategori_id TEXT,
   sira INTEGER NOT NULL DEFAULT 0, aktif_mi INTEGER NOT NULL DEFAULT 1,
@@ -555,6 +566,9 @@ export async function semayiHazirla(vt: MerkezVt): Promise<void> {
   await sutunEkle(vt, 'satislar', 'notlar TEXT');
   // İade kaleminin kaynak satış kalemi: "bu satırdan ne kadar iade edildi" kalem bazında (kasayla aynı).
   await sutunEkle(vt, 'satis_kalemleri', 'kaynak_kalem_id TEXT');
+  // Paket satırı (bkz. urun_paketleri): miktar paket sayısı, çarpan içindeki adet. Eski satırlarda NULL.
+  await sutunEkle(vt, 'satis_kalemleri', 'paket_carpani INTEGER');
+  await sutunEkle(vt, 'satis_kalemleri', 'paket_adi TEXT');
 
   /*
    * ONARIM — olaydan türetilen cari satırlarına belge türü (§11.6).

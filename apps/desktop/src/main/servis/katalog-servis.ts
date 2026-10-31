@@ -9,6 +9,8 @@ import {
   HATA_KODU,
   icBarkodUret,
   kampanyaFiyatiBul,
+  paketFiyati,
+  paketKampanyaFiyati,
   kampanyaliBirimFiyat,
   kdvAyir,
   marjdanFiyat,
@@ -22,6 +24,8 @@ import {
   MUHTELIF_URUN_NOTU,
   zKampanyaGirdi,
   zUrunGirdi,
+  zUrunPaketleriKaydet,
+  type UrunPaketi,
   AYAR,
   type Miktar,
   VARSAYILAN_KDV_ORANI,
@@ -44,6 +48,9 @@ import {
   urunPasiflestir,
   urunleriListele,
   urununBarkodlari,
+  paketBarkoduylaBul,
+  paketYaz,
+  urununPaketleri,
   barkodlaBul as barkodlaBulDepo,
   type UrunFiltresi,
   type UrunGorunumu,
@@ -77,6 +84,19 @@ export interface BarkodSonucu {
    * yanlış girme ihtimali doğurur.
    */
   miktar?: Miktar;
+  /**
+   * Ürünün paket seçenekleri (kampanyalı fiyatlarıyla). Doluysa satış ekranı
+   * "tekli / paket" diye sorar — okutulan PAKETİN kendi barkoduysa sormaz.
+   */
+  paketler?: PaketSecenegi[];
+  /** Okutulan barkod bir paketin kendi barkodu: doğrudan bu paket eklenir. */
+  paketId?: string;
+}
+
+/** Satışta sunulan paket: kampanyası uygulanmış fiyatıyla. */
+export interface PaketSecenegi extends UrunPaketi {
+  satisFiyati: Kurus;
+  kampanyaId: string | null;
 }
 
 /** Barkod okutuldu — satış ekranının çağırdığı sıcak yol (§3.1 ≤100 ms). */
@@ -106,7 +126,7 @@ export function barkodOku(baglam: Baglam, hamBarkod: string): BarkodSonucu {
   if (!barkod) return { bulundu: false };
 
   const kayit = barkodlaBulDepo(baglam.vt, barkod) ?? undefined;
-  if (!kayit) return teraziBarkoduDene(baglam, barkod);
+  if (!kayit) return paketBarkoduDene(baglam, barkod) ?? teraziBarkoduDene(baglam, barkod);
 
   if (!kayit.aktif_mi) {
     return { bulundu: true, urun: kayit, uyari: `"${kayit.ad}" pasif durumda, satışa kapalı.` };
@@ -118,7 +138,154 @@ export function barkodOku(baglam: Baglam, hamBarkod: string): BarkodSonucu {
   const zaman = simdi();
   const kampanyalar = etkinKampanyalar(baglam.vt, zaman);
   const { fiyat, kampanyaId } = kampanyaFiyati(kayit, kampanyalar, zaman);
-  return { bulundu: true, urun: kayit, fiyat, kampanyaId };
+  const paketler = paketSecenekleri(baglam, kayit, kampanyalar, zaman);
+  return { bulundu: true, urun: kayit, fiyat, kampanyaId, ...(paketler.length > 0 ? { paketler } : {}) };
+}
+
+/** Okutulan barkod bir paketin kendi barkodu mu? Öyleyse ürün + o paket döner. */
+function paketBarkoduDene(baglam: Baglam, barkod: string): BarkodSonucu | null {
+  const paket = paketBarkoduylaBul(baglam.vt, barkod);
+  if (!paket) return null;
+  const urun = urunBul(baglam.vt, paket.urun_id);
+  if (!urun) return null;
+  const gorunum = { ...urun, stok: stokOku(baglam.vt, urun.id), kategori_adi: null, barkodlar: [barkod] };
+  if (!urun.aktif_mi) return { bulundu: true, urun: gorunum, uyari: `"${urun.ad}" pasif durumda, satışa kapalı.` };
+  const zaman = simdi();
+  const kampanyalar = etkinKampanyalar(baglam.vt, zaman);
+  const { fiyat, kampanyaId } = kampanyaFiyati(gorunum, kampanyalar, zaman);
+  const paketler = paketSecenekleri(baglam, gorunum, kampanyalar, zaman);
+  return { bulundu: true, urun: gorunum, fiyat, kampanyaId, paketler, paketId: paket.id };
+}
+
+function paketSecenekleri(
+  baglam: Baglam,
+  urun: { id: string; kategori_id: string | null; satis_fiyati: Kurus },
+  kampanyalar: ReturnType<typeof etkinKampanyalar>,
+  zaman: string,
+): PaketSecenegi[] {
+  const paketler = urununPaketleri(baglam.vt, urun.id);
+  if (paketler.length === 0) return [];
+  const tanimlar = kampanyaTanimlari(kampanyalar);
+  return paketler.map((p) => {
+    const { fiyat, kampanyaId } = paketKampanyaFiyati(
+      paketFiyati(p, urun.satis_fiyati),
+      { urunId: urun.id, kategoriId: urun.kategori_id },
+      tanimlar,
+      zaman,
+    );
+    return { ...p, satisFiyati: fiyat, kampanyaId };
+  });
+}
+
+/** Hızlı ürün ızgarası ve aramadan seçilen ürünün paketleri (yoksa boş). */
+export function urunPaketSecenekleri(baglam: Baglam, urunId: string): PaketSecenegi[] {
+  const urun = urunBul(baglam.vt, urunId);
+  if (!urun || !urun.aktif_mi) return [];
+  const zaman = simdi();
+  return paketSecenekleri(baglam, urun, etkinKampanyalar(baglam.vt, zaman), zaman);
+}
+
+/** Ürün kartı: paketlerin tamamı (pasifler hariç). */
+export function urunPaketleriniOku(baglam: Baglam, urunId: string): UrunPaketi[] {
+  return urununPaketleri(baglam.vt, urunId);
+}
+
+/**
+ * Ürün kartından paket listesini kaydeder. Liste TAMAMDIR: gönderilmeyen
+ * eski paket pasifleşir (geçmiş satışlar adını ve çarpanını kendinde taşır).
+ */
+export function urunPaketleriniKaydet(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): UrunPaketi[] {
+  yetkiIste(aktor, 'urun.duzenle');
+  const ayrisim = zUrunPaketleriKaydet.safeParse(hamGirdi);
+  if (!ayrisim.success) {
+    throw hatalar.dogrulama(ayrisim.error.issues[0]?.message ?? 'Paket bilgileri geçerli değil.', {
+      sorunlar: ayrisim.error.issues.map((i) => i.message),
+    });
+  }
+  const girdi = ayrisim.data;
+  const { vt, cihazId } = baglam;
+  const urun = urunBul(vt, girdi.urun_id);
+  if (!urun) throw hatalar.bulunamadi('Ürün');
+  if (urun.birim_tipi !== 'ADET') throw hatalar.dogrulama('Paket seçeneği yalnız adetle satılan ürünlerde kullanılabilir.');
+
+  const zaman = simdi();
+  const mevcut = urununPaketleri(vt, urun.id, false);
+  const gorulen = new Set<string>();
+  const barkodlar = new Set<string>();
+
+  vt.islem(() => {
+    const yaz = (p: UrunPaketi) => {
+      paketYaz(vt, p, cihazId, zaman);
+      olayYaz(
+        vt,
+        {
+          id: uuid(),
+          olay_tipi: 'URUN_PAKETI_KAYDEDILDI',
+          entity: 'urun_paketi',
+          entity_id: p.id,
+          veri: { ...p, created_at: zaman, updated_at: zaman },
+          olusturma_zamani: zaman,
+        },
+        cihazId,
+        zaman,
+      );
+    };
+
+    for (const g of girdi.paketler) {
+      const barkod = g.barkod ? barkodNormalize(g.barkod) : '';
+      if (barkod) {
+        if (barkodlar.has(barkod)) throw hatalar.dogrulama(`"${barkod}" barkodu iki pakette birden yazılı.`);
+        barkodlar.add(barkod);
+        // Ürün barkodu ya da başka bir paketin barkodu olamaz (okutulunca hangisi olduğu bilinmeli).
+        const urunBarkodu = vt.hazirla('SELECT urun_id FROM barkodlar WHERE barkod = ?').tek<{ urun_id: string }>(barkod);
+        const baskaPaket = paketBarkoduylaBul(vt, barkod);
+        if (urunBarkodu || (baskaPaket && baskaPaket.id !== g.id)) {
+          const sahip = urunBul(vt, urunBarkodu?.urun_id ?? baskaPaket?.urun_id ?? '');
+          throw new UygulamaHatasi(
+            HATA_KODU.BARKOD_KULLANIMDA,
+            `"${barkod}" barkodu ${urunBarkodu ? '' : 'paket barkodu olarak '}"${sahip?.ad ?? 'başka bir ürün'}" ürününde kayıtlı.`,
+            { detay: { barkod } },
+          );
+        }
+      }
+      const eski = g.id ? mevcut.find((m) => m.id === g.id) : undefined;
+      const paket: UrunPaketi = {
+        id: eski?.id ?? uuid(),
+        urun_id: urun.id,
+        ad: g.ad.trim(),
+        carpan: g.carpan,
+        fiyat: g.fiyat ?? null,
+        barkod: barkod || null,
+        aktif_mi: true,
+      };
+      gorulen.add(paket.id);
+      const degisti =
+        !eski ||
+        !eski.aktif_mi ||
+        eski.ad !== paket.ad ||
+        eski.carpan !== paket.carpan ||
+        eski.fiyat !== paket.fiyat ||
+        eski.barkod !== paket.barkod;
+      if (degisti) yaz(paket);
+    }
+    for (const eski of mevcut) {
+      if (eski.aktif_mi && !gorulen.has(eski.id)) yaz({ ...eski, aktif_mi: false });
+    }
+    denetimYaz(
+      vt,
+      {
+        kullanici_id: aktor.kullaniciId,
+        islem: 'URUN_PAKET_GUNCELLE',
+        entity: 'urun',
+        entity_id: urun.id,
+        yeni_deger: { paketler: girdi.paketler.map((p) => `${p.ad} ×${p.carpan}`) },
+      },
+      cihazId,
+      zaman,
+    );
+  });
+
+  return urununPaketleri(vt, urun.id);
 }
 
 /**
@@ -168,26 +335,30 @@ function onekListesi(baglam: Baglam, anahtar: string, varsayilan: string): strin
     .filter((p) => /^\d{2}$/.test(p));
 }
 
+/** Paylaşılan saf fonksiyonlar için kampanya kayıtlarının dönüşümü. */
+function kampanyaTanimlari(kampanyalar: ReturnType<typeof etkinKampanyalar>) {
+  return kampanyalar.map((k) => ({
+    id: k.id,
+    tip: k.tip,
+    kapsam: k.kapsam,
+    hedefId: k.hedef_id,
+    deger: k.deger,
+    baslangic: k.baslangic,
+    bitis: k.bitis,
+    aktifMi: k.aktif_mi,
+    oncelik: k.oncelik,
+  }));
+}
+
 function kampanyaFiyati(
   urun: UrunGorunumu,
   kampanyalar: ReturnType<typeof etkinKampanyalar>,
   zaman: string,
 ): { fiyat: Kurus; kampanyaId: string | null } {
-  // Paylaşılan saf fonksiyonu kullanabilmek için kampanya kayıtlarını dönüştür.
   return kampanyaFiyatiBul(
     urun.satis_fiyati,
     { urunId: urun.id, kategoriId: urun.kategori_id },
-    kampanyalar.map((k) => ({
-      id: k.id,
-      tip: k.tip,
-      kapsam: k.kapsam,
-      hedefId: k.hedef_id,
-      deger: k.deger,
-      baslangic: k.baslangic,
-      bitis: k.bitis,
-      aktifMi: k.aktif_mi,
-      oncelik: k.oncelik,
-    })),
+    kampanyaTanimlari(kampanyalar),
     zaman,
   );
 }
@@ -239,6 +410,11 @@ export function urunuKaydet(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): st
 
     for (const barkodGirdi of girdi.barkodlar) {
       const barkod = barkodNormalize(barkodGirdi.barkod);
+      if (paketBarkoduylaBul(vt, barkod)) {
+        throw new UygulamaHatasi(HATA_KODU.BARKOD_KULLANIMDA, `"${barkod}" bir paketin barkodu; ürün barkodu olarak eklenemez.`, {
+          detay: { barkod },
+        });
+      }
       const sahip = barkodSahibi(vt, barkod);
       if (sahip && sahip !== id) {
         const sahipUrun = urunBul(vt, sahip);

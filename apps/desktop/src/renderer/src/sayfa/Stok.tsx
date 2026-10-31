@@ -8,6 +8,7 @@ import { AlisFaturasiIcerigi, type AlisFaturasiDetayi, type AlisFaturasiKalemi }
 import { SktDuzeltDiyalogu, type SktPartisi } from '../bilesen/SktDuzeltDiyalogu';
 import { UrunSecici, type SecilenUrun } from '../bilesen/UrunSecici';
 import { bildir, hatayiBildir } from '../durum/bildirim';
+import { onayla } from '../durum/onay';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
 import { AlisFaturasiFormu } from './stok/AlisFaturasiFormu';
@@ -808,10 +809,11 @@ function SayimSekmesi({ onDegisti }: { onDegisti: () => void }) {
     if (!sayim) return;
     const sapan = farklar.filter((f) => f.fark !== 0).length;
     if (
-      !window.confirm(
+      !(await onayla(
         `${farklar.length} ürün sayıldı, ${sapan} tanesinde fark var.\n\n` +
           'Tamamlandığında farklar stok düzeltmesine dönüşecek ve GERİ ALINAMAZ. Onaylıyor musunuz?',
-      )
+        { baslik: 'Sayımı tamamla', onaylaMetni: 'Tamamla' },
+      ))
     )
       return;
     setCalisiyor(true);
@@ -834,7 +836,14 @@ function SayimSekmesi({ onDegisti }: { onDegisti: () => void }) {
 
   const iptalEt = async () => {
     if (!sayim) return;
-    if (!window.confirm('Sayım iptal edilecek. Girilen sayımlar uygulanmayacak. Onaylıyor musunuz?')) return;
+    if (
+      !(await onayla('Sayım iptal edilecek. Girilen sayımlar uygulanmayacak. Onaylıyor musunuz?', {
+        baslik: 'Sayımı iptal et',
+        onaylaMetni: 'İptal et',
+        tehlikeli: true,
+      }))
+    )
+      return;
     try {
       await cagir('sayim.iptal', { sayimId: sayim.id });
       bildir.uyari('Sayım iptal edildi', 'Stokta değişiklik yapılmadı.');
@@ -1099,7 +1108,10 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
         return;
       }
       const toplam = satirlar.reduce((t, s) => t + s.adet, 0);
-      if (!window.confirm(`${satirlar.length} üründen toplam ${toplam} etiket basılacak. Devam edilsin mi?`)) return;
+      if (
+        !(await onayla(`${satirlar.length} üründen toplam ${toplam} etiket basılacak. Devam edilsin mi?`, { onaylaMetni: 'Bas' }))
+      )
+        return;
 
       const sonuc = await cagir<{ basarili: boolean; hata?: string; basilanEtiket: number }>('etiket.yazdir', {
         satirlar: satirlar.map((s) => ({ urunId: s.urunId, adet: s.adet })),

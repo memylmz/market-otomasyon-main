@@ -16,6 +16,7 @@ import {
   type KampanyaTipi,
   type Kurus,
   type Miktar,
+  type UrunPaketi,
   type ZamanDamgasi,
 } from '@market/shared';
 import type { Vt } from '../db/surucu.js';
@@ -539,9 +540,14 @@ export function urununBarkodlari(vt: Vt, urunId: string): BarkodKaydiSatiri[] {
 }
 
 /** Barkodun sahibi olan ürünün id'sini döner (benzersizlik kontrolü için). */
+/**
+ * Barkodun sahibi olan ürün. Paket barkodları da sayılır: ürün ve paket
+ * barkodları aynı uzayı paylaşır (okutulunca hangisi olduğu bilinmeli).
+ */
 export function barkodSahibi(vt: Vt, barkod: string): string | null {
   const satir = vt.hazirla('SELECT urun_id FROM barkodlar WHERE barkod = ?').tek<{ urun_id: string }>(barkod);
-  return satir?.urun_id ?? null;
+  if (satir) return satir.urun_id;
+  return paketBarkoduylaBul(vt, barkod)?.urun_id ?? null;
 }
 
 export function barkodEkle(
@@ -583,6 +589,98 @@ export function barkodlariDoldur(vt: Vt, urunler: UrunGorunumu[]): void {
     harita.set(s.urun_id, liste);
   }
   for (const urun of urunler) urun.barkodlar = harita.get(urun.id) ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Paket seçenekleri (bkz. shared/paket.ts)
+// ---------------------------------------------------------------------------
+
+const PAKET_ALANLARI = 'id, urun_id, ad, carpan, fiyat, barkod, aktif_mi';
+type HamPaket = Omit<UrunPaketi, 'aktif_mi'> & { aktif_mi: number };
+const paketCoz = (s: HamPaket): UrunPaketi => ({ ...s, aktif_mi: sayiToBool(s.aktif_mi) });
+
+/** Ürünün paketleri, içindeki adede göre. */
+export function urununPaketleri(vt: Vt, urunId: string, sadeceAktif = true): UrunPaketi[] {
+  return vt
+    .hazirla(
+      `SELECT ${PAKET_ALANLARI} FROM urun_paketleri WHERE urun_id = ? ${sadeceAktif ? 'AND aktif_mi = 1' : ''}
+       ORDER BY carpan, ad`,
+    )
+    .tumu<HamPaket>(urunId)
+    .map(paketCoz);
+}
+
+export function paketBul(vt: Vt, id: string): UrunPaketi | null {
+  const s = vt.hazirla(`SELECT ${PAKET_ALANLARI} FROM urun_paketleri WHERE id = ?`).tek<HamPaket>(id);
+  return s ? paketCoz(s) : null;
+}
+
+/** Paketin kendi barkoduyla (yalnız aktif paket). */
+export function paketBarkoduylaBul(vt: Vt, barkod: string): UrunPaketi | null {
+  const s = vt.hazirla(`SELECT ${PAKET_ALANLARI} FROM urun_paketleri WHERE barkod = ? AND aktif_mi = 1`).tek<HamPaket>(barkod);
+  return s ? paketCoz(s) : null;
+}
+
+/** Paketi olan ürünler (liste ve arama sonuçlarında seçim sorulacak mı diye). */
+export function paketliUrunler(vt: Vt, urunIdler: readonly string[]): Set<string> {
+  if (urunIdler.length === 0) return new Set();
+  return new Set(
+    vt
+      .hazirla(
+        `SELECT DISTINCT urun_id FROM urun_paketleri WHERE aktif_mi = 1 AND urun_id IN (${yerTutucular(urunIdler.length)})`,
+      )
+      .tumu<{ urun_id: string }>(...urunIdler)
+      .map((r) => r.urun_id),
+  );
+}
+
+export function paketYaz(vt: Vt, p: UrunPaketi, cihazId: string, zaman = simdi()): void {
+  vt.hazirla(
+    `INSERT INTO urun_paketleri (id, urun_id, ad, carpan, fiyat, barkod, aktif_mi, created_at, updated_at, cihaz_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       ad = excluded.ad, carpan = excluded.carpan, fiyat = excluded.fiyat, barkod = excluded.barkod,
+       aktif_mi = excluded.aktif_mi, updated_at = excluded.updated_at, cihaz_id = excluded.cihaz_id`,
+  ).calistir(p.id, p.urun_id, p.ad, p.carpan, p.fiyat, p.barkod, boolToSayi(p.aktif_mi), zaman, zaman, cihazId);
+}
+
+/** Buluttan inen paket (LWW: yerel daha yeniyse dokunulmaz). */
+export function paketSunucudanUygula(vt: Vt, veri: Record<string, unknown>, versiyon: number, silindi = false): void {
+  const id = String(veri.id ?? '');
+  const urunId = String(veri.urun_id ?? '');
+  const carpan = Number(veri.carpan);
+  if (!id || !urunId || !Number.isInteger(carpan) || carpan < 2) return;
+  // Ürün henüz yerelde yoksa ertelenir (FK ihlali olmasın; tam pull'da yeniden gelir).
+  if (!vt.hazirla('SELECT 1 AS v FROM urunler WHERE id = ?').tek<{ v: number }>(urunId)) return;
+  const guncellenme = String(veri.updated_at ?? simdi());
+  const yerel = vt.hazirla('SELECT updated_at FROM urun_paketleri WHERE id = ?').tek<{ updated_at: string }>(id);
+  if (yerel && yerel.updated_at > guncellenme) return;
+  const barkod = typeof veri.barkod === 'string' && veri.barkod ? veri.barkod : null;
+  const aktif = !silindi && veri.aktif_mi !== false && veri.aktif_mi !== 0;
+  // Aynı barkod yerelde başka bir aktif pakette kalmışsa (çakışma) buluttaki kazanır.
+  if (barkod && aktif) {
+    vt.hazirla('UPDATE urun_paketleri SET aktif_mi = 0 WHERE barkod = ? AND id <> ? AND aktif_mi = 1').calistir(barkod, id);
+  }
+  vt.hazirla(
+    `INSERT INTO urun_paketleri (id, urun_id, ad, carpan, fiyat, barkod, aktif_mi, created_at, updated_at, cihaz_id, sunucu_versiyonu)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       urun_id = excluded.urun_id, ad = excluded.ad, carpan = excluded.carpan, fiyat = excluded.fiyat,
+       barkod = excluded.barkod, aktif_mi = excluded.aktif_mi, updated_at = excluded.updated_at,
+       cihaz_id = excluded.cihaz_id, sunucu_versiyonu = excluded.sunucu_versiyonu`,
+  ).calistir(
+    id,
+    urunId,
+    String(veri.ad ?? 'Paket'),
+    carpan,
+    veri.fiyat === null || veri.fiyat === undefined ? null : Number(veri.fiyat),
+    barkod,
+    boolToSayi(aktif),
+    String(veri.created_at ?? guncellenme),
+    guncellenme,
+    (veri.cihaz_id as string | null) ?? null,
+    versiyon,
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -38,6 +38,10 @@ const PULL_TABLOLARI: Record<PullVarligi, { tablo: string; sutunlar: string }> =
     tablo: 'barkodlar',
     sutunlar: 'id, urun_id, barkod, ambalaj_aciklamasi, aktif_mi, created_at, updated_at, cihaz_id',
   },
+  urun_paketleri: {
+    tablo: 'urun_paketleri',
+    sutunlar: 'id, urun_id, ad, carpan, fiyat, barkod, aktif_mi, created_at, updated_at, cihaz_id',
+  },
   kategoriler: { tablo: 'kategoriler', sutunlar: 'id, ad, ust_kategori_id, sira, aktif_mi, created_at, updated_at, cihaz_id' },
   kampanyalar: {
     tablo: 'kampanyalar',
@@ -183,6 +187,7 @@ export async function senkronRotalari(uygulama: FastifyInstance): Promise<void> 
      * hiçbir kayıt atlanmaz ve varlıklar bağımlılık sırasıyla iner.
      */
     const imlecli = sorgu.imlec !== undefined;
+    const yetenekler = new Set((sorgu.yetenekler ?? '').split(',').map((y) => y.trim()));
     const [baslangicSira, imlecVersiyonu] = imlecli ? (sorgu.imlec as string).split(':').map(Number) : [0, sorgu.since];
     let sonrakiImlec: string | null = null;
 
@@ -192,6 +197,8 @@ export async function senkronRotalari(uygulama: FastifyInstance): Promise<void> 
       if (kayitlar.length >= sorgu.limit) break;
       const tanim = PULL_TABLOLARI[varlik];
       if (!tanim.tablo) continue;
+      // Eski kasa bilmediği varlık adını içeren yanıtı bütünüyle reddeder; yalnız tanıyana gönderilir.
+      if (varlik === 'urun_paketleri' && !yetenekler.has('paket')) continue;
 
       const alt = imlecli && sira === baslangicSira ? (imlecVersiyonu ?? sorgu.since) : sorgu.since;
       const kalan = sorgu.limit - kayitlar.length;

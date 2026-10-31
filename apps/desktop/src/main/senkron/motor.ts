@@ -24,7 +24,13 @@ import {
   type SenkronDurumu,
 } from '@market/shared';
 import { cariSunucudanUygula } from '../depo/cari.js';
-import { barkodSunucudanUygula, kampanyaSunucudanUygula, kategoriSunucudanUygula, urunSunucudanUygula } from '../depo/katalog.js';
+import {
+  barkodSunucudanUygula,
+  kampanyaSunucudanUygula,
+  kategoriSunucudanUygula,
+  paketSunucudanUygula,
+  urunSunucudanUygula,
+} from '../depo/katalog.js';
 import { kullaniciSunucudanUygula } from '../depo/kullanici.js';
 import { kullaniciyiSenkrondanSil } from '../servis/kullanici-servis.js';
 import { urunBul } from '../depo/katalog.js';
@@ -174,6 +180,10 @@ export function pullKaydiniUygula(
     }
     case 'kampanyalar':
       kampanyaSunucudanUygula(vt, veri, kayit.versiyon);
+      return { uygulandi: true, cakisma: false };
+    case 'urun_paketleri':
+      // Mezar taşı: paket kaldırıldı → pasifleşir (geçmiş satışlar adını kendinde taşır).
+      paketSunucudanUygula(vt, veri, kayit.versiyon, kayit.silindi_mi);
       return { uygulandi: true, cakisma: false };
     case 'kullanicilar': {
       // Mezar taşı (§12.1): bulutta silinen kullanıcı. Karar YERELDE yeniden

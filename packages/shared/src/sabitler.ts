@@ -160,6 +160,8 @@ export const OLAY_TIPI = [
   'KULLANICI_KAYDEDILDI',
   'URUN_KAYDEDILDI',
   'BARKOD_KAYDEDILDI',
+  /** Ürünün paket seçeneği (12'li, koli) eklendi/değişti/kaldırıldı. */
+  'URUN_PAKETI_KAYDEDILDI',
   'KATEGORI_KAYDEDILDI',
   /** Kasada açılan/düzenlenen kampanya; buluta ve diğer kasalara gider. */
   'KAMPANYA_KAYDEDILDI',
@@ -321,6 +323,15 @@ export const PULL_VARLIKLARI = [
    * geri alınır.
    */
   'alis_talimatlari',
+  /**
+   * Ürünlerin paket seçenekleri (urun_paketleri.urun_id → urunler).
+   *
+   * SONDA durur: sunucunun sayfa imleci varlığın SIRA NUMARASINI taşır;
+   * araya eklenseydi sonrakilerin numarası kayardı. Sunucu bunu yalnız
+   * `yetenekler=paket` diyen kasalara gönderir — eski kasa yanıtı sabit
+   * listeyle doğruladığı için bilmediği varlık bütün pull'u düşürürdü.
+   */
+  'urun_paketleri',
 ] as const;
 export type PullVarligi = (typeof PULL_VARLIKLARI)[number];
 

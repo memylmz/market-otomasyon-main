@@ -16,6 +16,8 @@ import {
   carpanAyikla,
   miktarFormat,
   miktarOlustur,
+  paketFiyati,
+  paketliAd,
   paraFormat,
   satirZarardaMi,
   type BirimTipi,
@@ -26,7 +28,9 @@ import {
 } from '@market/shared';
 import { BosDurum, Kisayol, MiktarAlani, ParaAlani, Rozet, TutarSatiri } from '../bilesen/temel';
 import { HizliUrunIzgarasi } from '../bilesen/HizliUrunIzgarasi';
+import { PaketSecimDiyalogu } from '../bilesen/PaketSecimDiyalogu';
 import { bildir, hatayiBildir } from '../durum/bildirim';
+import { onayla } from '../durum/onay';
 import { oturumDurumu, useYetki } from '../durum/oturum';
 import { satisGirdisiOlustur, sepetDurumu, type EklenecekUrun, type SepetAnlik } from '../durum/sepet';
 import { useBarkodOdakYakalayici, useBarkodTekrarKorumasi, useKisayol } from '../kanca/useKisayol';
@@ -58,6 +62,21 @@ interface BarkodSonucu {
   fiyat?: Kurus;
   kampanyaId?: string | null;
   uyari?: string;
+  /** Ürünün paketleri (kampanyalı fiyatlarıyla); doluysa "tekli / paket" sorulur. */
+  paketler?: PaketSecenegi[];
+  /** Okutulan barkod bir paketin kendi barkodu: soru sorulmadan o paket eklenir. */
+  paketId?: string;
+}
+
+/** `urun.paketSecenekleri` / barkod sonucundaki paket. */
+interface PaketSecenegi {
+  id: string;
+  ad: string;
+  carpan: number;
+  fiyat: Kurus | null;
+  barkod: string | null;
+  satisFiyati: Kurus;
+  kampanyaId: string | null;
 }
 
 /** `urun.ara` kanalından dönen satır (canlı öneri listesi için). */
@@ -312,12 +331,27 @@ export function SatisSayfasi() {
   const [fiyatSorguModu, setFiyatSorguModu] = useState(false);
   /** KG/LT ürün için miktar (tartım) diyaloğunda bekleyen ürün. */
   const [tartilan, setTartilan] = useState<EklenecekUrun | null>(null);
+  /** Paketi tanımlı ürün: "tekli mi paket mi" cevabı bekleniyor. */
+  const [paketSecimi, setPaketSecimi] = useState<{
+    urun: EklenecekUrun;
+    paketler: PaketSecenegi[];
+    miktar?: Miktar;
+    bildirim?: boolean;
+  } | null>(null);
   /** Barkod kutusuna isim yazılırken beliren canlı öneriler. */
   const [oneriler, setOneriler] = useState<OneriUrun[]>([]);
   const [oneriIndeks, setOneriIndeks] = useState(0);
 
   const tekrarKorumasi = useBarkodTekrarKorumasi(120);
-  const diyalogAcik = odemeAcik || aramaAcik || musteriAcik || iskontoAcik || tartilan !== null || tahsilatAcik || faturaAcik;
+  const diyalogAcik =
+    odemeAcik ||
+    aramaAcik ||
+    musteriAcik ||
+    iskontoAcik ||
+    tartilan !== null ||
+    tahsilatAcik ||
+    faturaAcik ||
+    paketSecimi !== null;
   const oneriAcik = oneriler.length > 0 && !diyalogAcik;
 
   const odaklan = useCallback(() => {
@@ -351,18 +385,66 @@ export function SatisSayfasi() {
   }, []);
 
   /**
+   * Paket satırı: ad "Kibrit (12'li paket)", fiyat paketin fiyatı, miktar
+   * paket sayısı. Zarar uyarısı için alış da paketin içindeki adet kadardır.
+   */
+  const paketliEkle = useCallback(
+    (urun: EklenecekUrun, paket: PaketSecenegi, miktar?: Miktar) => {
+      urunuEkle(
+        {
+          ...urun,
+          ad: paketliAd(urun.ad, paket.ad),
+          barkod: paket.barkod ?? urun.barkod,
+          birimFiyat: paket.satisFiyati,
+          listeFiyati: paketFiyati(paket, urun.listeFiyati),
+          kampanyaId: paket.kampanyaId,
+          alisFiyati: urun.alisFiyati !== undefined ? urun.alisFiyati * paket.carpan : undefined,
+          paket: { id: paket.id, carpan: paket.carpan, ad: paket.ad },
+        },
+        miktar,
+      );
+    },
+    [urunuEkle],
+  );
+
+  /**
    * Sepete giden TEK kapı: KG/LT ürünlerde miktar verilmemişse önce tartım
    * diyaloğu açılır (bağlı terazi açıksa ağırlık canlı okunur; değilse kasiyer kg'ı ya da tutarı girer).
+   *
+   * PAKET: ürünün paketi tanımlıysa "tekli / paket" sorulur. Paketin KENDİ
+   * barkodu okutulduysa (`paketId`) sorulmaz, o paket eklenir. Barkod yolu
+   * paketleri sonuçla getirir; ızgara ve arama yolunda ayrıca sorulur.
    */
   const sepeteAl = useCallback(
-    (urun: EklenecekUrun, miktar?: Miktar) => {
+    async (
+      urun: EklenecekUrun,
+      miktar?: Miktar,
+      paketBilgisi?: { paketler: PaketSecenegi[]; paketId?: string },
+      secenek: { bildirim?: boolean } = {},
+    ) => {
       if (miktar === undefined && urun.birimTipi !== 'ADET') {
         setTartilan(urun);
         return;
       }
+      let bilgi = paketBilgisi;
+      if (!bilgi && urun.birimTipi === 'ADET' && !urun.paket && !urun.ozelAd) {
+        const sonuc = await cagirGuvenli<PaketSecenegi[]>('urun.paketSecenekleri', { urunId: urun.urunId });
+        bilgi = { paketler: sonuc.veri ?? [] };
+      }
+      const paket = bilgi?.paketId ? bilgi.paketler.find((p) => p.id === bilgi.paketId) : undefined;
+      if (paket) {
+        paketliEkle(urun, paket, miktar);
+        if (secenek.bildirim) bildir.basari(`${paketliAd(urun.ad, paket.ad)} sepete eklendi`);
+        return;
+      }
+      if (bilgi && bilgi.paketler.length > 0) {
+        setPaketSecimi({ urun, paketler: bilgi.paketler, miktar, bildirim: secenek.bildirim });
+        return;
+      }
       urunuEkle(urun, miktar);
+      if (secenek.bildirim) bildir.basari(`${urun.ad} sepete eklendi`);
     },
-    [urunuEkle],
+    [urunuEkle, paketliEkle],
   );
 
   // Barkod kutusuna harf içeren bir şey yazıldığında canlı öneri getirilir:
@@ -397,7 +479,7 @@ export function SatisSayfasi() {
       setAdetOneki(null);
       setBarkodMetni('');
       setOneriler([]);
-      sepeteAl(
+      void sepeteAl(
         {
           urunId: urun.id,
           ad: urun.ad,
@@ -468,7 +550,7 @@ export function SatisSayfasi() {
         const etkinCarpan = carpan ?? adetOneki;
         const miktar = sonuc.miktar ?? (etkinCarpan ? miktarOlustur(etkinCarpan) : undefined);
         setAdetOneki(null);
-        sepeteAl(
+        void sepeteAl(
           {
             urunId: urun.id,
             ad: urun.ad,
@@ -483,6 +565,7 @@ export function SatisSayfasi() {
             alisFiyati: urun.alis_fiyati,
           },
           miktar,
+          { paketler: sonuc.paketler ?? [], paketId: sonuc.paketId },
         );
       } catch (hata) {
         hatayiBildir(hata, 'Barkod okuma');
@@ -712,7 +795,13 @@ export function SatisSayfasi() {
           else if (fiyatSorguModu) setFiyatSorguModu(false);
           else if (adetOneki) setAdetOneki(null);
           else if (sepet.satirlar.length > 0) {
-            if (window.confirm('Sepetteki tüm satırlar silinsin mi?')) sepetDurumu.getState().temizle();
+            void onayla('Sepetteki tüm satırlar silinsin mi?', { onaylaMetni: 'Sepeti temizle', tehlikeli: true }).then(
+              (evet) => {
+                if (evet) sepetDurumu.getState().temizle();
+                odaklan();
+              },
+            );
+            return;
           }
           odaklan();
         },
@@ -799,8 +888,14 @@ export function SatisSayfasi() {
     })),
   ].sort((a, b) => sepetNumarasi(a.ad) - sepetNumarasi(b.ad));
 
-  const sepetiKapat = (ad: string, kalemSayisi: number) => {
-    if (kalemSayisi > 0 && !window.confirm(`${ad} içindeki ${kalemSayisi} kalem silinsin mi?`)) return;
+  const sepetiKapat = async (ad: string, kalemSayisi: number) => {
+    if (
+      kalemSayisi > 0 &&
+      !(await onayla(`${ad} içindeki ${kalemSayisi} kalem silinsin mi?`, { onaylaMetni: 'Sil', tehlikeli: true }))
+    ) {
+      odaklan();
+      return;
+    }
     sepetDurumu.getState().sepetKapat(ad);
     odaklan();
   };
@@ -1234,6 +1329,7 @@ export function SatisSayfasi() {
           onCarpanTuketildi={() => setAdetOneki(null)}
           onSepeteEklendi={odaklan}
           onTartimIste={setTartilan}
+          onSepeteAl={(urun, miktar) => void sepeteAl(urun, miktar, undefined, { bildirim: true })}
         />
       </div>
 
@@ -1350,7 +1446,31 @@ export function SatisSayfasi() {
           setAramaAcik(false);
           setAramaTerimi('');
           // KG/LT üründe miktar girilmediyse sepeteAl tartım diyaloğunu açar.
-          sepeteAl(urun, miktar);
+          void sepeteAl(urun, miktar);
+          odaklan();
+        }}
+      />
+
+      <PaketSecimDiyalogu
+        acik={paketSecimi !== null}
+        urunAdi={paketSecimi?.urun.ad ?? ''}
+        tekFiyat={paketSecimi?.urun.birimFiyat}
+        paketler={paketSecimi?.paketler ?? []}
+        onKapat={() => {
+          setPaketSecimi(null);
+          odaklan();
+        }}
+        onSec={(secilen) => {
+          const bekleyen = paketSecimi;
+          setPaketSecimi(null);
+          if (bekleyen) {
+            const paket = secilen ? bekleyen.paketler.find((p) => p.id === secilen.id) : undefined;
+            if (paket) paketliEkle(bekleyen.urun, paket, bekleyen.miktar);
+            else urunuEkle(bekleyen.urun, bekleyen.miktar);
+            if (bekleyen.bildirim) {
+              bildir.basari(`${paket ? paketliAd(bekleyen.urun.ad, paket.ad) : bekleyen.urun.ad} sepete eklendi`);
+            }
+          }
           odaklan();
         }}
       />

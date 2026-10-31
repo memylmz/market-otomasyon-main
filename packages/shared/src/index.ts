@@ -32,3 +32,4 @@ export * from './pavo.js';
 export * from './pavo-rapor.js';
 export * from './ozel-tema.js';
 export * from './musteri-tema.js';
+export * from './paket.js';

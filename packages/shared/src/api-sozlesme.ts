@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { OLAY_TIPI, PULL_VARLIKLARI, ROL, SEMA_SURUMU, SENKRON_PROTOKOL_SURUMU, SINIRLAR } from './sabitler.js';
+import { OLAY_TIPI, ROL, SEMA_SURUMU, SENKRON_PROTOKOL_SURUMU, SINIRLAR } from './sabitler.js';
 import { zGun, zKurus, zMiktar, zUuid, zZaman } from './semalar.js';
 
 export const API_ONEKI = '/v1';
@@ -118,6 +118,12 @@ export const zPullIstegi = z.object({
   limit: z.coerce.number().int().positive().max(SINIRLAR.PULL_LIMIT).default(SINIRLAR.PULL_LIMIT),
   sema_surumu: z.coerce.number().int().optional(),
   /**
+   * Kasanın tanıdığı ek varlıklar, virgülle ("paket"). Sunucu yeni bir
+   * varlığı yalnız onu tanıyan kasaya gönderir; eski kasa bilmediği varlık
+   * adını içeren yanıtı reddederdi.
+   */
+  yetenekler: z.string().max(200).optional(),
+  /**
    * Sayfa imleci — bir önceki yanıtın `imlec` alanı, olduğu gibi geri gönderilir.
    *
    * İmleçsiz sayfalamada kasa bir sonraki sayfaya gelen kayıtların EN YÜKSEK
@@ -135,7 +141,11 @@ export const zPullIstegi = z.object({
 export type PullIstegi = z.infer<typeof zPullIstegi>;
 
 export const zPullKaydi = z.object({
-  varlik: z.enum(PULL_VARLIKLARI),
+  /*
+   * Serbest metin: ileride eklenecek bir varlık bütün yanıtı reddettirmesin;
+   * kasa tanımadığını atlar (bkz. motor.ts `pullKaydiniUygula`).
+   */
+  varlik: z.string().min(1),
   /** Sunucudaki monoton artan sürüm numarası. */
   versiyon: z.number().int().nonnegative(),
   /** true → kayıt silinmiş/pasifleştirilmiş sayılır. */

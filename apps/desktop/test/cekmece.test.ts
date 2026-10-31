@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AYAR, adet } from '@market/shared';
 import { ayarYaz } from '../src/main/depo/ayar.js';
 import { satisKesinlestir } from '../src/main/servis/satis-servis.js';
-import { fissizSatistaCekmeceyiAc } from '../src/main/servis/yazdirma-servis.js';
+import { fissizSatistaCekmeceyiAc, satisFisiYazdir } from '../src/main/servis/yazdirma-servis.js';
 import { testOrtamiKur, urunEkle, type TestOrtami } from './yardimci.js';
 
 let ortam: TestOrtami;
@@ -55,6 +55,29 @@ describe('fişsiz satışta çekmece', () => {
     rmSync(hedef, { force: true });
     const { satisId } = sat('NAKIT');
     await fissizSatistaCekmeceyiAc(ortam.uygulama.baglam, satisId);
+    expect(cekmeceDarbesiVar()).toBe(false);
+  });
+});
+
+describe('fişli satışta çekmece', () => {
+  beforeEach(() => {
+    // Görüntü çizimi Electron ister; testte metin fişi yeterli.
+    ayarYaz(ortam.uygulama.vt, AYAR.YAZICI_GORSEL_FIS, '0');
+  });
+
+  it('nakit satışta çekmece darbesi fişle AYNI işte ve en başta gider', async () => {
+    const { satisId } = sat('NAKIT');
+    const sonuc = await satisFisiYazdir(ortam.uygulama.baglam, satisId);
+    expect(sonuc.basarili).toBe(true);
+    const baytlar = readFileSync(hedef);
+    // Tek iş: dosyaya bir kez eklendi ve ilk komut çekmece darbesi.
+    expect(baytlar.subarray(0, 2)).toEqual(Buffer.from([0x1b, 0x70]));
+    expect(baytlar.indexOf(Buffer.from([0x1b, 0x70]), 2)).toBe(-1);
+  });
+
+  it('kart satışında fiş basılır, çekmece açılmaz', async () => {
+    const { satisId } = sat('KART');
+    expect((await satisFisiYazdir(ortam.uygulama.baglam, satisId)).basarili).toBe(true);
     expect(cekmeceDarbesiVar()).toBe(false);
   });
 });

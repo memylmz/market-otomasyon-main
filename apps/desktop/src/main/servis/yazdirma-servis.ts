@@ -126,8 +126,11 @@ async function fisiBas(
   baytlar: Buffer,
   satirGenisligi: number,
   html?: string,
+  /** Fişten ÖNCE aynı işte gönderilecek komutlar (çekmece darbesi). */
+  onEk?: Buffer,
 ): Promise<YazdirmaSonucu> {
-  if (!ustBool(baglam, undefined, AYAR.YAZICI_GORSEL_FIS, true)) return yazici.yazdir(baytlar);
+  const gonder = (veri: Buffer) => yazici.yazdir(onEk ? Buffer.concat([onEk, veri]) : veri);
+  if (!ustBool(baglam, undefined, AYAR.YAZICI_GORSEL_FIS, true)) return gonder(baytlar);
 
   /*
    * YAPILANDIRILMIŞ BELGE VARSA ONDAN ÇİZİLİR.
@@ -147,14 +150,14 @@ async function fisiBas(
           rasterKomutu(siyahBeyazaIndir(bgra, en, boy), en, boy),
           kuyrukKomutlari(baytlar),
         ]);
-        return yazici.yazdir(gorsel);
+        return gonder(gorsel);
       }
     } catch (hata) {
       // Çizim hatası satışı durdurmaz; metin fişine düşülür (§3).
       baglam.kayit.uyari('Belge çizilemedi, metin olarak basılıyor', {
         hata: hata instanceof Error ? hata.message : String(hata),
       });
-      return yazici.yazdir(baytlar);
+      return gonder(baytlar);
     }
   }
 
@@ -162,7 +165,7 @@ async function fisiBas(
   if (!cevrim.gorsel) {
     baglam.kayit.uyari('Fiş görüntüye çevrilemedi, metin olarak basılıyor', { hata: cevrim.hata });
   }
-  return yazici.yazdir(cevrim.baytlar);
+  return gonder(cevrim.baytlar);
 }
 
 /** Yasal uyarı: ayardan gelir ama boş bırakılamaz (§17.1). */
@@ -190,6 +193,18 @@ export async function satisFisiYazdir(
     duzen,
   });
 
+  /*
+   * Çekmece fişle AYNI işte açılır, fişin başında: kasiyer para üstünü
+   * hazırlarken çekmece zaten açıktır. Eskiden fiş bittikten sonra ayrı bir
+   * iş olarak gönderiliyordu; USB kuyruğunda bu ikinci bir gönderim demekti
+   * ve çekmece fişten saniyeler sonra açılıyordu.
+   */
+  const nakitVar = detay.odemeler.some((o) => o.odeme_tipi === 'NAKIT');
+  const cekmeceDarbesi =
+    (secenekler.cekmeceyiAc ?? ayar.cekmeceAc) && nakitVar
+      ? new EscPosYazici(ayar.satirGenisligi).cekmeceAc().bitir()
+      : undefined;
+
   let sonuc: YazdirmaSonucu;
   try {
     sonuc = await fisiBas(
@@ -206,6 +221,7 @@ export async function satisFisiYazdir(
         }),
         kagitNoktaGenisligi(ayar.satirGenisligi),
       ),
+      cekmeceDarbesi,
     );
   } catch (hata) {
     sonuc = { basarili: false, hata: hata instanceof Error ? hata.message : String(hata) };
@@ -213,11 +229,6 @@ export async function satisFisiYazdir(
 
   if (sonuc.basarili) {
     fisYazdirildiIsaretle(baglam.vt, satisId, true);
-    // Çekmece yalnız nakit içeren satışlarda açılır.
-    const nakitVar = detay.odemeler.some((o) => o.odeme_tipi === 'NAKIT');
-    if ((secenekler.cekmeceyiAc ?? ayar.cekmeceAc) && nakitVar) {
-      await yazici.cekmeceyiAc().catch(() => undefined);
-    }
   } else {
     baglam.kayit.uyari('Fiş yazdırılamadı — satış etkilenmedi', {
       satis_id: satisId,

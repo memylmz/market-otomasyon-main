@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { miktarFormat, miktarParse, paraFormat, paraParse, type BirimTipi, type Kurus, type Miktar } from '@market/shared';
 import { bildirimDurumu, type BildirimTuru } from '../durum/bildirim';
+import { onayDurumu } from '../durum/onay';
 
 // ---------------------------------------------------------------------------
 // Diyalog
@@ -152,6 +153,15 @@ export function OnayDiyalogu({
   onOnayla: () => void;
   onIptal: () => void;
 }) {
+  const onayTusu = useRef<HTMLButtonElement>(null);
+  // Diyalog belge sırasındaki ilk düğmeye (Vazgeç) odaklanır; onay sorusunda
+  // Enter onaylamalı (kasiyerin alışkanlığı: ESC → Enter sepeti temizler).
+  useEffect(() => {
+    if (!acik) return;
+    const z = setTimeout(() => onayTusu.current?.focus(), 20);
+    return () => clearTimeout(z);
+  }, [acik]);
+
   return (
     <Diyalog
       acik={acik}
@@ -163,14 +173,55 @@ export function OnayDiyalogu({
           <button type="button" className="tus-ikincil" onClick={onIptal}>
             Vazgeç
           </button>
-          <button type="button" className={tehlikeli ? 'tus-tehlike' : 'tus-birincil'} onClick={onOnayla} data-odak>
+          <button
+            ref={onayTusu}
+            type="button"
+            className={tehlikeli ? 'tus-tehlike' : 'tus-birincil'}
+            onClick={onOnayla}
+            data-odak
+          >
             {onaylaMetni}
           </button>
         </>
       }
     >
-      <p className="text-metin-2">{mesaj}</p>
+      <p className="whitespace-pre-line text-metin-2">{mesaj}</p>
     </Diyalog>
+  );
+}
+
+/**
+ * `onayla()` sorularını gösterir (uygulamada bir kez, App içinde).
+ * Kapanınca odak soru açılmadan önceki alana döner — satış ekranında barkod kutusu.
+ */
+export function OnayKatmani() {
+  const bekleyen = onayDurumu((s) => s.bekleyen);
+  const yanitla = onayDurumu((s) => s.yanitla);
+  const oncekiOdak = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!bekleyen) return;
+    oncekiOdak.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => {
+      const alan = oncekiOdak.current;
+      oncekiOdak.current = null;
+      // Diyalog DOM'dan çıktıktan sonra; sayfa kendisi başka yere odaklandıysa dokunulmaz.
+      setTimeout(() => {
+        if (alan?.isConnected && (document.activeElement === document.body || document.activeElement === null)) alan.focus();
+      }, 0);
+    };
+  }, [bekleyen]);
+
+  return (
+    <OnayDiyalogu
+      acik={bekleyen !== null}
+      baslik={bekleyen?.baslik ?? 'Onay'}
+      mesaj={bekleyen?.mesaj ?? ''}
+      onaylaMetni={bekleyen?.onaylaMetni}
+      tehlikeli={bekleyen?.tehlikeli}
+      onOnayla={() => yanitla(true)}
+      onIptal={() => yanitla(false)}
+    />
   );
 }
 

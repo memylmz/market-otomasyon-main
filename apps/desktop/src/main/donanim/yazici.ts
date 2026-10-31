@@ -6,7 +6,7 @@
  * olarak işaretlenir ve sonradan tekrar yazdırılabilir.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -160,8 +160,7 @@ class DosyaYazicisi implements Yazici {
  * yazılır; yazıcı adı ve bayt dosyası ortam değişkeniyle geçer (tırnak/kaçış
  * derdi yok).
  */
-const KUYRUK_BETIGI = String.raw`$ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @"
+const HAM_YAZICI_TIPI = String.raw`Add-Type -TypeDefinition @"
 using System; using System.Runtime.InteropServices;
 public static class MoHamYazici {
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -191,14 +190,185 @@ public static class MoHamYazici {
   }
 }
 "@
+`;
+
+const KUYRUK_BETIGI = String.raw`$ErrorActionPreference = 'Stop'
+${HAM_YAZICI_TIPI}
 $sonuc = [MoHamYazici]::Yaz($env:MO_YAZICI, [IO.File]::ReadAllBytes($env:MO_DOSYA))
 if ($sonuc) { [Console]::Error.Write($sonuc); exit 2 }
 `;
 
-function kuyrukBetigiYolu(): string {
-  const yol = join(tmpdir(), 'market-otomasyon-ham-yazdir-v1.ps1');
-  if (!existsSync(yol)) writeFileSync(yol, KUYRUK_BETIGI, 'utf8');
+/*
+ * SUNUCU KİPİ — fiş başına PowerShell açılmaz.
+ *
+ * Tek seferlik betikte her fiş PowerShell'i başlatıp C# tipini YENİDEN
+ * derliyordu: güçlü bilgisayarda ~1 sn, kasa bilgisayarında 2-3 sn. Çekmece
+ * de ayrı bir iş olunca fiş ve çekmece 5-6 sn gecikiyordu. Süreç bir kez
+ * açılır, tip bir kez derlenir; her iş tek satırdır:
+ *   <yazıcı adı (UTF-8, base64)> TAB <baytlar (base64)>
+ * Yanıt: "OK" ya da "ERR <kod>".
+ */
+const SUNUCU_BETIGI = String.raw`$ErrorActionPreference = 'Stop'
+${HAM_YAZICI_TIPI}
+[Console]::Out.WriteLine('HAZIR'); [Console]::Out.Flush()
+while ($true) {
+  $satir = [Console]::In.ReadLine()
+  if ($satir -eq $null) { break }
+  if ($satir -eq '') { continue }
+  try {
+    $p = $satir.Split([char]9)
+    $ad = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($p[0]))
+    $sonuc = [MoHamYazici]::Yaz($ad, [Convert]::FromBase64String($p[1]))
+  } catch { $sonuc = 'HATA ' + ($_.Exception.Message -replace '\s+', ' ') }
+  if ($sonuc) { [Console]::Out.WriteLine('ERR ' + $sonuc) } else { [Console]::Out.WriteLine('OK') }
+  [Console]::Out.Flush()
+}
+`;
+
+function betikYolu(ad: string, icerik: string): string {
+  const yol = join(tmpdir(), ad);
+  if (!existsSync(yol)) writeFileSync(yol, icerik, 'utf8');
   return yol;
+}
+
+const kuyrukBetigiYolu = () => betikYolu('market-otomasyon-ham-yazdir-v1.ps1', KUYRUK_BETIGI);
+
+/**
+ * İş sürece GÖNDERİLDİKTEN sonra yanıt gelmedi: fiş basılmış olabilir.
+ * Bu durumda yedek yoldan tekrar basılmaz — fiş iki kez çıkmasın.
+ */
+class GonderildiHatasi extends Error {}
+
+/** Hazır bekleyen tek PowerShell süreci; işler sırayla gönderilir. */
+class YaziciSunucusu {
+  private surec: ChildProcessWithoutNullStreams | null = null;
+  private hazir: Promise<void> | null = null;
+  private tampon = '';
+  private bekleyen: ((satir: string) => void) | null = null;
+  private sira: Promise<unknown> = Promise.resolve();
+
+  /** Süreci açar ve tipi derletir (ilk fişi beklemeden, program açılırken çağrılabilir). */
+  isit(): Promise<void> {
+    if (this.hazir) return this.hazir;
+    const hazir = new Promise<void>((coz, reddet) => {
+      const surec = spawn(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          betikYolu('market-otomasyon-ham-yazdir-sunucu-v1.ps1', SUNUCU_BETIGI),
+        ],
+        { windowsHide: true },
+      );
+      this.surec = surec;
+      this.tampon = '';
+      let basladi = false;
+      const zaman = setTimeout(() => {
+        reddet(new Error('Yazdırma süreci başlamadı.'));
+        this.kapat();
+      }, 20_000);
+      surec.stdout.setEncoding('utf8');
+      surec.stdout.on('data', (parca: string) => {
+        this.tampon += parca;
+        let i: number;
+        while ((i = this.tampon.indexOf('\n')) >= 0) {
+          const satir = this.tampon.slice(0, i).trim();
+          this.tampon = this.tampon.slice(i + 1);
+          if (!basladi) {
+            if (satir === 'HAZIR') {
+              basladi = true;
+              clearTimeout(zaman);
+              coz();
+            }
+            continue;
+          }
+          const b = this.bekleyen;
+          this.bekleyen = null;
+          b?.(satir);
+        }
+      });
+      surec.stderr.resume();
+      // Süreç kapandıktan sonra yazmak EPIPE verir; dinlenmezse ana süreç çöker.
+      surec.stdin.on('error', () => {
+        if (this.surec === surec) this.kapat();
+      });
+      surec.on('error', (hata) => {
+        clearTimeout(zaman);
+        if (this.surec === surec) this.kapat();
+        reddet(hata);
+      });
+      surec.on('exit', () => {
+        clearTimeout(zaman);
+        if (this.surec === surec) this.kapat();
+        reddet(new Error('Yazdırma süreci kapandı.'));
+      });
+    });
+    this.hazir = hazir;
+    // Başlamazsa bir sonraki iş yeniden dener.
+    hazir.catch(() => {
+      if (this.hazir === hazir) this.hazir = null;
+    });
+    return hazir;
+  }
+
+  /** Yanıt "" (başarılı) ya da hata kodu; süreç kullanılamıyorsa hata fırlatır. */
+  yaz(yaziciAdi: string, baytlar: Buffer): Promise<string> {
+    const is = this.sira.then(async () => {
+      await this.isit();
+      const surec = this.surec;
+      // Henüz hiçbir şey gönderilmedi: düz hata → yedek yol güvenle denenir.
+      if (!surec || surec.exitCode !== null || surec.stdin.destroyed) throw new Error('Yazdırma süreci yok.');
+      const satir = await new Promise<string>((coz, reddet) => {
+        // Her işin dinleyicisi iş bitince kaldırılır (yüzlerce fişte birikmesin).
+        const bitir = () => {
+          clearTimeout(zaman);
+          surec.off('exit', kapandi);
+          this.bekleyen = null;
+        };
+        const kapandi = () => {
+          bitir();
+          reddet(new GonderildiHatasi('Yazdırma süreci iş sırasında kapandı.'));
+        };
+        const zaman = setTimeout(() => {
+          bitir();
+          this.kapat();
+          reddet(new GonderildiHatasi('Yazdırma süreci yanıt vermedi.'));
+        }, 20_000);
+        this.bekleyen = (yanit) => {
+          bitir();
+          coz(yanit);
+        };
+        surec.once('exit', kapandi);
+        surec.stdin.write(`${Buffer.from(yaziciAdi, 'utf8').toString('base64')}\t${baytlar.toString('base64')}\n`);
+      });
+      return satir === 'OK' ? '' : satir.replace(/^ERR\s*/, '');
+    });
+    this.sira = is.catch(() => undefined);
+    return is;
+  }
+
+  kapat(): void {
+    const s = this.surec;
+    this.surec = null;
+    this.hazir = null;
+    this.bekleyen = null;
+    if (s && s.exitCode === null) s.kill();
+  }
+}
+
+const yaziciSunucusu = new YaziciSunucusu();
+
+/** Program açılışında: ilk fiş tip derlemesini beklemesin. Windows dışında bir şey yapmaz. */
+export function yazdirmaKuyrugunuIsit(): void {
+  if (process.platform === 'win32') yaziciSunucusu.isit().catch(() => undefined);
+}
+
+/** Uygulama kapanırken. */
+export function yazdirmaKuyrugunuKapat(): void {
+  yaziciSunucusu.kapat();
 }
 
 class KuyrukYazicisi implements Yazici {
@@ -210,7 +380,42 @@ class KuyrukYazicisi implements Yazici {
   ) {}
 
   async yazdir(baytlar: Buffer): Promise<YazdirmaSonucu> {
-    if (process.platform !== 'win32') return { basarili: false, hata: 'Yazdırma kuyruğu yalnız Windows’ta kullanılabilir.' };
+    return (await this.gonder(baytlar)).sonuc;
+  }
+
+  /** `acilamadi`: yazıcı hiç açılamadı (OPEN), yani hiçbir bayt gitmedi. */
+  async gonder(baytlar: Buffer): Promise<{ sonuc: YazdirmaSonucu; acilamadi: boolean }> {
+    if (process.platform !== 'win32') {
+      return { sonuc: { basarili: false, hata: 'Yazdırma kuyruğu yalnız Windows’ta kullanılabilir.' }, acilamadi: true };
+    }
+    let kod: string;
+    try {
+      kod = await yaziciSunucusu.yaz(this.yaziciAdi, baytlar);
+    } catch (hata) {
+      if (hata instanceof GonderildiHatasi) {
+        // Fiş basılmış olabilir: tekrar gönderilmez, kasiyer gerekirse elle yeniden yazdırır.
+        return {
+          sonuc: { basarili: false, hata: `"${this.yaziciAdi}" yazıcısından yanıt alınamadı (${hata.message}).` },
+          acilamadi: false,
+        };
+      }
+      // Hazır süreç hiç başlamadı, iş gönderilmedi: eski, yavaş ama bağımsız yol.
+      return this.tekSeferlik(baytlar);
+    }
+    return { sonuc: kod ? this.hataSonucu(kod) : { basarili: true }, acilamadi: kod.startsWith('OPEN') };
+  }
+
+  private hataSonucu(kod: string): YazdirmaSonucu {
+    if (kod.startsWith('OPEN 1801')) {
+      return {
+        basarili: false,
+        hata: `Windows'ta "${this.yaziciAdi}" adlı yazıcı bulunamadı. Ayarlardan yazıcıyı yeniden seçin.`,
+      };
+    }
+    return { basarili: false, hata: `"${this.yaziciAdi}" yazıcısına gönderilemedi (${kod}). Yazıcı açık ve kablosu takılı mı?` };
+  }
+
+  private tekSeferlik(baytlar: Buffer): Promise<{ sonuc: YazdirmaSonucu; acilamadi: boolean }> {
     const dosya = join(tmpdir(), `mo-fis-${process.pid}-${Date.now()}.bin`);
     writeFileSync(dosya, baytlar);
     return new Promise((cozumle) => {
@@ -220,18 +425,9 @@ class KuyrukYazicisi implements Yazici {
         { env: { ...process.env, MO_YAZICI: this.yaziciAdi, MO_DOSYA: dosya }, timeout: 30_000, windowsHide: true },
         (hata, _cikti, hataCiktisi) => {
           rmSync(dosya, { force: true });
-          if (!hata) return cozumle({ basarili: true });
+          if (!hata) return cozumle({ sonuc: { basarili: true }, acilamadi: false });
           const kod = String(hataCiktisi ?? '').trim();
-          if (kod.startsWith('OPEN 1801')) {
-            return cozumle({
-              basarili: false,
-              hata: `Windows'ta "${this.yaziciAdi}" adlı yazıcı bulunamadı. Ayarlardan yazıcıyı yeniden seçin.`,
-            });
-          }
-          cozumle({
-            basarili: false,
-            hata: `"${this.yaziciAdi}" yazıcısına gönderilemedi (${kod || hata.message}). Yazıcı açık ve kablosu takılı mı?`,
-          });
+          cozumle({ sonuc: this.hataSonucu(kod || hata.message), acilamadi: kod.startsWith('OPEN') });
         },
       );
     });
@@ -247,15 +443,14 @@ class KuyrukYazicisi implements Yazici {
 }
 
 /**
- * USB (Windows'a kurulu) yazıcı: önce paylaşım yolu, olmazsa yazdırma kuyruğu.
+ * USB (Windows'a kurulu) yazıcı: önce yazdırma kuyruğu, olmazsa paylaşım yolu.
  *
- * Eskiden yalnız `\\localhost\<ad>` deneniyordu; yazıcı paylaşıma açık
- * değilse ("UNKNOWN: unknown error, open '\\localhost\POS-80C\'") fiş hiç
- * çıkmıyordu ve kullanıcı Windows'ta paylaşım ayarı yapmak zorundaydı.
- * Paylaşım bir kez başarısız olunca o yazıcı için doğrudan kuyruğa gidilir:
- * her fişte önce başarısız yolu beklemek gereksiz.
+ * Kuyruk paylaşım gerektirmez ve hazır bekleyen süreçle milisaniyeler sürer.
+ * Eskiden önce `\\localhost\<ad>` deneniyordu; paylaşımı kapalı yazıcıda bu
+ * deneme her oturumun ilk fişini bekletiyordu. Paylaşım artık yalnız kuyruk
+ * yazıcıyı AÇAMADIĞINDA denenir — veri gönderildikten sonra hata olduysa
+ * ikinci yoldan tekrar basılmaz (fiş iki kez çıkmasın).
  */
-const paylasimiOlmayanlar = new Set<string>();
 
 class UsbYazicisi implements Yazici {
   readonly tip = 'USB' as const;
@@ -271,12 +466,12 @@ class UsbYazicisi implements Yazici {
   }
 
   private async dene(baytlar: Buffer): Promise<YazdirmaSonucu> {
-    const ad = (this.ayar.usbAdi ?? '').trim();
-    if (this.kuyruk && paylasimiOlmayanlar.has(ad)) return this.kuyruk.yazdir(baytlar);
-    const sonuc = await this.paylasim.yazdir(baytlar);
-    if (sonuc.basarili || !this.kuyruk) return sonuc;
-    paylasimiOlmayanlar.add(ad);
-    return this.kuyruk.yazdir(baytlar);
+    if (!this.kuyruk) return this.paylasim.yazdir(baytlar);
+    const { sonuc, acilamadi } = await this.kuyruk.gonder(baytlar);
+    // Yalnız yazıcı hiç açılamadıysa: baytlar gitmedi, ikinci yol güvenli.
+    if (sonuc.basarili || !acilamadi) return sonuc;
+    const yedek = await this.paylasim.yazdir(baytlar);
+    return yedek.basarili ? yedek : sonuc;
   }
 
   yazdir(baytlar: Buffer): Promise<YazdirmaSonucu> {
