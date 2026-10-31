@@ -178,7 +178,12 @@ async function baslat(): Promise<void> {
     const yazici = yaziciAyariniOku(uygulama.baglam);
     if ((yazici.tip === 'USB' || yazici.tip === 'OTOMATIK') && yazici.usbAdi?.trim()) yazdirmaKuyrugunuIsit();
     // Fiş görüntüsünü çizen gizli pencere de hazırlanır (açılışı yavaşlatmasın diye biraz sonra).
-    if (yazici.tip !== 'YOK') setTimeout(gorselCiziciyiIsit, 3000);
+    if (yazici.tip !== 'YOK') {
+      setTimeout(() => {
+        // Bu arada kasa penceresi kapandıysa gizli pencere açılmaz (program kapanıyor).
+        if (anaPencere && !kapaniyor) gorselCiziciyiIsit();
+      }, 3000);
+    }
   } catch {
     /* kurulum öncesi: ayar yok */
   }

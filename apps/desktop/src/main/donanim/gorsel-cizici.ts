@@ -49,18 +49,26 @@ function pencereAl(enNokta: number): BrowserWindow {
   return pencere;
 }
 
+/*
+ * ÇİZİMLER SIRAYLA. Tek pencere vardır; ikinci bir yükleme öncekini iptal
+ * eder (ERR_ABORTED) ve o fiş düz metne düşerdi. Arka arkaya iki satışın
+ * fişi, yeniden yazdırma ya da fişle aynı anda etiket basmak bunu
+ * tetikliyordu. Her iş bir öncekinin bitmesini bekler.
+ */
+let sira: Promise<unknown> = Promise.resolve();
+function sirayla<T>(is: () => Promise<T>): Promise<T> {
+  const sonuc = sira.then(is, is);
+  sira = sonuc.catch(() => undefined);
+  return sonuc;
+}
+
 /**
  * Program açılırken çizim penceresini hazırlar: ilk fişte Chromium'un yeni bir
- * çizim süreci başlatması yavaş kasada saniyeler sürüyordu.
+ * çizim süreci başlatması yavaş kasada saniyeler sürüyordu. Sıradan geçer:
+ * ilk fişle çakışırsa onu iptal etmez.
  */
 export function gorselCiziciyiIsit(): void {
-  try {
-    void pencereAl(576)
-      .loadURL('data:text/html;charset=utf-8,')
-      .catch(() => undefined);
-  } catch {
-    /* ilk fişte yine açılır */
-  }
+  void sirayla(() => pencereAl(576).loadURL('data:text/html;charset=utf-8,')).catch(() => undefined);
 }
 
 /** Çizim penceresini kapatır (uygulama kapanışında). */
@@ -69,7 +77,9 @@ export function gorselCiziciyiKapat(): void {
   pencere = null;
 }
 
-export const electronCizici: GorselCizici = async (html, enNokta) => {
+export const electronCizici: GorselCizici = (html, enNokta) => sirayla(() => ciz(html, enNokta));
+
+async function ciz(html: string, enNokta: number): ReturnType<GorselCizici> {
   const w = pencereAl(enNokta);
 
   await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
@@ -104,4 +114,4 @@ export const electronCizici: GorselCizici = async (html, enNokta) => {
   const bgra = new Uint8Array(resim.toBitmap());
 
   return { bgra, en: olcu.width, boy: olcu.height };
-};
+}
