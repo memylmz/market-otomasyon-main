@@ -837,17 +837,6 @@ function SlaytDuzenleyici({
 const ORNEK_SEPET: MusteriSepeti = {
   satirlar: [
     {
-      anahtar: 'o1',
-      ad: 'Süt 1 L',
-      miktar: 2000,
-      birimTipi: 'ADET',
-      birimFiyat: 3250,
-      listeFiyati: 3250,
-      tutar: 6500,
-      iskonto: 0,
-    },
-    { anahtar: 'o2', ad: 'Domates', miktar: 1250, birimTipi: 'KG', birimFiyat: 3990, listeFiyati: 3990, tutar: 4988, iskonto: 0 },
-    {
       anahtar: 'o3',
       ad: 'Ayran 1 L',
       miktar: 3000,
@@ -856,6 +845,17 @@ const ORNEK_SEPET: MusteriSepeti = {
       listeFiyati: 3000,
       tutar: 6000,
       iskonto: 3000,
+    },
+    { anahtar: 'o2', ad: 'Domates', miktar: 1250, birimTipi: 'KG', birimFiyat: 3990, listeFiyati: 3990, tutar: 4988, iskonto: 0 },
+    {
+      anahtar: 'o1',
+      ad: 'Süt 1 L',
+      miktar: 2000,
+      birimTipi: 'ADET',
+      birimFiyat: 3250,
+      listeFiyati: 3250,
+      tutar: 6500,
+      iskonto: 0,
     },
   ],
   sonAnahtar: 'o3',

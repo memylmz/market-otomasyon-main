@@ -305,7 +305,8 @@ function Ust({ yapilandirma, sag }: { yapilandirma: MusteriEkraniYapilandirmasi;
 }
 
 export function SepetGorunumu({ sepet, yapilandirma }: { sepet: MusteriSepeti; yapilandirma: MusteriEkraniYapilandirmasi }) {
-  const son = sepet.satirlar.find((s) => s.anahtar === sepet.sonAnahtar) ?? sepet.satirlar[sepet.satirlar.length - 1];
+  // Liste en yeni üstte gelir; büyük gösterilecek satır bulunamazsa en üstteki.
+  const son = sepet.satirlar.find((s) => s.anahtar === sepet.sonAnahtar) ?? sepet.satirlar[0];
   const liste = useRef<HTMLDivElement>(null);
 
   // Büyük gösterilen satır listede de görünür kalsın.

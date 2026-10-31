@@ -257,10 +257,16 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
           !x.iskontoYuzde &&
           !x.iskontoTutar,
       );
+      /*
+       * SIRA: en son okutulan EN ÜSTTE (kasada ve müşteri ekranında). Tekrar
+       * okutulan ürün de miktarı artarak en üste çıkar: en üstteki satır her
+       * zaman son yapılan iştir. Fiş okutma sırasıyla basılır (bkz.
+       * satisGirdisiOlustur).
+       */
       if (mevcut) {
         anahtar = mevcut.anahtar;
         return {
-          satirlar: s.satirlar.map((x) => (x.anahtar === mevcut.anahtar ? { ...x, miktar: x.miktar + eklenecek } : x)),
+          satirlar: [{ ...mevcut, miktar: mevcut.miktar + eklenecek }, ...s.satirlar.filter((x) => x.anahtar !== mevcut.anahtar)],
           seciliAnahtar: mevcut.anahtar,
         };
       }
@@ -282,7 +288,7 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
         ozelAd: urun.ozelAd,
         ...(urun.paket ? { paket: urun.paket } : {}),
       };
-      return { satirlar: [...s.satirlar, yeni], seciliAnahtar: anahtar };
+      return { satirlar: [yeni, ...s.satirlar], seciliAnahtar: anahtar };
     });
 
     return anahtar;
@@ -314,7 +320,8 @@ export const sepetDurumu = create<SepetDurumu>((set, get) => ({
   sil: (anahtar) =>
     set((s) => {
       const kalan = s.satirlar.filter((x) => x.anahtar !== anahtar);
-      const secili = s.seciliAnahtar === anahtar ? (kalan[kalan.length - 1]?.anahtar ?? null) : s.seciliAnahtar;
+      // Seçili satır silinince en yeni (en üstteki) satır seçilir.
+      const secili = s.seciliAnahtar === anahtar ? (kalan[0]?.anahtar ?? null) : s.seciliAnahtar;
       return { satirlar: kalan, seciliAnahtar: secili };
     }),
 
@@ -455,7 +462,8 @@ export function satisGirdisiOlustur(
 ): Record<string, unknown> {
   const s = sepetDurumu.getState();
   return {
-    kalemler: s.satirlar.map((x) => ({
+    // Ekranda en yeni üstte; fiş (ve Pavo) OKUTMA SIRASIYLA basılır: ilk okutulan üstte.
+    kalemler: [...s.satirlar].reverse().map((x) => ({
       urun_id: x.urunId,
       barkod: x.barkod,
       miktar: x.miktar,

@@ -1129,10 +1129,13 @@ export function SatisSayfasi() {
                     return (
                       <tr
                         key={satir.anahtar}
+                        // Liste aşağı kaydırılmışken yeni ürün üste eklenirse görünür olsun.
+                        ref={seciliMi ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
                         onClick={() => sepetDurumu.getState().sec(satir.anahtar)}
                         className={`cursor-pointer ${seciliMi ? 'bg-yuzey-4/60 outline outline-1 outline-vurgu' : ''}`}
                       >
-                        <td className="text-center text-metin-4">{i + 1}</td>
+                        {/* Numara okutma sırasıdır: en üstteki (en yeni) en büyük numara. */}
+                        <td className="text-center text-metin-4">{sepet.satirlar.length - i}</td>
                         <td className="text-left">
                           <div className="font-medium">{satir.ad}</div>
                           <div className="text-xs text-metin-4">

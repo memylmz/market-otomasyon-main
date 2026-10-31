@@ -323,14 +323,13 @@ export function sonDegisenSatir(
 ): string | null {
   if (yeni.length === 0) return null;
   const eski = new Map(onceki.map((s) => [s.anahtar, s.miktar]));
-  // Sondan başa: aynı anda birden fazla değişiklik varsa en alttaki kazanır.
-  for (let i = yeni.length - 1; i >= 0; i--) {
-    const s = yeni[i]!;
+  // Sepet en yeni ÜSTTE gelir: aynı anda birden fazla değişiklik varsa en üstteki kazanır.
+  for (const s of yeni) {
     const o = eski.get(s.anahtar);
     if (o === undefined || s.miktar > o) return s.anahtar;
   }
   if (oncekiSon && yeni.some((s) => s.anahtar === oncekiSon)) return oncekiSon;
-  return yeni[yeni.length - 1]!.anahtar;
+  return yeni[0]!.anahtar;
 }
 
 /** Müşterinin kazancı: liste fiyatıyla ödenenin farkı (satır başına asla negatif değil). */

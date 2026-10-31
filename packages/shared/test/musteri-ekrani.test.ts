@@ -114,8 +114,8 @@ describe('büyük gösterilecek satır', () => {
     expect(sonDegisenSatir([s('a', 1000)], [], 'a')).toBeNull();
   });
 
-  it('yeni eklenen satır', () => {
-    expect(sonDegisenSatir([s('a', 1000)], [s('a', 1000), s('b', 1000)], 'a')).toBe('b');
+  it('yeni eklenen satır (en üste eklenir)', () => {
+    expect(sonDegisenSatir([s('a', 1000)], [s('b', 1000), s('a', 1000)], 'a')).toBe('b');
   });
 
   it('aynı barkod tekrar okutulunca miktarı artan satır — listenin ortasında olsa da', () => {
@@ -126,8 +126,8 @@ describe('büyük gösterilecek satır', () => {
     expect(sonDegisenSatir([s('a', 2000), s('b', 1000)], [s('a', 1000), s('b', 1000)], 'a')).toBe('a');
   });
 
-  it('büyük gösterilen satır silinirse son satıra düşer', () => {
-    expect(sonDegisenSatir([s('a', 1000), s('b', 1000), s('c', 1000)], [s('a', 1000), s('b', 1000)], 'c')).toBe('b');
+  it('büyük gösterilen satır silinirse en üstteki (en yeni) satıra düşer', () => {
+    expect(sonDegisenSatir([s('c', 1000), s('b', 1000), s('a', 1000)], [s('b', 1000), s('a', 1000)], 'c')).toBe('b');
     expect(sonDegisenSatir([s('a', 1000)], [s('a', 1000)], null)).toBe('a');
   });
 });
