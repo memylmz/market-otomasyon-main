@@ -49,6 +49,20 @@ function pencereAl(enNokta: number): BrowserWindow {
   return pencere;
 }
 
+/**
+ * Program açılırken çizim penceresini hazırlar: ilk fişte Chromium'un yeni bir
+ * çizim süreci başlatması yavaş kasada saniyeler sürüyordu.
+ */
+export function gorselCiziciyiIsit(): void {
+  try {
+    void pencereAl(576)
+      .loadURL('data:text/html;charset=utf-8,')
+      .catch(() => undefined);
+  } catch {
+    /* ilk fişte yine açılır */
+  }
+}
+
 /** Çizim penceresini kapatır (uygulama kapanışında). */
 export function gorselCiziciyiKapat(): void {
   if (pencere && !pencere.isDestroyed()) pencere.destroy();

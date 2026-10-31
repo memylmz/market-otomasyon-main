@@ -8,6 +8,7 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
 import { hataNormalize } from '@market/shared';
+import { gorselCiziciyiIsit, gorselCiziciyiKapat } from './donanim/gorsel-cizici.js';
 import { yazdirmaKuyrugunuIsit, yazdirmaKuyrugunuKapat } from './donanim/yazici.js';
 import { ipcKaydet, olaylariBagla } from './ipc/index.js';
 import { medyaSemasiniKaydet, MusteriEkraniYoneticisi } from './musteri-ekrani/pencere.js';
@@ -111,6 +112,14 @@ function pencereOlustur(): BrowserWindow {
     // ve uygulama arka planda çalışmaya devam ederdi. Durdurulur (yalnız
     // kapatılmaz): yoksa bir monitör olayı pencereyi yeniden açabilirdi.
     musteriEkrani?.durdur();
+    /*
+     * Fiş çizimi için GİZLİ bir pencere vardır; o da sayılır. Kapatılmadığı
+     * için kasa penceresi kapanınca program görev yöneticisinde açık kalıyor,
+     * tek örnek kilidi yüzünden de yeniden açılamıyordu. Kapanış "son pencere
+     * kapandı"ya bırakılmaz: kasa penceresi kapandıysa program kapanır.
+     */
+    gorselCiziciyiKapat();
+    if (process.platform !== 'darwin') app.quit();
   });
 
   return pencere;
@@ -168,6 +177,8 @@ async function baslat(): Promise<void> {
   try {
     const yazici = yaziciAyariniOku(uygulama.baglam);
     if ((yazici.tip === 'USB' || yazici.tip === 'OTOMATIK') && yazici.usbAdi?.trim()) yazdirmaKuyrugunuIsit();
+    // Fiş görüntüsünü çizen gizli pencere de hazırlanır (açılışı yavaşlatmasın diye biraz sonra).
+    if (yazici.tip !== 'YOK') setTimeout(gorselCiziciyiIsit, 3000);
   } catch {
     /* kurulum öncesi: ayar yok */
   }
@@ -189,6 +200,15 @@ app.on('second-instance', () => {
   if (anaPencere) {
     if (anaPencere.isMinimized()) anaPencere.restore();
     anaPencere.focus();
+    return;
+  }
+  /*
+   * Kasa penceresi kapalı ama süreç yaşıyor (kapanış yarıda kaldıysa): yeniden
+   * açılmak istenince kullanıcı boş ekrana bakmasın, süreç kapanıp yeniden başlar.
+   */
+  if (uygulama && !kapaniyor) {
+    app.relaunch();
+    app.quit();
   }
 });
 
@@ -210,6 +230,9 @@ app.on('before-quit', (olay) => {
   olayTemizle?.();
   musteriEkrani?.durdur();
   yazdirmaKuyrugunuKapat();
+  gorselCiziciyiKapat();
+  // Kapanış bir sebeple takılırsa süreç yine de biter (görev yöneticisinde asılı kalmasın).
+  setTimeout(() => app.exit(0), 8000).unref();
   uygulama
     .kapat()
     .catch(() => undefined)

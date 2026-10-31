@@ -160,7 +160,7 @@ class DosyaYazicisi implements Yazici {
  * yazılır; yazıcı adı ve bayt dosyası ortam değişkeniyle geçer (tırnak/kaçış
  * derdi yok).
  */
-const HAM_YAZICI_TIPI = String.raw`Add-Type -TypeDefinition @"
+const HAM_YAZICI_TIPI = String.raw`$kaynak = @"
 using System; using System.Runtime.InteropServices;
 public static class MoHamYazici {
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -190,6 +190,12 @@ public static class MoHamYazici {
   }
 }
 "@
+<# Derlenmiş tip geçici klasörde DLL olarak saklanır: C# derlemesi (csc + virüs
+   taraması) yavaş kasada saniyeler sürer; DLL'i yüklemek ~0,1 sn. Dosya bozuk
+   ya da kilitliyse bellekte derlenir. Kaynak değişirse adındaki sürüm artar. #>
+$dll = Join-Path ([IO.Path]::GetTempPath()) 'market-otomasyon-ham-yazici-v1.dll'
+if (-not (Test-Path $dll)) { try { Add-Type -TypeDefinition $kaynak -OutputAssembly $dll } catch { } }
+try { Add-Type -Path $dll } catch { Add-Type -TypeDefinition $kaynak }
 `;
 
 const KUYRUK_BETIGI = String.raw`$ErrorActionPreference = 'Stop'
@@ -231,7 +237,7 @@ function betikYolu(ad: string, icerik: string): string {
   return yol;
 }
 
-const kuyrukBetigiYolu = () => betikYolu('market-otomasyon-ham-yazdir-v1.ps1', KUYRUK_BETIGI);
+const kuyrukBetigiYolu = () => betikYolu('market-otomasyon-ham-yazdir-v2.ps1', KUYRUK_BETIGI);
 
 /**
  * İş sürece GÖNDERİLDİKTEN sonra yanıt gelmedi: fiş basılmış olabilir.
@@ -259,7 +265,7 @@ class YaziciSunucusu {
           '-ExecutionPolicy',
           'Bypass',
           '-File',
-          betikYolu('market-otomasyon-ham-yazdir-sunucu-v1.ps1', SUNUCU_BETIGI),
+          betikYolu('market-otomasyon-ham-yazdir-sunucu-v2.ps1', SUNUCU_BETIGI),
         ],
         { windowsHide: true },
       );
