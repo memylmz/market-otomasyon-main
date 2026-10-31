@@ -43,6 +43,8 @@ export const MUSTERI_EKRANI_AYAR = {
   TESEKKUR_SN: 'musteri_ekrani.tesekkur_sn',
   /** Yayın listesi — `musteriSlaytlariSemasi` biçiminde JSON. */
   SLAYTLAR: 'musteri_ekrani.slaytlar',
+  /** Genel görünüm teması — `musteriTemasiCoz` biçiminde JSON. */
+  TEMA: 'musteri_ekrani.tema',
 } as const;
 
 /** Müşteri ekranı ayarı mı? Kayıttan sonra ekranın yenilenip yenilenmeyeceğine karar verir. */
@@ -227,6 +229,8 @@ export interface MusteriEkraniYapilandirmasi {
   tesekkurMs: number;
   /** Yalnız AKTİF ve gösterilebilir slaytlar, oynatma sırasıyla. */
   slaytlar: EkranSlayti[];
+  /** Tema CSS değişkenleri (`musteriTemaDegiskenleri`); kök öğeye satır içi yazılır. */
+  gorunum: Record<string, string>;
 }
 
 /** Sepetin müşteriye görünen satırı. Para kuruş, miktar bindebir. */

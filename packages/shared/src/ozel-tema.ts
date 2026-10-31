@@ -111,6 +111,13 @@ function karistir(a: Rgb, b: Rgb, t: number): Rgb {
 
 const kanal = (c: Rgb) => `${c[0]} ${c[1]} ${c[2]}`;
 
+/** İki #rrggbb rengin karışımı (t=0 → a, t=1 → b), #rrggbb olarak. */
+export function renkKaristir(hexA: string, hexB: string, t: number): string {
+  return `#${karistir(hexRgb(hexA), hexRgb(hexB), t)
+    .map((x) => x.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
 /** WCAG göreli parlaklık. */
 function parlaklik(c: Rgb): number {
   const [r, g, b] = c.map((x) => {

@@ -45,6 +45,11 @@ function zemin(isik: string, orta: string, koyu: string): string {
 // Kök
 // ---------------------------------------------------------------------------
 
+/** Seçilen müşteri temasının değişkenleri; kök (`musteri-kok`) öğeye yazılır. */
+export function musteriKokStili(yapilandirma: MusteriEkraniYapilandirmasi): CSSProperties {
+  return (yapilandirma.gorunum ?? {}) as CSSProperties;
+}
+
 export function MusteriEkraniGorunumu({
   yapilandirma,
   durum,
@@ -53,7 +58,7 @@ export function MusteriEkraniGorunumu({
   durum: EkranDurumu;
 }) {
   return (
-    <div className="musteri-kok">
+    <div className="musteri-kok" style={musteriKokStili(yapilandirma)}>
       {durum.mod === 'SEPET' && durum.sepet ? (
         <SepetGorunumu sepet={durum.sepet} yapilandirma={yapilandirma} />
       ) : durum.mod === 'TESEKKUR' && durum.tesekkur ? (
@@ -131,7 +136,7 @@ export function SlaytGorunumu({
     case 'DUYURU':
       return (
         <div
-          className="absolute inset-0 flex flex-col items-center justify-center gap-[3.5cqmin] p-[9cqmin] text-center"
+          className="m-slayt absolute inset-0 flex flex-col items-center justify-center gap-[3.5cqmin] p-[9cqmin] text-center"
           style={{ background: TEMA_STILI[slayt.tema].zemin }}
         >
           <span className="m-kalem" style={{ color: TEMA_STILI[slayt.tema].vurgu }} />
@@ -229,7 +234,7 @@ function Imza({ ad }: { ad: string }) {
 export function FiyatKartiGorunumu({ kart, isletmeAdi }: { kart: FiyatKarti; isletmeAdi: string }) {
   return (
     <div
-      className="absolute inset-0 flex flex-col items-center justify-center p-[8cqmin] text-center"
+      className="m-slayt absolute inset-0 flex flex-col items-center justify-center p-[8cqmin] text-center"
       style={{ background: TEMA_STILI[kart.tema].zemin }}
     >
       {kart.ust && (
@@ -375,7 +380,7 @@ export function SepetGorunumu({ sepet, yapilandirma }: { sepet: MusteriSepeti; y
           </div>
           <footer
             className="border-t px-[3.2cqmin] py-[2.8cqmin]"
-            style={{ borderColor: 'rgb(214 185 124 / 0.35)', background: 'rgb(255 255 255 / 0.025)' }}
+            style={{ borderColor: 'var(--m-altin-cizgi)', background: 'var(--m-satir)' }}
           >
             {sepet.kazanc > 0 && (
               <div className="m-altin mb-[1.2cqmin] font-normal" style={y(2.8)}>
@@ -434,7 +439,7 @@ export function TesekkurGorunumu({
       {paraUstu > 0 && (
         <div
           className="mt-[1.5cqmin] rounded-[1.6cqmin] border px-[6cqmin] py-[2.2cqmin]"
-          style={{ borderColor: 'rgb(214 185 124 / 0.45)', background: 'rgb(214 185 124 / 0.06)' }}
+          style={{ borderColor: 'var(--m-altin-cizgi)', background: 'var(--m-altin-zemin)' }}
         >
           <div className="m-etiket" style={y(2.4)}>
             Para üstü

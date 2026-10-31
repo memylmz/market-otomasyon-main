@@ -6,6 +6,11 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Eklenenler
 
+- **Müşteri ekranı teması seçilebilir.** Ayarlar → Müşteri Ekranı → Görünüm: Şampanya, Gece
+  Mavisi, Orman, Bordo, İnci (açık zemin) ya da Özel (zemin, yazı, vurgu renkleri ve okunurluk
+  kontrolü); yazı tipi Modern / Klasik / Dar. Karşılama, sepet ve teşekkür ekranına uygulanır;
+  duyuru ve fiyat kartı slaytları kendi renk seçimini korur.
+
 - **Özel tema.** Ayarlar → Görünüm'de açık ve koyuya ek "Özel": hazır paletler (Okyanus,
   Orman, Bordo, Lavanta, Gece Mavisi, Grafit), açık/koyu taban, dört ana renk (zemin, kart,
   yazı, vurgu — diğer tonlar bunlardan hesaplanır), yazı boyutu %85–140, yazı tipi (Windows'ta

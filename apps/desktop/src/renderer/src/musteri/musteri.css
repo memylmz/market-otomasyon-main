@@ -13,15 +13,20 @@
  */
 
 .musteri-kok {
+  /* Varsayılan: Şampanya. Seçilen tema bunları kök öğeye satır içi yazar
+     (bkz. musteriTemaDegiskenleri). */
   --m-zemin: #0c0d10;
-  --m-zemin-2: #14161b;
-  --m-cizgi: rgb(255 255 255 / 0.08);
-  --m-cizgi-2: rgb(255 255 255 / 0.14);
+  --m-ust: #141518;
+  --m-isik: #1d1c1b;
+  --m-cizgi: #212225;
+  --m-satir: #16171a;
   --m-metin: #f3efe7;
-  --m-metin-2: rgb(243 239 231 / 0.7);
-  --m-metin-3: rgb(243 239 231 / 0.45);
+  --m-metin-2: #b0aea9;
+  --m-metin-3: #75746f;
   --m-altin: #d6b97c;
-  --m-altin-yumusak: rgb(214 185 124 / 0.14);
+  --m-altin-cizgi: #5f5439;
+  --m-altin-zemin: #18171a;
+  --m-yazi: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
 
   container-type: size;
   position: relative;
@@ -29,7 +34,7 @@
   width: 100%;
   height: 100%;
   background: var(--m-zemin);
-  font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--m-yazi);
   color: var(--m-metin);
   user-select: none;
   font-feature-settings: 'tnum' 1;
@@ -43,8 +48,19 @@
 
 .m-zemin {
   background:
-    radial-gradient(90% 70% at 18% 0%, rgb(214 185 124 / 0.07), transparent 60%),
-    linear-gradient(180deg, #111318 0%, var(--m-zemin) 70%);
+    radial-gradient(90% 70% at 18% 0%, var(--m-isik), transparent 60%),
+    linear-gradient(180deg, var(--m-ust) 0%, var(--m-zemin) 70%);
+}
+
+/*
+ * Duyuru ve fiyat kartı slaytlarının zemini her zaman koyudur (kendi renk
+ * seçimleri); açık müşteri temasında da yazıları açık kalsın.
+ */
+.m-slayt {
+  --m-metin: #f3efe7;
+  --m-metin-2: rgb(243 239 231 / 0.72);
+  --m-metin-3: rgb(243 239 231 / 0.48);
+  color: var(--m-metin);
 }
 .m-metin-2 {
   color: var(--m-metin-2);
@@ -107,10 +123,10 @@
 
 @keyframes musteri-vurgu {
   from {
-    background-color: rgb(214 185 124 / 0.16);
+    background-color: var(--m-altin-zemin);
   }
   to {
-    background-color: rgb(255 255 255 / 0.035);
+    background-color: var(--m-satir);
   }
 }
 

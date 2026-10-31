@@ -15,6 +15,8 @@ import {
   MAKS_KAMPANYA_SLAYTI,
   MUSTERI_EKRANI_AYAR,
   MUSTERI_EKRANI_VARSAYILAN,
+  musteriTemaDegiskenleri,
+  musteriTemasiCoz,
   simdi,
   slaytlariCoz,
   urunFiyatKarti,
@@ -160,5 +162,6 @@ export function musteriEkraniYapilandirmasi(baglam: Baglam, secenek: Yapilandirm
     tesekkurMetni: (oku(MUSTERI_EKRANI_AYAR.TESEKKUR_METNI) ?? MUSTERI_EKRANI_VARSAYILAN.TESEKKUR_METNI).trim(),
     tesekkurMs: sayiAyari(oku(MUSTERI_EKRANI_AYAR.TESEKKUR_SN), MUSTERI_EKRANI_VARSAYILAN.TESEKKUR_SN, 2, 30) * 1000,
     slaytlar,
+    gorunum: musteriTemaDegiskenleri(musteriTemasiCoz(oku(MUSTERI_EKRANI_AYAR.TEMA))),
   };
 }

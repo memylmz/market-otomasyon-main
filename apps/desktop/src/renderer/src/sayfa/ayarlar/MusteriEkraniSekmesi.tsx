@@ -10,6 +10,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   EKRAN_SECIMI,
+  kontrastOrani,
+  MUSTERI_HAZIR_TEMALARI,
+  MUSTERI_YAZI_TIPLERI,
+  musteriTemasiCoz,
+  type MusteriTemaAdi,
+  type MusteriTemasi,
+  type MusteriYaziTipi,
   MAKS_SLAYT,
   MUSTERI_EKRANI_AYAR,
   MUSTERI_EKRANI_VARSAYILAN,
@@ -31,7 +38,7 @@ import { Alan, Rozet } from '../../bilesen/temel';
 import { UrunSecici } from '../../bilesen/UrunSecici';
 import { hatayiBildir } from '../../durum/bildirim';
 import { cagir, cagirGuvenli } from '../../kopru';
-import { MusteriEkraniGorunumu, SlaytGorunumu, TEMA_STILI, Yayin } from '../../musteri/MusteriEkrani';
+import { musteriKokStili, MusteriEkraniGorunumu, SlaytGorunumu, TEMA_STILI, Yayin } from '../../musteri/MusteriEkrani';
 
 type Ayarla = (anahtar: string, deger: string) => void;
 type Onizleme = { tur: 'YAYIN' } | { tur: 'SLAYT'; id: string } | { tur: 'SEPET' } | { tur: 'TESEKKUR' };
@@ -84,6 +91,8 @@ export function MusteriEkraniSekmesi({ ayarlar, ayarla }: { ayarlar: Record<stri
     <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
       <div className="grid gap-5 xl:max-w-2xl xl:flex-1">
         <EkranBolumu ayarlar={ayarlar} ayarla={ayarla} />
+
+        <TemaBolumu ayarlar={ayarlar} ayarla={ayarla} onOnizle={() => setOnizleme({ tur: 'SEPET' })} />
 
         <Bolum baslik="Karşılama ekranı" aciklama="Kasada müşteri yokken görünür. Market adı İşletme sekmesinden gelir.">
           <Alan etiket="Karşılama yazısı">
@@ -182,6 +191,116 @@ export function MusteriEkraniSekmesi({ ayarlar, ayarla }: { ayarlar: Record<stri
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Müşteri ekranının genel görünümü: hazır temalardan biri ya da özel renkler.
+ * Duyuru ve fiyat kartı slaytlarının kendi renk seçimi ayrıdır.
+ */
+function TemaBolumu({ ayarlar, ayarla, onOnizle }: { ayarlar: Record<string, string>; ayarla: Ayarla; onOnizle: () => void }) {
+  const tema = musteriTemasiCoz(ayarlar[A.TEMA]);
+  const yaz = (t: MusteriTemasi) => {
+    ayarla(A.TEMA, JSON.stringify(t));
+    onOnizle();
+  };
+  const yaziKontrasti = kontrastOrani(tema.metin, tema.zemin);
+  const vurguKontrasti = kontrastOrani(tema.vurgu, tema.zemin);
+
+  const ornek = (ad: MusteriTemaAdi, renk: { zemin: string; metin: string; vurgu: string }, etiket: string, aciklama: string) => {
+    const secili = tema.ad === ad;
+    return (
+      <button
+        key={ad}
+        type="button"
+        onClick={() =>
+          // Hazır temaya geçerken renkleri de yazılır: sonra "Özel"e geçilince buradan devam edilir.
+          yaz({ ...tema, ad, zemin: renk.zemin, metin: renk.metin, vurgu: renk.vurgu })
+        }
+        className={`overflow-hidden rounded-lg border text-left ${secili ? 'border-vurgu ring-2 ring-vurgu/40' : 'border-cizgi hover:border-cizgi-kuvvetli'}`}
+      >
+        <div className="flex h-16 flex-col justify-end px-3 pb-2" style={{ background: renk.zemin, color: renk.metin }}>
+          <span className="text-[10px] uppercase tracking-[0.2em]" style={{ opacity: 0.55 }}>
+            Toplam
+          </span>
+          <span className="text-lg font-semibold tabular-nums" style={{ color: renk.vurgu }}>
+            107,10 ₺
+          </span>
+        </div>
+        <div className="bg-yuzey px-3 py-1.5">
+          <span className="block text-sm font-medium">{etiket}</span>
+          <span className="block text-xs text-metin-3">{aciklama}</span>
+        </div>
+      </button>
+    );
+  };
+
+  return (
+    <Bolum
+      baslik="Görünüm"
+      aciklama="Karşılama, sepet ve teşekkür ekranının renkleri. Duyuru ve fiyat kartlarının rengi her slaytta ayrıca seçilir."
+    >
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {(Object.keys(MUSTERI_HAZIR_TEMALARI) as Exclude<MusteriTemaAdi, 'OZEL'>[]).map((ad) => {
+          const h = MUSTERI_HAZIR_TEMALARI[ad];
+          return ornek(ad, h, h.etiket, h.aciklama);
+        })}
+        {ornek('OZEL', tema.ad === 'OZEL' ? tema : MUSTERI_HAZIR_TEMALARI.SAMPANYA, 'Özel', 'Kendi renkleriniz')}
+      </div>
+
+      {tema.ad === 'OZEL' && (
+        <div className="grid gap-3 rounded-lg border border-cizgi bg-yuzey-2 p-3">
+          <div className="grid grid-cols-3 gap-2">
+            {(
+              [
+                ['zemin', 'Zemin'],
+                ['metin', 'Yazı'],
+                ['vurgu', 'Vurgu (fiyat)'],
+              ] as const
+            ).map(([alan, etiket]) => (
+              <label key={alan} className="flex items-center gap-2 rounded-md border border-cizgi bg-yuzey p-2">
+                <input
+                  id={`musteri-tema-${alan}`}
+                  type="color"
+                  className="h-9 w-10 cursor-pointer rounded border border-cizgi bg-transparent p-0.5"
+                  value={tema[alan]}
+                  onChange={(e) => yaz({ ...tema, [alan]: e.target.value })}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm">{etiket}</span>
+                  <span className="block font-mono text-[11px] text-metin-3">{tema[alan]}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-metin-3">Okunurluk:</span>
+            <Rozet tur={yaziKontrasti >= 4.5 ? 'basari' : 'tehlike'}>Yazı / zemin {yaziKontrasti.toFixed(1)}</Rozet>
+            <Rozet tur={vurguKontrasti >= 3 ? 'basari' : 'uyari'}>Fiyat / zemin {vurguKontrasti.toFixed(1)}</Rozet>
+          </div>
+          {yaziKontrasti < 4.5 && (
+            <p className="text-xs text-tehlike">
+              Yazı zemine çok yakın; müşteri uzaktan okuyamaz. Yazıyı açın ya da zemini koyulaştırın.
+            </p>
+          )}
+        </div>
+      )}
+
+      <Alan etiket="Yazı tipi">
+        <select
+          id="musteri-tema-yazi-tipi"
+          className="alan"
+          value={tema.yaziTipi}
+          onChange={(e) => yaz({ ...tema, yaziTipi: e.target.value as MusteriYaziTipi })}
+        >
+          {(Object.keys(MUSTERI_YAZI_TIPLERI) as MusteriYaziTipi[]).map((k) => (
+            <option key={k} value={k}>
+              {MUSTERI_YAZI_TIPLERI[k].etiket}
+            </option>
+          ))}
+        </select>
+      </Alan>
+    </Bolum>
+  );
+}
 
 function Bolum({ baslik, aciklama, children }: { baslik: string; aciklama?: string; children: ReactNode }) {
   return (
@@ -768,7 +887,7 @@ function OnizlemePaneli({
     if (onizleme.tur === 'YAYIN') {
       // Ölçü kabı (musteri-kok) şart: yazılar kutuya göre boyutlanır, yoksa pencereye göre büyür.
       govde = (
-        <div className="musteri-kok">
+        <div className="musteri-kok" style={musteriKokStili(yapilandirma)}>
           <Yayin yapilandirma={yapilandirma} />
         </div>
       );
@@ -782,7 +901,7 @@ function OnizlemePaneli({
       const id = onizleme.id;
       const slayt = yapilandirma.slaytlar.find((u) => u.anahtar === id || u.anahtar.startsWith(`${id}:`));
       govde = slayt ? (
-        <div className="musteri-kok">
+        <div className="musteri-kok" style={musteriKokStili(yapilandirma)}>
           <SlaytGorunumu key={slayt.anahtar} slayt={slayt} yapilandirma={yapilandirma} tekrarla />
         </div>
       ) : (
