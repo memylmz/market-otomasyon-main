@@ -20,6 +20,10 @@ export interface AlisFaturasiDetayi {
   notlar: string | null;
   kullanici_adi?: string | null;
   odenen?: Kurus;
+  /** Düzenleme formu için: tedarikçi, ödeme şekli ve fiyatların yazılışı. */
+  tedarikci_id?: string;
+  nakit_odendi?: boolean;
+  kdv_dahil?: boolean | null;
 }
 
 export interface AlisFaturasiKalemi {

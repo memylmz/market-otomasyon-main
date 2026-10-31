@@ -645,13 +645,20 @@ export interface AlisFaturasiKaydi {
   kullanici_adi?: string | null;
   /** Faturaya karşılık yapılan net ödeme (iptal edilen ödemeler düşülmüş); yalnız detayda dolar. */
   odenen?: Kurus;
+  /** Peşin ödeme kasadan nakit mi yapıldı; yalnız detayda dolar. */
+  nakit_odendi?: boolean;
+  /** Fiyatlar KDV dahil mi girilmişti (eski faturalarda null). */
+  kdv_dahil?: boolean | null;
+  /** Bu fatura hangi faturanın düzeltilmiş hâli. */
+  duzeltilen_fatura_id?: string | null;
 }
 
 export function alisFaturasiEkle(vt: Vt, fatura: AlisFaturasiKaydi, cihazId: string, zaman = simdi()): void {
   vt.hazirla(
     `INSERT INTO alis_faturalari (id, tedarikci_id, fatura_no, tarih, ara_toplam, kdv_toplam, genel_toplam,
-                                  durum, vade_tarihi, notlar, kullanici_id, created_at, updated_at, cihaz_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                  durum, vade_tarihi, notlar, kullanici_id, created_at, updated_at, cihaz_id,
+                                  kdv_dahil, duzeltilen_fatura_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).calistir(
     fatura.id,
     fatura.tedarikci_id,
@@ -667,6 +674,8 @@ export function alisFaturasiEkle(vt: Vt, fatura: AlisFaturasiKaydi, cihazId: str
     zaman,
     zaman,
     cihazId,
+    fatura.kdv_dahil === undefined || fatura.kdv_dahil === null ? null : fatura.kdv_dahil ? 1 : 0,
+    fatura.duzeltilen_fatura_id ?? null,
   );
 }
 
@@ -722,8 +731,16 @@ export interface AlisKalemiKaydi {
 }
 
 export function alisFaturasiBul(vt: Vt, id: string): AlisFaturasiKaydi | null {
-  return (
-    vt
+  const satir = ham();
+  if (!satir) return null;
+  return {
+    ...satir,
+    kdv_dahil: satir.kdv_dahil === null || satir.kdv_dahil === undefined ? null : satir.kdv_dahil === 1,
+    nakit_odendi: satir.nakit_odendi === 1,
+  };
+
+  function ham() {
+    return vt
       .hazirla(
         /*
          * Ödenen tutar faturada tutulmaz; cari defterindeki ödeme hareketlerinden
@@ -732,15 +749,16 @@ export function alisFaturasiBul(vt: Vt, id: string): AlisFaturasiKaydi | null {
          */
         `SELECT f.id, f.tedarikci_id, f.fatura_no, f.tarih, f.ara_toplam, f.kdv_toplam, f.genel_toplam,
                 f.durum, f.vade_tarihi, f.notlar, f.kullanici_id, c.ad_unvan AS tedarikci_adi,
-                k.ad AS kullanici_adi,
+                k.ad AS kullanici_adi, f.kdv_dahil, f.duzeltilen_fatura_id,
+                EXISTS (SELECT 1 FROM kasa_hareketleri kh WHERE kh.belge_id = f.id) AS nakit_odendi,
                 COALESCE((SELECT -SUM(h.tutar) FROM cari_hareketler h
                           WHERE h.belge_id = f.id AND h.belge_tipi IN ('ALIS_ODEME', 'ALIS_ODEME_IPTAL')), 0) AS odenen
          FROM alis_faturalari f JOIN cariler c ON c.id = f.tedarikci_id
          LEFT JOIN kullanicilar k ON k.id = f.kullanici_id
          WHERE f.id = ?`,
       )
-      .tek<AlisFaturasiKaydi>(id) ?? null
-  );
+      .tek<Omit<AlisFaturasiKaydi, 'kdv_dahil' | 'nakit_odendi'> & { kdv_dahil: number | null; nakit_odendi: number }>(id);
+  }
 }
 
 export function alisKalemleriniGetir(vt: Vt, faturaId: string): AlisKalemiKaydi[] {

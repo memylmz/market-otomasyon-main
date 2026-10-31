@@ -1170,6 +1170,25 @@ export const GOCLER: readonly Goc[] = [
       DROP TABLE IF EXISTS urun_paketleri;
     `,
   },
+  {
+    surum: 23,
+    ad: 'alis_faturasi_duzeltme',
+    /*
+     * Faturayı DÜZENLE (bkz. stok-servis `alisFaturasiDuzelt`): eski fatura
+     * ters kayıtla iptal edilir, yeni hâli kaydedilir — tek işlemde.
+     *  - kdv_dahil: fatura girilirken fiyatlar KDV dahil mi yazıldı; düzenleme
+     *    formu kâğıttaki yazılışla açılsın diye. Eski faturalarda NULL (hariç).
+     *  - duzeltilen_fatura_id: bu fatura hangi faturanın düzeltilmiş hâli.
+     */
+    yukari: `
+      ALTER TABLE alis_faturalari ADD COLUMN kdv_dahil INTEGER;
+      ALTER TABLE alis_faturalari ADD COLUMN duzeltilen_fatura_id TEXT;
+    `,
+    asagi: `
+      ALTER TABLE alis_faturalari DROP COLUMN duzeltilen_fatura_id;
+      ALTER TABLE alis_faturalari DROP COLUMN kdv_dahil;
+    `,
+  },
 ];
 
 /** Kod tabanının beklediği en yüksek şema sürümü. */

@@ -51,6 +51,7 @@ import { Alan, Diyalog, ParaAlani, Rozet } from '../../bilesen/temel';
 import { UrunKartiDiyalogu, type UrunKartiTaslagi, type UrunSatiri } from '../../bilesen/UrunKartiDiyalogu';
 import { UrunSecici, type SecilenUrun } from '../../bilesen/UrunSecici';
 import { PaketSecimDiyalogu, type PaketSecenegiGorunumu } from '../../bilesen/PaketSecimDiyalogu';
+import type { AlisFaturasiDetayi, AlisFaturasiKalemi } from '../../bilesen/AlisFaturasiDiyalogu';
 import { bildir, hatayiBildir } from '../../durum/bildirim';
 import { onayla } from '../../durum/onay';
 import { varsayilanKdv } from '../../durum/oturum';
@@ -140,7 +141,27 @@ const kdvSayisi = (s: Satir) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; onKapat: () => void; onTamam: () => void }) {
+/** Düzenlenecek onaylı fatura (detay ekranından); form bununla dolu açılır. */
+export interface DuzenlenecekFatura {
+  fatura: AlisFaturasiDetayi;
+  kalemler: AlisFaturasiKalemi[];
+}
+
+export function AlisFaturasiFormu({
+  acik,
+  onKapat,
+  onTamam,
+  duzenlenecek,
+}: {
+  acik: boolean;
+  onKapat: () => void;
+  onTamam: () => void;
+  /**
+   * Verilirse form FATURAYI DÜZENLER: eski hâliyle dolu açılır; kaydedince eski
+   * fatura ters kayıtla iptal edilip yeni hâli kaydedilir (tek işlemde).
+   */
+  duzenlenecek?: DuzenlenecekFatura | null;
+}) {
   const [adim, setAdim] = useState<Adim>(1);
   const [tedarikciler, setTedarikciler] = useState<Tedarikci[]>([]);
   const [tedarikciId, setTedarikciId] = useState('');
@@ -208,6 +229,60 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
       .then(setKategoriler)
       .catch(() => setKategoriler([]));
   }, [acik]);
+
+  /*
+   * DÜZENLEME: form faturanın kendi bilgileriyle dolar. Fiyatlar faturanın
+   * girildiği yazılışla (KDV dahil/hariç) gelir; KDV dahil faturada satır
+   * tutarı da gelir ki genel toplam kâğıttakiyle kuruşu kuruşuna aynı kalsın.
+   * Ürün bilgisi (raf fiyatı, SKT takibi, barkod) güncel karttan okunur.
+   */
+  useEffect(() => {
+    if (!acik || !duzenlenecek) return;
+    let iptal = false;
+    const { fatura, kalemler: eskiKalemler } = duzenlenecek;
+    const dahilMi = fatura.kdv_dahil === true;
+    setTedarikciId(fatura.tedarikci_id ?? '');
+    setFaturaNo(fatura.fatura_no ?? '');
+    setFaturaTarihi(gunAnahtari(fatura.tarih));
+    setVadeTarihi(fatura.vade_tarihi ?? '');
+    setNotlar(fatura.notlar ?? '');
+    setKdvDahil(dahilMi);
+    const odenen = fatura.odenen ?? 0;
+    setOdemeDurumu(odenen > 0 ? (fatura.nakit_odendi ? 'NAKIT' : 'HAVALE') : 'BORC');
+    setOdenenTutarElle(odenen > 0 && odenen < fatura.genel_toplam ? odenen : null);
+    void (async () => {
+      const satirlar: Satir[] = [];
+      for (const k of eskiKalemler) {
+        if (!k.urun_id) continue;
+        const d = await cagir<{
+          urun: { ad: string; satis_fiyati: Kurus; skt_takibi: boolean };
+          barkodlar: { barkod: string }[];
+        }>('urun.detay', { urunId: k.urun_id }).catch(() => null);
+        satirlar.push({
+          barkod: d?.barkodlar[0]?.barkod ?? '',
+          ad: d?.urun.ad ?? k.urun_adi,
+          miktar: String(k.miktar / 1000).replace('.', ','),
+          alis: dahilMi ? alisGosterimi(k.birim_fiyat, k.kdv_orani, true) : k.birim_fiyat,
+          ...(dahilMi ? { tutar: k.satir_toplam } : {}),
+          satis: d?.urun.satis_fiyati ?? 0,
+          kdv: String(k.kdv_orani),
+          skt: k.skt ?? '',
+          lot: k.lot_no ?? '',
+          urun_id: k.urun_id,
+          sktZorunlu: d?.urun.skt_takibi === true,
+          // "Alış değişti" uyarısı bu faturanın kendi fiyatına göre: değiştirilmedikçe çıkmaz.
+          mevcutAlis: k.birim_fiyat,
+          mevcutSatis: d?.urun.satis_fiyati,
+        });
+      }
+      if (iptal) return;
+      setSatirlar(satirlar);
+      setAdim(2);
+    })();
+    return () => {
+      iptal = true;
+    };
+  }, [acik, duzenlenecek]);
 
   // 2. adıma geçince el okuyucuda olsun.
   useEffect(() => {
@@ -572,19 +647,21 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
     if (!kaydedilebilir) return;
     setGonderiliyor(true);
     try {
-      const sonuc = await cagir<{ faturaId: string; genelToplam: Kurus; kalemSayisi: number; odenen: Kurus; kalanBorc: Kurus }>(
-        'stok.malKabul',
-        {
-          tedarikci_id: tedarikciId,
-          fatura_no: faturaNo.trim() || undefined,
-          tarih: belgeTarihi(faturaTarihi),
-          vade_tarihi: odemeDurumu === 'BORC' ? vadeTarihi || undefined : undefined,
-          notlar: notlar.trim() || undefined,
-          odenen_tutar: odenenTutar,
-          odeme_tipi: odemeDurumu === 'BORC' ? undefined : odemeDurumu,
-          kalemler,
-        },
-      );
+      const girdi = {
+        tedarikci_id: tedarikciId,
+        fatura_no: faturaNo.trim() || undefined,
+        tarih: belgeTarihi(faturaTarihi),
+        vade_tarihi: odemeDurumu === 'BORC' ? vadeTarihi || undefined : undefined,
+        notlar: notlar.trim() || undefined,
+        odenen_tutar: odenenTutar,
+        odeme_tipi: odemeDurumu === 'BORC' ? undefined : odemeDurumu,
+        kdv_dahil: dahil,
+        kalemler,
+      };
+      type Sonuc = { faturaId: string; genelToplam: Kurus; kalemSayisi: number; odenen: Kurus; kalanBorc: Kurus };
+      const sonuc = duzenlenecek
+        ? await cagir<Sonuc>('stok.alisFaturasiDuzelt', { faturaId: duzenlenecek.fatura.id, fatura: girdi })
+        : await cagir<Sonuc>('stok.malKabul', girdi);
       const yeniUrunSayisi = kalemler.filter((k) => k.yeni_urun).length;
       const fiyatSayisi = kalemler.filter((k) => 'yeni_satis_fiyati' in k && k.yeni_satis_fiyati !== undefined).length;
       const ekler = [
@@ -596,7 +673,7 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
         .map((e) => ` · ${e}`)
         .join('');
       bildir.basari(
-        'Mal kabul kaydedildi',
+        duzenlenecek ? 'Fatura düzenlendi' : 'Mal kabul kaydedildi',
         sonuc.odenen > 0
           ? `${sonuc.kalemSayisi} kalem · Toplam ${paraFormat(sonuc.genelToplam)} · Ödenen ${paraFormat(sonuc.odenen)} · Kalan borç ${paraFormat(sonuc.kalanBorc)}${ekler}`
           : `${sonuc.kalemSayisi} kalem · ${paraFormat(sonuc.genelToplam)} tedarikçi borcu kaydedildi${ekler}`,
@@ -654,7 +731,12 @@ export function AlisFaturasiFormu({ acik, onKapat, onTamam }: { acik: boolean; o
   return (
     <Diyalog
       acik={acik}
-      baslik="Mal Kabul / Alış Faturası"
+      baslik={duzenlenecek ? 'Faturayı Düzenle' : 'Mal Kabul / Alış Faturası'}
+      aciklama={
+        duzenlenecek
+          ? 'Kaydedince eski fatura iptal edilip bu hâliyle yeniden kaydedilir; stok ve tedarikçi borcu farkı kendiliğinden düzelir.'
+          : undefined
+      }
       genislik="tam"
       kaydirma={false}
       onKapat={kapatIstegi}

@@ -143,6 +143,7 @@ import {
 import { seriPortlar, teraziDurumu, teraziOku, teraziTesti } from '../servis/terazi-servis.js';
 import {
   fireCikisi,
+  alisFaturasiDuzelt,
   alisFaturasiGuncelle,
   alisFaturasiIptal,
   malKabulOnayla,
@@ -626,6 +627,9 @@ export function kanallariOlustur(
         kalemler: alisKalemleriniGetir(b().vt, girdi.faturaId),
       }
     ),
+    /** Faturayı düzenler: eskisi ters kayıtla iptal, yeni hâli kayıt — tek işlemde. */
+    'stok.alisFaturasiDuzelt': (girdi: { faturaId: string; fatura: Record<string, unknown> }) =>
+      alisFaturasiDuzelt(b(), a(), girdi.faturaId, girdi.fatura),
     'stok.alisFaturasiIptal': (girdi: { faturaId: string; neden: string }) =>
       alisFaturasiIptal(b(), a(), girdi.faturaId, girdi.neden),
     'stok.alisFaturasiGuncelle': (girdi: {

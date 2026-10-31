@@ -463,6 +463,8 @@ export const zAlisGirdi = z.object({
   odenen_tutar: zKurusPozitif.default(0),
   /** Peşin ödeme NAKIT ise kasadan da düşülür; KART/HAVALE yalnız cariyi kapatır. */
   odeme_tipi: z.enum(['NAKIT', 'KART', 'HAVALE'] as const).default('NAKIT'),
+  /** Fiyatlar faturada KDV dahil mi yazıldı — yalnız düzenleme formunun açılışı için saklanır. */
+  kdv_dahil: z.boolean().optional(),
   kalemler: z
     .array(
       z

@@ -11,7 +11,7 @@ import { bildir, hatayiBildir } from '../durum/bildirim';
 import { onayla } from '../durum/onay';
 import { useYetki } from '../durum/oturum';
 import { cagir } from '../kopru';
-import { AlisFaturasiFormu } from './stok/AlisFaturasiFormu';
+import { AlisFaturasiFormu, type DuzenlenecekFatura } from './stok/AlisFaturasiFormu';
 
 type Sekme = 'ozet' | 'kritik' | 'skt' | 'hareketler' | 'sayim' | 'alis';
 
@@ -1064,6 +1064,8 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
   const [neden, setNeden] = useState('');
   const [yukleniyor, setYukleniyor] = useState(true);
   const [yeniFaturaAcik, setYeniFaturaAcik] = useState(false);
+  /** "Düzenle": form bu faturayla dolu açılır. */
+  const [duzenlenecek, setDuzenlenecek] = useState<DuzenlenecekFatura | null>(null);
   const girisYetkisi = useYetki('stok.giris');
 
   const yukle = useCallback(async () => {
@@ -1189,10 +1191,15 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
       )}
 
       <AlisFaturasiFormu
-        acik={yeniFaturaAcik}
-        onKapat={() => setYeniFaturaAcik(false)}
+        acik={yeniFaturaAcik || duzenlenecek !== null}
+        duzenlenecek={duzenlenecek}
+        onKapat={() => {
+          setYeniFaturaAcik(false);
+          setDuzenlenecek(null);
+        }}
         onTamam={() => {
           setYeniFaturaAcik(false);
+          setDuzenlenecek(null);
           void yukle();
           onDegisti();
         }}
@@ -1222,6 +1229,24 @@ function AlisFaturalariSekmesi({ onDegisti }: { onDegisti: () => void }) {
             {girisYetkisi && secili?.durum !== 'IPTAL' && (
               <button type="button" className="tus-tehlike" onClick={() => setIptalAcik(true)}>
                 Faturayı İptal Et
+              </button>
+            )}
+            {/*
+              Düzenle = iptal + yeniden giriş, TEK İŞLEMDE. Form faturanın kendi
+              bilgileriyle dolu açılır; kayıtta eski hâl ters kayıtla geri alınır.
+            */}
+            {girisYetkisi && secili?.durum !== 'IPTAL' && (
+              <button
+                type="button"
+                className="tus-birincil"
+                disabled={!detay || kalemler.length === 0}
+                onClick={() => {
+                  if (!detay) return;
+                  setDuzenlenecek({ fatura: detay, kalemler });
+                  setSecili(null);
+                }}
+              >
+                Düzenle
               </button>
             )}
           </>

@@ -267,7 +267,13 @@ export interface MalKabulSonucu {
  * Mal kabulü onaylar: stok artar, tedarikçiye cari borç doğar, ürünlerin alış
  * fiyatı (ve istenirse satış fiyatı) güncellenir — hepsi tek transaction.
  */
-export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown): MalKabulSonucu {
+export function malKabulOnayla(
+  baglam: Baglam,
+  aktor: Aktor,
+  hamGirdi: unknown,
+  /** Bu kayıt bir faturanın düzeltilmiş hâli (bkz. alisFaturasiDuzelt). */
+  secenek: { duzeltilenFaturaId?: string } = {},
+): MalKabulSonucu {
   yetkiIste(aktor, 'stok.giris');
   const ayrisim = zAlisGirdi.safeParse(hamGirdi);
   if (!ayrisim.success) {
@@ -335,6 +341,8 @@ export function malKabulOnayla(baglam: Baglam, aktor: Aktor, hamGirdi: unknown):
         vade_tarihi: girdi.vade_tarihi ?? null,
         notlar: girdi.notlar ?? null,
         kullanici_id: aktor.kullaniciId,
+        kdv_dahil: girdi.kdv_dahil ?? null,
+        duzeltilen_fatura_id: secenek.duzeltilenFaturaId ?? null,
       },
       cihazId,
       kayitZamani,
@@ -1112,6 +1120,44 @@ export function alisFaturasiIptal(
 
   baglam.kayit.bilgi('Alış faturası iptal edildi', { fatura_id: faturaId, tutar: fatura.genel_toplam });
   return { faturaId, geriAlinanTutar: fatura.genel_toplam };
+}
+
+/**
+ * Faturayı DÜZENLER: eski hâli ters kayıtla iptal edilir, yeni hâli kaydedilir.
+ *
+ * Kalem, miktar ve fiyatın "yerinde" değiştirilmesi mümkün değildir: stok ve
+ * cari defterleri yalnız eklenir. Kullanıcı bunu "iptal et, yeniden gir" diye
+ * iki adımda elle yapıyordu. Burada iki adım TEK İŞLEMDE yapılır: biri
+ * başarısız olursa (ör. nakit ödeme için kasa kapalı) hiçbir şey değişmez,
+ * yarım kalmış fatura olmaz. Buluta giden olaylar mevcut iptal ve onay
+ * olaylarıdır; sunucunun ayrıca bir şey bilmesi gerekmez.
+ *
+ * Fark kendiliğinden düzelir: stok eski miktar kadar düşüp yenisi kadar
+ * artar, tedarikçi borcu eski tutar kadar azalıp yenisi kadar artar, nakit
+ * ödeme kasaya geri girip yeniden çıkar.
+ */
+export function alisFaturasiDuzelt(
+  baglam: Baglam,
+  aktor: Aktor,
+  faturaId: string,
+  hamGirdi: unknown,
+): MalKabulSonucu & { eskiFaturaId: string } {
+  yetkiIste(aktor, 'stok.giris');
+  const eski = alisFaturasiBul(baglam.vt, faturaId);
+  if (!eski) throw hatalar.bulunamadi('Alış faturası');
+  if (eski.durum === 'IPTAL') throw hatalar.dogrulama('İptal edilmiş fatura düzenlenemez.');
+
+  let sonuc: MalKabulSonucu | null = null;
+  baglam.vt.islem(() => {
+    alisFaturasiIptal(baglam, aktor, faturaId, 'Fatura düzenlendi; yeni hâli ayrı kayıt olarak girildi');
+    sonuc = malKabulOnayla(baglam, aktor, hamGirdi, { duzeltilenFaturaId: faturaId });
+  });
+  if (!sonuc) throw new Error('Düzeltilen fatura kaydedilemedi');
+  baglam.kayit.bilgi('Alış faturası düzenlendi', {
+    eski_fatura_id: faturaId,
+    yeni_fatura_id: (sonuc as MalKabulSonucu).faturaId,
+  });
+  return { ...(sonuc as MalKabulSonucu), eskiFaturaId: faturaId };
 }
 
 /**
