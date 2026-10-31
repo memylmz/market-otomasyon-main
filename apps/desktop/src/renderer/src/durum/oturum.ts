@@ -1,7 +1,7 @@
 /** Oturum, sistem durumu ve yetki bilgisi (global). */
 
 import { create } from 'zustand';
-import type { Rol, Yetki } from '@market/shared';
+import { ozelTemaCoz, ozelTemaDegiskenleri, YAZI_TIPLERI, type Rol, type Yetki } from '@market/shared';
 import { cagir } from '../kopru';
 
 export interface SenkronRozeti {
@@ -58,16 +58,49 @@ interface OturumDurumu {
 export function gorunumuUygula(ayarlar: Record<string, unknown> | undefined): void {
   const kok = document.documentElement;
   const tema = String((ayarlar as { tema?: unknown } | undefined)?.tema ?? 'acik');
-  if (tema === 'koyu') kok.dataset.tema = 'koyu';
-  else delete kok.dataset.tema;
-
   const yazi = String((ayarlar as { yaziBoyutu?: unknown } | undefined)?.yaziBoyutu ?? 'normal');
-  if (yazi === 'buyuk' || yazi === 'cok-buyuk') kok.dataset.yazi = yazi;
-  else delete kok.dataset.yazi;
+  temayiUygula(tema, String((ayarlar as { ozelTema?: unknown } | undefined)?.ozelTema ?? ''), yazi);
 
   // Ekran tuş takımı bu değeri her odaklanmada okur (bkz. EkranTusTakimi).
   const tus = String((ayarlar as { tusTakimi?: unknown } | undefined)?.tusTakimi ?? 'otomatik');
   kok.dataset.tusTakimi = tus === 'acik' || tus === 'kapali' ? tus : 'otomatik';
+}
+
+/** Özel temanın belgeye satır içi yazdığı değişkenler (tema değişince silinir). */
+let ozelDegiskenler: string[] = [];
+
+/**
+ * Temayı belgeye uygular. Ayarlar ekranı da kaydetmeden önizlemek için çağırır.
+ *
+ * Açık/koyu: `data-tema` ve yazı kademesi (`data-yazi`). Özel: seçilen
+ * tabanın üstüne dört renkten türetilen değişkenler, yazı ölçeği, yazı tipi
+ * ve köşe çarpanı satır içi stil olarak yazılır.
+ */
+export function temayiUygula(tema: string, ozelTemaJson: string, yaziBoyutu: string): void {
+  const kok = document.documentElement;
+  for (const ad of ozelDegiskenler) kok.style.removeProperty(ad);
+  ozelDegiskenler = [];
+  kok.style.removeProperty('font-size');
+  kok.style.removeProperty('font-family');
+
+  if (tema === 'ozel') {
+    const t = ozelTemaCoz(ozelTemaJson);
+    if (t.taban === 'koyu') kok.dataset.tema = 'koyu';
+    else delete kok.dataset.tema;
+    for (const [ad, deger] of Object.entries(ozelTemaDegiskenleri(t))) {
+      kok.style.setProperty(ad, deger);
+      ozelDegiskenler.push(ad);
+    }
+    delete kok.dataset.yazi;
+    kok.style.fontSize = `${(16 * t.yaziOlcegi) / 100}px`;
+    kok.style.fontFamily = YAZI_TIPLERI[t.yaziTipi].yigin;
+    return;
+  }
+
+  if (tema === 'koyu') kok.dataset.tema = 'koyu';
+  else delete kok.dataset.tema;
+  if (yaziBoyutu === 'buyuk' || yaziBoyutu === 'cok-buyuk') kok.dataset.yazi = yaziBoyutu;
+  else delete kok.dataset.yazi;
 }
 
 export const oturumDurumu = create<OturumDurumu>((set, get) => ({

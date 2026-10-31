@@ -78,8 +78,10 @@ export interface CalismaAyarlari {
   senkronUrl: string;
   senkronModu: string;
   senkronAralikDk: number;
-  /** Arayüz teması: 'acik' (varsayılan) veya 'koyu'. */
+  /** Arayüz teması: 'acik' (varsayılan), 'koyu' veya 'ozel'. */
   tema: string;
+  /** Özel temanın JSON'u (bkz. ozelTemaCoz). */
+  ozelTema: string;
   yaziBoyutu: string;
   /** Ekran tuş takımı: 'otomatik' (varsayılan), 'acik' veya 'kapali'. */
   tusTakimi: string;
@@ -105,6 +107,7 @@ export function ayarlariOku(baglam: Baglam): CalismaAyarlari {
     senkronModu: ayarMetin(vt, AYAR.SENKRON_MOD, 'MANUEL'),
     senkronAralikDk: ayarSayi(vt, AYAR.SENKRON_ARALIK_DK, 15),
     tema: ayarMetin(vt, AYAR.TEMA, 'acik'),
+    ozelTema: ayarMetin(vt, AYAR.OZEL_TEMA, ''),
     yaziBoyutu: ayarMetin(vt, AYAR.YAZI_BOYUTU, 'normal'),
     tusTakimi: ayarMetin(vt, AYAR.TUS_TAKIMI, 'otomatik'),
   };

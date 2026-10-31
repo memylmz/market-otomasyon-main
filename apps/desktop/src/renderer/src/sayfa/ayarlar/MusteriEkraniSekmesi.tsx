@@ -31,7 +31,7 @@ import { Alan, Rozet } from '../../bilesen/temel';
 import { UrunSecici } from '../../bilesen/UrunSecici';
 import { hatayiBildir } from '../../durum/bildirim';
 import { cagir, cagirGuvenli } from '../../kopru';
-import { MusteriEkraniGorunumu, SlaytGorunumu, TEMA_ZEMINI, Yayin } from '../../musteri/MusteriEkrani';
+import { MusteriEkraniGorunumu, SlaytGorunumu, TEMA_STILI, Yayin } from '../../musteri/MusteriEkrani';
 
 type Ayarla = (anahtar: string, deger: string) => void;
 type Onizleme = { tur: 'YAYIN' } | { tur: 'SLAYT'; id: string } | { tur: 'SEPET' } | { tur: 'TESEKKUR' };
@@ -615,7 +615,8 @@ function TemaSecici({ deger, onDegis }: { deger: SlaytTemasi; onDegis: (t: Slayt
           type="button"
           title={SLAYT_TEMA_ETIKETI[t]}
           onClick={() => onDegis(t)}
-          className={`h-7 w-10 rounded ${TEMA_ZEMINI[t]} ${deger === t ? 'ring-2 ring-vurgu ring-offset-2 ring-offset-yuzey' : ''}`}
+          className={`h-7 w-10 rounded ${deger === t ? 'ring-2 ring-vurgu ring-offset-2 ring-offset-yuzey' : ''}`}
+          style={{ background: TEMA_STILI[t].zemin }}
         />
       ))}
     </div>

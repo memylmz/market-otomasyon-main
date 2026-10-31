@@ -514,6 +514,8 @@ export const AYAR = {
   URUN_MUHTELIF_ID: 'urun.muhtelif_id',
   TEMA: 'gorunum.tema',
   YAZI_BOYUTU: 'gorunum.yazi_boyutu',
+  /** Özel tema (tema = 'ozel'): renkler, yazı ölçeği, yazı tipi, köşe — JSON. Cihaza özel. */
+  OZEL_TEMA: 'gorunum.ozel_tema',
   /** Ekran tuş takımı: otomatik (parmakla dokununca) | acik | kapali. Cihaza özel. */
   TUS_TAKIMI: 'gorunum.tus_takimi',
   OTURUM_ZAMAN_ASIMI_DK: 'guvenlik.oturum_zaman_asimi_dk',

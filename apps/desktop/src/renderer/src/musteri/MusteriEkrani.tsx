@@ -23,17 +23,23 @@ import './musteri.css';
 /** Yazı boyutu: kapsayıcının kısa kenarının yüzdesi. */
 const y = (yuzde: number): CSSProperties => ({ fontSize: `${yuzde}cqmin`, lineHeight: 1.12 });
 
-/** Şablon renkleri — Tailwind sınıfları tam yazılır ki derlemeye girsin. */
-export const TEMA_ZEMINI: Record<SlaytTemasi, string> = {
-  YESIL: 'bg-gradient-to-br from-emerald-600 via-emerald-800 to-emerald-950',
-  KIRMIZI: 'bg-gradient-to-br from-red-600 via-red-700 to-rose-950',
-  TURUNCU: 'bg-gradient-to-br from-orange-500 via-orange-600 to-amber-900',
-  MAVI: 'bg-gradient-to-br from-sky-600 via-blue-700 to-blue-950',
-  MOR: 'bg-gradient-to-br from-violet-600 via-purple-700 to-purple-950',
-  KOYU: 'bg-gradient-to-br from-slate-700 via-slate-800 to-slate-950',
+/**
+ * Slayt temaları: adları (Yeşil, Kırmızı…) kayıtlı ayarlarla uyumlu kalır,
+ * görünümleri sakinleşir. Doygun geçişler yerine koyu, kısık bir zemin ve o
+ * zemine uyan yumuşak bir vurgu (fiyat, etiket). Işık sol üstten hafifçe vurur.
+ */
+export const TEMA_STILI: Record<SlaytTemasi, { zemin: string; vurgu: string }> = {
+  YESIL: { zemin: zemin('#1f3d33', '#0f1f1a', '#09120f'), vurgu: '#bcd5c4' },
+  KIRMIZI: { zemin: zemin('#41201f', '#210f10', '#130809'), vurgu: '#e4bba9' },
+  TURUNCU: { zemin: zemin('#3f2d18', '#22180c', '#140e07'), vurgu: '#e5c38d' },
+  MAVI: { zemin: zemin('#1d2d48', '#101a2c', '#0a101b'), vurgu: '#bccbe6' },
+  MOR: { zemin: zemin('#302243', '#1b1428', '#100c18'), vurgu: '#cdbde4' },
+  KOYU: { zemin: zemin('#25272d', '#15171b', '#0c0d10'), vurgu: '#d6b97c' },
 };
 
-const KARSILAMA_ZEMINI = 'bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-950';
+function zemin(isik: string, orta: string, koyu: string): string {
+  return `radial-gradient(110% 85% at 15% 0%, ${isik} 0%, ${orta} 55%, ${koyu} 100%)`;
+}
 
 // ---------------------------------------------------------------------------
 // Kök
@@ -47,7 +53,7 @@ export function MusteriEkraniGorunumu({
   durum: EkranDurumu;
 }) {
   return (
-    <div className="musteri-kok bg-slate-950">
+    <div className="musteri-kok">
       {durum.mod === 'SEPET' && durum.sepet ? (
         <SepetGorunumu sepet={durum.sepet} yapilandirma={yapilandirma} />
       ) : durum.mod === 'TESEKKUR' && durum.tesekkur ? (
@@ -125,13 +131,15 @@ export function SlaytGorunumu({
     case 'DUYURU':
       return (
         <div
-          className={`absolute inset-0 flex flex-col items-center justify-center gap-[4cqmin] p-[8cqmin] text-center ${TEMA_ZEMINI[slayt.tema]}`}
+          className="absolute inset-0 flex flex-col items-center justify-center gap-[3.5cqmin] p-[9cqmin] text-center"
+          style={{ background: TEMA_STILI[slayt.tema].zemin }}
         >
-          <h1 className="musteri-tasma font-extrabold tracking-tight" style={y(11)}>
+          <span className="m-kalem" style={{ color: TEMA_STILI[slayt.tema].vurgu }} />
+          <h1 className="musteri-tasma font-light tracking-tight" style={y(10)}>
             {slayt.baslik}
           </h1>
           {slayt.metin && (
-            <p className="max-w-[85%] font-medium opacity-90" style={y(5.5)}>
+            <p className="m-metin-2 max-w-[78%] font-normal" style={{ ...y(4.8), lineHeight: 1.35 }}>
               {slayt.metin}
             </p>
           )}
@@ -166,28 +174,29 @@ function KarsilamaGorunumu({ yapilandirma }: { yapilandirma: MusteriEkraniYapila
   const { logoUrl, isletmeAdi, karsilamaMetni, karsilamaAltMetni } = yapilandirma;
   return (
     // Saat ayrı bir satırda: uzun alt yazı ortadaki bloğu büyütse de saatin üstüne binmez.
-    <div className={`absolute inset-0 flex flex-col p-[6cqmin] pb-[4cqmin] text-center ${KARSILAMA_ZEMINI}`}>
+    <div className="m-zemin absolute inset-0 flex flex-col p-[6cqmin] pb-[4.5cqmin] text-center">
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[3cqmin]">
-        {logoUrl && (
-          <img src={logoUrl} alt="" className="max-h-[32cqh] max-w-[60cqw] object-contain drop-shadow-2xl" draggable={false} />
-        )}
+        {logoUrl && <img src={logoUrl} alt="" className="max-h-[30cqh] max-w-[55cqw] object-contain" draggable={false} />}
         {isletmeAdi && (
-          <h1 className="musteri-tasma font-extrabold tracking-tight" style={y(logoUrl ? 9 : 12)}>
+          <h1 className="musteri-tasma font-light tracking-[0.01em]" style={y(logoUrl ? 8.5 : 11)}>
             {isletmeAdi}
           </h1>
         )}
         {karsilamaMetni && (
-          <p className="font-light text-emerald-300" style={y(7)}>
-            {karsilamaMetni}
-          </p>
+          <>
+            <span className="m-kalem m-altin" />
+            <p className="m-altin font-normal" style={y(5.6)}>
+              {karsilamaMetni}
+            </p>
+          </>
         )}
         {karsilamaAltMetni && (
-          <p className="max-w-[80%] text-white/80" style={y(4)}>
+          <p className="m-metin-2 max-w-[72%]" style={{ ...y(3.6), lineHeight: 1.4 }}>
             {karsilamaAltMetni}
           </p>
         )}
       </div>
-      <div className="self-end tabular-nums text-white/60" style={y(3.6)}>
+      <div className="m-cizgi m-metin-3 flex justify-end border-t pt-[2cqmin] tabular-nums" style={y(3)}>
         <Saat />
       </div>
     </div>
@@ -211,10 +220,7 @@ function Saat() {
 function Imza({ ad }: { ad: string }) {
   if (!ad) return null;
   return (
-    <div
-      className="absolute bottom-[4cqmin] left-0 right-0 text-center font-semibold uppercase tracking-[0.3em] text-white/60"
-      style={y(3)}
-    >
+    <div className="m-etiket absolute bottom-[4.5cqmin] left-0 right-0 text-center" style={y(2.4)}>
       {ad}
     </div>
   );
@@ -223,44 +229,48 @@ function Imza({ ad }: { ad: string }) {
 export function FiyatKartiGorunumu({ kart, isletmeAdi }: { kart: FiyatKarti; isletmeAdi: string }) {
   return (
     <div
-      className={`absolute inset-0 flex flex-col items-center justify-center p-[7cqmin] text-center ${TEMA_ZEMINI[kart.tema]}`}
+      className="absolute inset-0 flex flex-col items-center justify-center p-[8cqmin] text-center"
+      style={{ background: TEMA_STILI[kart.tema].zemin }}
     >
       {kart.ust && (
         <div
-          className="absolute left-[5cqmin] top-[5cqmin] rounded-full bg-white/15 px-[3cqmin] py-[1.2cqmin] font-bold uppercase tracking-wider"
-          style={y(3.6)}
+          className="m-etiket absolute left-[5.5cqmin] top-[5.5cqmin]"
+          style={{ ...y(2.6), color: TEMA_STILI[kart.tema].vurgu }}
         >
           {kart.ust}
         </div>
       )}
       {kart.rozet && (
         <div
-          className="absolute right-[4cqmin] top-[6cqmin] rotate-6 rounded-[2cqmin] bg-yellow-300 px-[3.5cqmin] py-[1.8cqmin] font-black text-slate-900 shadow-2xl"
-          style={y(5.5)}
+          className="m-hap absolute right-[5cqmin] top-[4.6cqmin] px-[2.6cqmin] py-[0.9cqmin]"
+          style={{ ...y(3), color: TEMA_STILI[kart.tema].vurgu }}
         >
           {kart.rozet}
         </div>
       )}
-      <h1 className="musteri-tasma max-w-[85%] font-extrabold tracking-tight" style={y(kart.fiyat ? 8.5 : 10)}>
+      <h1 className="musteri-tasma max-w-[82%] font-light tracking-tight" style={y(kart.fiyat ? 7.6 : 9.5)}>
         {kart.ad}
       </h1>
       {kart.eskiFiyat && (
-        <div className="mt-[2.5cqmin] font-semibold tabular-nums text-white/70 line-through decoration-[0.5cqmin]" style={y(6)}>
+        <div className="m-metin-3 mt-[2.5cqmin] font-normal tabular-nums line-through decoration-[0.25cqmin]" style={y(4.6)}>
           {kart.eskiFiyat}
         </div>
       )}
       {kart.fiyat && (
-        <div className="mt-[1cqmin] flex items-baseline gap-[1.5cqmin] font-black tabular-nums drop-shadow-lg" style={y(17)}>
+        <div
+          className="mt-[0.5cqmin] flex items-baseline gap-[1.2cqmin] font-semibold tabular-nums tracking-tight"
+          style={{ ...y(15), color: TEMA_STILI[kart.tema].vurgu }}
+        >
           {kart.fiyat}
           {kart.birim && (
-            <span className="font-bold text-white/80" style={y(6)}>
+            <span className="m-metin-2 font-light" style={y(4.6)}>
               {kart.birim}
             </span>
           )}
         </div>
       )}
       {kart.alt && (
-        <p className="mt-[2.5cqmin] font-semibold text-white/90" style={y(5)}>
+        <p className="m-metin-2 mt-[2.5cqmin] font-normal" style={y(4.2)}>
           {kart.alt}
         </p>
       )}
@@ -275,14 +285,14 @@ export function FiyatKartiGorunumu({ kart, isletmeAdi }: { kart: FiyatKarti; isl
 
 function Ust({ yapilandirma, sag }: { yapilandirma: MusteriEkraniYapilandirmasi; sag?: ReactNode }) {
   return (
-    <header className="flex items-center gap-[2cqmin] border-b border-white/10 px-[4cqmin] py-[2cqmin]">
+    <header className="m-cizgi flex items-center gap-[2cqmin] border-b px-[4.5cqmin] py-[2.2cqmin]">
       {yapilandirma.logoUrl && (
-        <img src={yapilandirma.logoUrl} alt="" className="h-[6cqmin] w-auto object-contain" draggable={false} />
+        <img src={yapilandirma.logoUrl} alt="" className="h-[5.5cqmin] w-auto object-contain" draggable={false} />
       )}
-      <span className="font-bold" style={y(3.6)}>
+      <span className="font-normal tracking-[0.02em]" style={y(3.3)}>
         {yapilandirma.isletmeAdi}
       </span>
-      <span className="ml-auto text-white/60" style={y(3)}>
+      <span className="m-etiket ml-auto" style={y(2.3)}>
         {sag}
       </span>
     </header>
@@ -301,34 +311,34 @@ export function SepetGorunumu({ sepet, yapilandirma }: { sepet: MusteriSepeti; y
 
   const kalem = sepet.satirlar.length;
   return (
-    <div className="absolute inset-0 flex flex-col bg-slate-950">
+    <div className="m-zemin absolute inset-0 flex flex-col">
       <Ust yapilandirma={yapilandirma} sag={`${kalem} kalem`} />
       <div className="flex min-h-0 flex-1">
         {/* Son okutulan ürün */}
-        <section className="flex w-[56%] flex-col justify-center gap-[2cqmin] border-r border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-[5cqmin]">
+        <section className="m-cizgi flex w-[56%] flex-col justify-center gap-[2cqmin] border-r p-[5.5cqmin]">
           {son && (
             <div key={`${son.anahtar}:${son.miktar}`} className="musteri-giris">
-              <h2 className="musteri-tasma font-bold" style={y(7)}>
+              <div className="m-etiket" style={y(2.4)}>
+                Son ürün
+              </div>
+              <h2 className="musteri-tasma mt-[1.6cqmin] font-light tracking-tight" style={y(6.6)}>
                 {son.ad}
               </h2>
-              <div className="mt-[2cqmin] flex flex-wrap items-baseline gap-x-[2cqmin] tabular-nums text-white/75" style={y(4.4)}>
+              <div className="m-metin-2 mt-[2cqmin] flex flex-wrap items-baseline gap-x-[2cqmin] tabular-nums" style={y(3.8)}>
                 <span>
                   {miktarFormat(son.miktar, son.birimTipi)} × {paraFormat(son.birimFiyat)}
                 </span>
                 {son.listeFiyati > son.birimFiyat && (
-                  <span className="text-white/45 line-through" style={y(3.6)}>
+                  <span className="m-metin-3 line-through" style={y(3.2)}>
                     {paraFormat(son.listeFiyati)}
                   </span>
                 )}
               </div>
-              <div className="mt-[3cqmin] font-black tabular-nums text-emerald-300" style={y(11)}>
+              <div className="m-altin mt-[3cqmin] font-semibold tabular-nums tracking-tight" style={y(10)}>
                 {paraFormat(son.tutar)}
               </div>
               {son.iskonto > 0 && (
-                <div
-                  className="mt-[2cqmin] inline-block rounded-[1.5cqmin] bg-yellow-300 px-[2.5cqmin] py-[1cqmin] font-bold text-slate-900"
-                  style={y(3.8)}
-                >
+                <div className="m-hap m-altin mt-[2.2cqmin] px-[2.4cqmin] py-[0.8cqmin]" style={y(2.8)}>
                   İndirim {paraFormat(-son.iskonto)}
                 </div>
               )}
@@ -345,37 +355,40 @@ export function SepetGorunumu({ sepet, yapilandirma }: { sepet: MusteriSepeti; y
                 <div
                   key={sonMu ? `${s.anahtar}:${s.miktar}` : s.anahtar}
                   data-son={sonMu ? '1' : undefined}
-                  className={`flex items-baseline gap-[1.5cqmin] border-b border-white/5 px-[3cqmin] py-[1.6cqmin] ${sonMu ? 'musteri-vurgu bg-white/5' : ''}`}
+                  className={`m-cizgi flex items-baseline gap-[1.5cqmin] border-b px-[3.2cqmin] py-[1.7cqmin] ${sonMu ? 'musteri-vurgu' : ''}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold" style={y(3.3)}>
+                    <div className="truncate font-normal" style={y(3.1)}>
                       {s.ad}
                     </div>
-                    <div className="tabular-nums text-white/55" style={y(2.6)}>
+                    <div className="m-metin-3 tabular-nums" style={y(2.4)}>
                       {miktarFormat(s.miktar, s.birimTipi)} × {paraFormat(s.birimFiyat)}
-                      {s.iskonto > 0 && <span className="ml-[1cqmin] text-yellow-300">İnd. {paraFormat(-s.iskonto)}</span>}
+                      {s.iskonto > 0 && <span className="m-altin ml-[1.2cqmin]">İndirim {paraFormat(-s.iskonto)}</span>}
                     </div>
                   </div>
-                  <div className="font-bold tabular-nums" style={y(3.4)}>
+                  <div className="font-semibold tabular-nums" style={y(3.2)}>
                     {paraFormat(s.tutar)}
                   </div>
                 </div>
               );
             })}
           </div>
-          <footer className="border-t-[0.5cqmin] border-emerald-500 bg-emerald-950/60 px-[3cqmin] py-[2.5cqmin]">
+          <footer
+            className="border-t px-[3.2cqmin] py-[2.8cqmin]"
+            style={{ borderColor: 'rgb(214 185 124 / 0.35)', background: 'rgb(255 255 255 / 0.025)' }}
+          >
             {sepet.kazanc > 0 && (
-              <div className="mb-[1cqmin] font-semibold text-yellow-300" style={y(3.2)}>
-                Bu alışverişte kazancınız: {paraFormat(sepet.kazanc)}
+              <div className="m-altin mb-[1.2cqmin] font-normal" style={y(2.8)}>
+                Bu alışverişte kazancınız {paraFormat(sepet.kazanc)}
               </div>
             )}
-            <div className="font-semibold uppercase tracking-wider text-white/70" style={y(3.2)}>
+            <div className="m-etiket" style={y(2.4)}>
               Toplam
             </div>
             {/* Genişliğe göre küçülür: 4:3 ekranda dar sütunda tutar iki satıra kırılmasın. */}
             <div
-              className="whitespace-nowrap text-right font-black tabular-nums"
-              style={{ fontSize: 'min(9.5cqmin, 5.8cqw)', lineHeight: 1.05 }}
+              className="mt-[0.6cqmin] whitespace-nowrap text-right font-semibold tabular-nums tracking-tight"
+              style={{ fontSize: 'min(9cqmin, 5.6cqw)', lineHeight: 1.05 }}
             >
               {paraFormat(sepet.genelToplam)}
             </div>
@@ -400,36 +413,39 @@ export function TesekkurGorunumu({
   yapilandirma: MusteriEkraniYapilandirmasi;
 }) {
   return (
-    <div className="musteri-giris absolute inset-0 flex flex-col items-center justify-center gap-[2.5cqmin] bg-gradient-to-br from-emerald-600 via-emerald-800 to-emerald-950 p-[6cqmin] text-center">
+    <div className="m-zemin musteri-giris absolute inset-0 flex flex-col items-center justify-center gap-[2.6cqmin] p-[7cqmin] text-center">
       <svg
         viewBox="0 0 24 24"
-        className="h-[16cqmin] w-[16cqmin]"
+        className="m-altin h-[13cqmin] w-[13cqmin]"
         fill="none"
         stroke="currentColor"
-        strokeWidth={2.2}
+        strokeWidth={1.1}
         aria-hidden
       >
-        <circle cx="12" cy="12" r="10" className="opacity-40" />
-        <path d="M7 12.5l3.2 3.2L17 9" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="12" r="10.5" className="opacity-50" />
+        <path d="M7.5 12.4l3 3L16.6 9.3" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-      <h1 className="font-extrabold" style={y(11)}>
-        Teşekkürler
+      <h1 className="font-light tracking-tight" style={y(10)}>
+        Teşekkür ederiz
       </h1>
-      <div className="tabular-nums text-white/85" style={y(4.6)}>
-        Ödenen: <span className="font-bold">{paraFormat(genelToplam)}</span>
+      <div className="m-metin-2 tabular-nums" style={y(3.8)}>
+        Ödenen <span className="font-semibold text-[var(--m-metin)]">{paraFormat(genelToplam)}</span>
       </div>
       {paraUstu > 0 && (
-        <div className="mt-[1cqmin] rounded-[2cqmin] bg-yellow-300 px-[5cqmin] py-[2cqmin] text-slate-900">
-          <div className="font-semibold uppercase tracking-wider" style={y(3.4)}>
+        <div
+          className="mt-[1.5cqmin] rounded-[1.6cqmin] border px-[6cqmin] py-[2.2cqmin]"
+          style={{ borderColor: 'rgb(214 185 124 / 0.45)', background: 'rgb(214 185 124 / 0.06)' }}
+        >
+          <div className="m-etiket" style={y(2.4)}>
             Para üstü
           </div>
-          <div className="font-black tabular-nums" style={y(10)}>
+          <div className="m-altin mt-[0.6cqmin] font-semibold tabular-nums tracking-tight" style={y(9)}>
             {paraFormat(paraUstu)}
           </div>
         </div>
       )}
       {yapilandirma.tesekkurMetni && (
-        <p className="mt-[1cqmin] max-w-[80%] text-white/85" style={y(4)}>
+        <p className="m-metin-2 mt-[1cqmin] max-w-[72%]" style={{ ...y(3.4), lineHeight: 1.4 }}>
           {yapilandirma.tesekkurMetni}
         </p>
       )}

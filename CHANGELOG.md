@@ -6,6 +6,16 @@ Bu proje [Semantic Versioning](https://semver.org/lang/tr/) kullanır.
 
 ### Eklenenler
 
+- **Özel tema.** Ayarlar → Görünüm'de açık ve koyuya ek "Özel": hazır paletler (Okyanus,
+  Orman, Bordo, Lavanta, Gece Mavisi, Grafit), açık/koyu taban, dört ana renk (zemin, kart,
+  yazı, vurgu — diğer tonlar bunlardan hesaplanır), yazı boyutu %85–140, yazı tipi (Windows'ta
+  kurulu yazı tipleri) ve köşe biçimi. Değişiklik anında görünür; okunurluk (kontrast) düşükse
+  uyarır. Cihaza özeldir.
+- **Müşteri ekranı yeniden tasarlandı.** Doygun renk geçişleri ve parlak sarı bloklar yerine
+  mürekkep siyahı zemin, fildişi yazı, tek bir şampanya vurgu, ince çizgiler ve hafif yazı
+  ağırlıkları. Karşılama, duyuru, ürün/kampanya kartları, sepet ve teşekkür ekranının hepsi.
+  Slayt renk seçenekleri aynı adlarla koyu, kısık tonlara döndü; kayıtlı ayarlar değişmez.
+
 - **SKT / lot düzeltme.** Mal kabulde yanlış girilen son kullanma tarihi ve lot no alış
   faturası detayından (✎ düzelt) ya da Stok → SKT Takibi'nden düzeltilir; partinin tüm
   kayıtları birlikte düzelir, miktar ve maliyet değişmez. Düzeltme buluta da gider

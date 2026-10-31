@@ -30,3 +30,4 @@ export * from './fis-html.js';
 export * from './musteri-ekrani.js';
 export * from './pavo.js';
 export * from './pavo-rapor.js';
+export * from './ozel-tema.js';

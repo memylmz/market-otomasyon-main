@@ -70,6 +70,22 @@ export const temelTema = {
     sans: ['Segoe UI', 'Inter', 'system-ui', 'sans-serif'],
     mono: ['Consolas', 'Menlo', 'monospace'],
   },
+  /*
+   * Köşe yarıçapları `--kose` çarpanıyla ölçeklenir: özel temada "keskin /
+   * normal / yuvarlak" seçimi bütün `rounded-*` sınıflarına yansır. Çarpan
+   * tanımlı değilse 1'dir; açık/koyu tema ve panel bugünkü gibi kalır.
+   */
+  borderRadius: {
+    none: '0',
+    sm: 'calc(0.125rem * var(--kose, 1))',
+    DEFAULT: 'calc(0.25rem * var(--kose, 1))',
+    md: 'calc(0.375rem * var(--kose, 1))',
+    lg: 'calc(0.5rem * var(--kose, 1))',
+    xl: 'calc(0.75rem * var(--kose, 1))',
+    '2xl': 'calc(1rem * var(--kose, 1))',
+    '3xl': 'calc(1.5rem * var(--kose, 1))',
+    full: '9999px',
+  },
   fontSize: {
     // Dokunmatik ve düşük görüşlü kullanıcılar için büyük tutar yazı tipi (§3.3)
     tutar: ['2.75rem', { lineHeight: '1.1', fontWeight: '700' }],
@@ -191,7 +207,7 @@ export const temaEklentisi = plugin(({ addBase, addComponents }) => {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '0.5rem',
-    borderRadius: '0.375rem',
+    borderRadius: 'calc(0.375rem * var(--kose, 1))',
     paddingInline: '1rem',
     paddingBlock: '0.5rem',
     fontWeight: '500',
@@ -203,7 +219,7 @@ export const temaEklentisi = plugin(({ addBase, addComponents }) => {
 
   addComponents({
     '.kart': {
-      borderRadius: '0.5rem',
+      borderRadius: 'calc(0.5rem * var(--kose, 1))',
       borderWidth: '1px',
       borderColor: renk('--cizgi'),
       backgroundColor: renk('--yuzey'),
@@ -212,7 +228,7 @@ export const temaEklentisi = plugin(({ addBase, addComponents }) => {
 
     '.alan': {
       width: '100%',
-      borderRadius: '0.375rem',
+      borderRadius: 'calc(0.375rem * var(--kose, 1))',
       borderWidth: '1px',
       borderColor: renk('--cizgi-kuvvetli'),
       backgroundColor: renk('--yuzey-3'),
@@ -257,7 +273,7 @@ export const temaEklentisi = plugin(({ addBase, addComponents }) => {
 
     /** Klavye kısayolu rozeti (F2, Ctrl+S…) */
     '.kisayol': {
-      borderRadius: '0.25rem',
+      borderRadius: 'calc(0.25rem * var(--kose, 1))',
       borderWidth: '1px',
       borderColor: renk('--cizgi-kuvvetli'),
       backgroundColor: renk('--yuzey-2'),

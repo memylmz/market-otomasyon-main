@@ -1,17 +1,18 @@
 /** Ayarlar (§10.11): işletme, donanım, senkron/lisans, yedekleme, görünüm. */
 
 import { useCallback, useEffect, useState } from 'react';
-import { aramaNormalize, AYAR, tarihSaatFormat } from '@market/shared';
+import { aramaNormalize, AYAR, ozelTemaCoz, tarihSaatFormat } from '@market/shared';
 import { Alan, Diyalog, Rozet, Yukleniyor } from '../bilesen/temel';
 import { EtiketOnizleme, FisOnizleme, type EtiketOnizlemeVerisi, type FisOnizlemeVerisi } from '../bilesen/Onizleme';
 import { bildir, hatayiBildir } from '../durum/bildirim';
-import { oturumDurumu } from '../durum/oturum';
+import { oturumDurumu, temayiUygula } from '../durum/oturum';
 import { cagir } from '../kopru';
 import { MusteriEkraniSekmesi } from './ayarlar/MusteriEkraniSekmesi';
 import { FisDuzeniSekmesi } from './ayarlar/FisDuzeniSekmesi';
 import { FaturaSinirlariBolumu } from './ayarlar/FaturaSinirlariBolumu';
 import { EtiketDuzeniAyarlari } from './ayarlar/EtiketDuzeniAyarlari';
 import { PosSekmesi } from './ayarlar/PosSekmesi';
+import { OzelTemaDuzenleyici } from './ayarlar/OzelTemaDuzenleyici';
 
 type Sekme = 'isletme' | 'donanim' | 'fis' | 'pos' | 'musteri' | 'satis' | 'senkron' | 'yedek' | 'gorunum';
 
@@ -230,13 +231,17 @@ export function AyarlarSayfasi() {
         {sekme === 'yedek' && <YedekSekmesi ayarlar={ayarlar} kayitli={kayitli} ayarla={ayarla} />}
 
         {sekme === 'gorunum' && (
-          <div className="grid max-w-lg gap-3">
-            <Alan etiket="Tema" ipucu="Aydınlık ortamda açık tema, loş ortamda koyu tema daha az yorar. Seçim anında uygulanır.">
+          <div className="grid max-w-2xl gap-3">
+            <Alan
+              etiket="Tema"
+              ipucu="Aydınlık ortamda açık tema, loş ortamda koyu tema daha az yorar. Özel: renkleri, yazı boyutunu ve yazı tipini siz seçersiniz. Seçim anında uygulanır."
+            >
               <div className="flex gap-2">
                 {(
                   [
                     { deger: 'acik', etiket: 'Açık', ipucu: 'Varsayılan' },
                     { deger: 'koyu', etiket: 'Koyu', ipucu: 'Loş ortam' },
+                    { deger: 'ozel', etiket: 'Özel', ipucu: 'Kendi renkleriniz' },
                   ] as const
                 ).map((secenek) => {
                   const seciliMi = (ayarlar[AYAR.TEMA] ?? 'acik') === secenek.deger;
@@ -248,8 +253,7 @@ export function AyarlarSayfasi() {
                       onClick={() => {
                         ayarla(AYAR.TEMA, secenek.deger);
                         // Anında uygula; kaydetmeden önce sonucu görmek gerekir.
-                        if (secenek.deger === 'koyu') document.documentElement.dataset.tema = 'koyu';
-                        else delete document.documentElement.dataset.tema;
+                        temayiUygula(secenek.deger, ayarlar[AYAR.OZEL_TEMA] ?? '', ayarlar[AYAR.YAZI_BOYUTU] ?? 'normal');
                       }}
                     >
                       <span>{secenek.etiket}</span>
@@ -260,21 +264,35 @@ export function AyarlarSayfasi() {
               </div>
             </Alan>
 
-            <Alan etiket="Yazı boyutu" ipucu="Dokunmatik ve düşük görüşlü kullanıcılar için büyütün.">
-              <select
-                className="alan"
-                value={ayarlar[AYAR.YAZI_BOYUTU] ?? 'normal'}
-                onChange={(e) => {
-                  ayarla(AYAR.YAZI_BOYUTU, e.target.value);
-                  if (e.target.value === 'normal') delete document.documentElement.dataset.yazi;
-                  else document.documentElement.dataset.yazi = e.target.value;
+            {ayarlar[AYAR.TEMA] === 'ozel' && (
+              <OzelTemaDuzenleyici
+                deger={ozelTemaCoz(ayarlar[AYAR.OZEL_TEMA])}
+                onDegis={(t) => {
+                  const json = JSON.stringify(t);
+                  ayarla(AYAR.OZEL_TEMA, json);
+                  temayiUygula('ozel', json, ayarlar[AYAR.YAZI_BOYUTU] ?? 'normal');
                 }}
-              >
-                <option value="normal">Normal</option>
-                <option value="buyuk">Büyük</option>
-                <option value="cok-buyuk">Çok büyük</option>
-              </select>
-            </Alan>
+              />
+            )}
+
+            {/* Özel temada yazı boyutu düzenleyicinin kaydırıcısıyla ayarlanır. */}
+            {ayarlar[AYAR.TEMA] !== 'ozel' && (
+              <Alan etiket="Yazı boyutu" ipucu="Dokunmatik ve düşük görüşlü kullanıcılar için büyütün.">
+                <select
+                  className="alan"
+                  value={ayarlar[AYAR.YAZI_BOYUTU] ?? 'normal'}
+                  onChange={(e) => {
+                    ayarla(AYAR.YAZI_BOYUTU, e.target.value);
+                    if (e.target.value === 'normal') delete document.documentElement.dataset.yazi;
+                    else document.documentElement.dataset.yazi = e.target.value;
+                  }}
+                >
+                  <option value="normal">Normal</option>
+                  <option value="buyuk">Büyük</option>
+                  <option value="cok-buyuk">Çok büyük</option>
+                </select>
+              </Alan>
+            )}
 
             <Alan
               etiket="Ekran tuş takımı"

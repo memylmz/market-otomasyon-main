@@ -5,17 +5,34 @@
  * aynı bileşenler hem tam ekran müşteri penceresinde hem Ayarlar'daki küçük
  * önizleme kutusunda doğru oranda görünür. `vmin` kullanılsaydı önizlemede
  * yazılar kutudan taşardı.
+ *
+ * GÖRSEL DİL: sakin ve premium. Mürekkep siyahı zemin, fildişi yazı, tek bir
+ * şampanya vurgu; ince çizgiler, hafif yazı ağırlıkları, harf aralıklı küçük
+ * etiketler. Parlak, doygun renk blokları kullanılmaz: ekran gün boyu
+ * müşterinin göz hizasında durur ve dikkat çekmek için bağırması gerekmez.
  */
 
 .musteri-kok {
+  --m-zemin: #0c0d10;
+  --m-zemin-2: #14161b;
+  --m-cizgi: rgb(255 255 255 / 0.08);
+  --m-cizgi-2: rgb(255 255 255 / 0.14);
+  --m-metin: #f3efe7;
+  --m-metin-2: rgb(243 239 231 / 0.7);
+  --m-metin-3: rgb(243 239 231 / 0.45);
+  --m-altin: #d6b97c;
+  --m-altin-yumusak: rgb(214 185 124 / 0.14);
+
   container-type: size;
   position: relative;
   overflow: hidden;
   width: 100%;
   height: 100%;
-  font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
-  color: #fff;
+  background: var(--m-zemin);
+  font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  color: var(--m-metin);
   user-select: none;
+  font-feature-settings: 'tnum' 1;
 }
 
 /* Fare ikinci ekrana kayarsa müşterinin gözüne batmasın. */
@@ -24,14 +41,59 @@
   cursor: none !important;
 }
 
+.m-zemin {
+  background:
+    radial-gradient(90% 70% at 18% 0%, rgb(214 185 124 / 0.07), transparent 60%),
+    linear-gradient(180deg, #111318 0%, var(--m-zemin) 70%);
+}
+.m-metin-2 {
+  color: var(--m-metin-2);
+}
+.m-metin-3 {
+  color: var(--m-metin-3);
+}
+.m-altin {
+  color: var(--m-altin);
+}
+.m-cizgi {
+  border-color: var(--m-cizgi);
+}
+
+/* Küçük, harf aralıklı etiket: "SON ÜRÜN", "TOPLAM", "PARA ÜSTÜ". */
+.m-etiket {
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--m-metin-3);
+}
+
+/* İnce çerçeveli hap: kampanya rozeti, indirim. */
+.m-hap {
+  display: inline-block;
+  border: 0.18cqmin solid currentColor;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Başlığın üstündeki kısa vurgu çizgisi. */
+.m-kalem {
+  width: 8cqmin;
+  height: 0.3cqmin;
+  border-radius: 1cqmin;
+  background: currentColor;
+  opacity: 0.8;
+}
+
 .musteri-giris {
-  animation: musteri-giris 700ms ease-out both;
+  animation: musteri-giris 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 @keyframes musteri-giris {
   from {
     opacity: 0;
-    transform: scale(1.015);
+    transform: translateY(0.8cqmin);
   }
   to {
     opacity: 1;
@@ -40,15 +102,22 @@
 }
 
 .musteri-vurgu {
-  animation: musteri-vurgu 900ms ease-out both;
+  animation: musteri-vurgu 1200ms ease-out both;
 }
 
 @keyframes musteri-vurgu {
   from {
-    background-color: rgb(250 204 21 / 0.35);
+    background-color: rgb(214 185 124 / 0.16);
   }
   to {
-    background-color: transparent;
+    background-color: rgb(255 255 255 / 0.035);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .musteri-giris,
+  .musteri-vurgu {
+    animation: none;
   }
 }
 
@@ -57,6 +126,10 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+  /* Satır yüksekliği kuyruklu harflere (ğ, ç, ş, y, p) yer bırakır; iki satır
+     sınırında kırpılan yalnız taşan üçüncü satır olsun, harfin alt ucu değil. */
+  line-height: 1.24 !important;
+  padding-bottom: 0.06em;
 }
 
 .musteri-liste::-webkit-scrollbar {
